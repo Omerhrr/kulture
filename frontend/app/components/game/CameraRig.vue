@@ -5,9 +5,13 @@
 // (see PointerControls). Keyboard/joystick/click movement stays available.
 
 import * as THREE from 'three'
+import { ridePose } from '~/utils/rideState'
+import { INTERIOR_DROP } from '~/utils/kadunaExtras'
 
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
 const orbit = useCamOrbit()
+const ride = useRide()
+const interior = useInterior()
 
 const camera = ref()
 const followTarget = new THREE.Vector3()
@@ -75,16 +79,30 @@ onBeforeRender(({ delta }) => {
   smooth.pitch += (orbit.value.pitch - smooth.pitch) * k
   smooth.dist += (orbit.value.dist - smooth.dist) * k
 
-  const px = playerPos.value[0]
-  const pz = playerPos.value[2]
+  // cockpit view: camera rides inside the vehicle, looking forward
+  if (ride.value.active && ride.value.inner && ridePose.active) {
+    const h = ridePose.heading
+    const fx = Math.sin(h)
+    const fz = Math.cos(h)
+    const px = ridePose.x + fx * ridePose.cockpitFwd
+    const pz = ridePose.z + fz * ridePose.cockpitFwd
+    cam.position.set(px, ridePose.y + ridePose.cabin, pz)
+    cam.lookAt(px + fx * 30, ridePose.y + ridePose.cabin - 1.5, pz + fz * 30)
+    return
+  }
+
+  const px = ride.value.active ? ridePose.x : playerPos.value[0]
+  const pz = ride.value.active ? ridePose.z : playerPos.value[2]
+  // chase view tracks the vehicle body (boats bob, planes climb)
+  const vy = ride.value.active ? ridePose.y : interior.value.inside ? -INTERIOR_DROP : 0
   const horiz = Math.cos(smooth.pitch) * smooth.dist
   desired.set(
     px + Math.sin(smooth.yaw) * horiz,
-    1.4 + Math.sin(smooth.pitch) * smooth.dist,
+    vy + 1.4 + Math.sin(smooth.pitch) * smooth.dist,
     pz + Math.cos(smooth.yaw) * horiz
   )
   cam.position.lerp(desired, k)
-  followTarget.set(px, 1.6, pz)
+  followTarget.set(px, vy + 1.6, pz)
   cam.lookAt(followTarget)
 })
 </script>

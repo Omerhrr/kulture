@@ -9,6 +9,7 @@
 
 import * as THREE from 'three'
 import { collides, clampBounds } from '~/utils/collision'
+import { INTERIOR_DROP } from '~/utils/kadunaExtras'
 
 const world = useWorldStore()
 const { isDown } = useKeyboard()
@@ -23,10 +24,13 @@ const proximity = useState<{ entityId: string; name: string; code: string } | nu
 const moveTarget = useMoveTarget()
 const orbit = useCamOrbit()
 const touchMove = useTouchMove()
+const ride = useRide()
+const interior = useInterior()
 
 const group = ref()
 const targetRing = ref()
 const walking = ref(false)
+const sprinting = ref(false)
 const bobT = ref(0)
 
 const socketSend = useState<(type: string, payload: Record<string, unknown>) => boolean>(
@@ -47,9 +51,12 @@ if (import.meta.dev) {
   ;(window as any).__kk_collides = (x: number, z: number) => collides(x, z)
 }
 
-const SPEED = 12
-const ARRIVE_RADIUS = 0.45
-const TARGET_TIMEOUT = 4000 // ms: give up on targets we cannot reach
+const WALK_SPEED = 16
+const SPRINT_SPEED = 30
+const ARRIVE_RADIUS = 0.6
+// give up on unreachable targets; the window scales with distance so
+// cross-city walks from the map view are not abandoned mid-way
+const targetTimeout = (dist: number, speed: number) => (dist / speed) * 1000 + 5000
 
 let targetStartedAt = 0
 let targetStartDist = Infinity
@@ -63,6 +70,16 @@ onBeforeRender(({ delta }) => {
   if (!g) return
 
   const dt = Math.min(delta || 0.016, 0.1) // clamp long stalls (tab switch)
+
+  // riding: the vehicle drives (RideSystem owns the position); this avatar
+  // disappears - the vehicle renders a seated driver in outer view
+  if (ride.value.active) {
+    g.visible = false
+    if (targetRing.value) targetRing.value.visible = false
+    return
+  }
+  g.visible = true
+  const floorY = interior.value.inside ? -INTERIOR_DROP : 0
 
   // camera basis: forward = away from camera, right = screen right
   const yaw = orbit.value.yaw
@@ -93,6 +110,12 @@ onBeforeRender(({ delta }) => {
   const keyMoving = ix !== 0 || iy !== 0
   if (keyMoving) moveTarget.value = null // direct input always wins over click-to-move
 
+  // sprint: Shift on desktop, full joystick push on touch
+  const mag = Math.hypot(ix, iy)
+  const shift = isDown('ShiftLeft', 'ShiftRight')
+  sprinting.value = shift || (touchMove.value.active && mag > 0.92)
+  const speed = sprinting.value ? SPRINT_SPEED : WALK_SPEED
+
   // map screen intent onto the world via the camera basis
   const dx = fx * iy + rx * ix
   const dz = fz * iy + rz * ix
@@ -115,7 +138,7 @@ onBeforeRender(({ delta }) => {
       if (targetStartedAt === 0 || dist + 0.5 < targetStartDist) {
         targetStartedAt = performance.now()
         targetStartDist = dist
-      } else if (performance.now() - targetStartedAt > TARGET_TIMEOUT) {
+      } else if (performance.now() - targetStartedAt > targetTimeout(dist, speed)) {
         moveTarget.value = null
         targetStartedAt = 0
         targetStartDist = Infinity
@@ -143,8 +166,8 @@ onBeforeRender(({ delta }) => {
   const stuck = collides(playerPos.value[0], playerPos.value[2])
   if (moving) {
     const len = Math.hypot(vx, vz) || 1
-    let nx = playerPos.value[0] + (vx / len) * SPEED * dt
-    let nz = playerPos.value[2] + (vz / len) * SPEED * dt
+    let nx = playerPos.value[0] + (vx / len) * speed * dt
+    let nz = playerPos.value[2] + (vz / len) * speed * dt
     ;[nx, nz] = clampBounds(nx, nz)
 
     if (stuck) {
@@ -173,9 +196,9 @@ onBeforeRender(({ delta }) => {
     }
   }
 
-  // walk bob
-  bobT.value = moving ? bobT.value + dt * 11 : 0
-  g.position.set(playerPos.value[0], Math.abs(Math.sin(bobT.value)) * 0.08, playerPos.value[2])
+  // the CharacterAvatar runs the gait cycle; keep the group on the floor
+  bobT.value = moving ? bobT.value + dt : 0
+  g.position.set(playerPos.value[0], floorY, playerPos.value[2])
   g.rotation.y = playerFacing.value
 
   // proximity check (~8/s)
@@ -200,7 +223,14 @@ onBeforeRender(({ delta }) => {
 
 <template>
   <TresGroup ref="group" :position="[playerPos[0], 0, playerPos[2]]">
-    <CharacterAvatar shirt="#2e7d5b" trouser="#2b3440" :kufi="true" />
+    <CharacterAvatar
+      v-if="!ride.active"
+      shirt="#2e7d5b"
+      trouser="#2b3440"
+      :kufi="true"
+      :mode="walking ? 'walk' : 'idle'"
+      :gait-speed="sprinting ? 12.5 : 9.5"
+    />
     <!-- soft shadow blob -->
     <TresMesh :position="[0, 0.02, 0]" :rotation="[-Math.PI / 2, 0, 0]">
       <TresCircleGeometry :args="[0.55, 20]" />

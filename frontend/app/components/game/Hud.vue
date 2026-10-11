@@ -5,6 +5,7 @@
 const player = usePlayerStore()
 const wsStatus = useState<'connecting' | 'open' | 'closed'>('kk_ws_status', () => 'closed')
 const world = useWorldStore()
+const mapOpen = useMapOpen()
 
 const emit = defineEmits<{
   (e: 'open', panel: 'inventory' | 'jobs' | 'ledger'): void
@@ -38,6 +39,9 @@ const emit = defineEmits<{
 
     <!-- right: panels + help -->
     <div class="pointer-events-auto flex items-center gap-2">
+      <button class="kk-btn-ghost !px-3.5" title="City map (M)" @click="mapOpen = true">
+        🗺 <span class="hidden sm:inline">Map</span>
+      </button>
       <button class="kk-btn-ghost !px-3.5" @click="emit('open', 'inventory')" title="Inventory (I)">
         🎒 <span class="hidden sm:inline">Inventory</span>
       </button>

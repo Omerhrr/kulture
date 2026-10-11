@@ -31,6 +31,10 @@ onUnmounted(() => {
 
     <KadunaCity />
     <WorldScene />
+    <CrowdSystem />
+    <TrafficSystem />
+    <RideSystem />
+    <Interiors />
     <PlayerAvatar />
     <NpcAvatar
       v-if="musa"

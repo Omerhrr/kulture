@@ -44,3 +44,59 @@ export function useIsTouch() {
   }
   return touch
 }
+
+// ------------------------------------------------------------------ riding
+export type RideKind = 'keke' | 'car' | 'okada' | 'bus' | 'bicycle' | 'boat' | 'plane'
+
+export interface RideState {
+  active: boolean
+  kind: RideKind | null
+  name: string
+  /** true = cockpit view, false = outer chase view */
+  inner: boolean
+  /** board prompt for the nearest parked vehicle (null when none close) */
+  prompt: string | null
+  /** mph-style speed readout for the HUD */
+  speed: number
+}
+
+export function useRide() {
+  return useState<RideState>('kk_ride', () => ({
+    active: false,
+    kind: null,
+    name: '',
+    inner: false,
+    prompt: null,
+    speed: 0
+  }))
+}
+
+// ------------------------------------------------------------------ interiors
+export interface InteriorState {
+  /** true once the player walked through a door */
+  inside: boolean
+  name: string
+}
+
+export function useInterior() {
+  return useState<InteriorState>('kk_interior', () => ({ inside: false, name: '' }))
+}
+
+/** Nearest door prompt (enter a house / exit to the street), set by Interiors. */
+export function useDoorPrompt() {
+  return useState<{ label: string; action: 'enter' | 'exit'; slot: number } | null>(
+    'kk_door_prompt',
+    () => null
+  )
+}
+
+// ------------------------------------------------------------------ map
+export function useMapOpen() {
+  return useState<boolean>('kk_map_open', () => false)
+}
+
+/** Board/exit action requests are dispatched as DOM events so key and touch
+ *  paths stay symmetric with the interact flow. */
+export function fireKkEvent(name: string) {
+  if (import.meta.client) window.dispatchEvent(new CustomEvent(name))
+}

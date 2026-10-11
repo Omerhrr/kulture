@@ -2,6 +2,7 @@
 // Game page - auth gate, world bootstrap, socket wiring, panel orchestration.
 
 import { unstick } from '~/utils/collision'
+import { useMapOpen, fireKkEvent } from '~/composables/useControlsState'
 
 useHead({
   title: 'Kaduna Kulture - Enter the World',
@@ -13,6 +14,7 @@ const world = useWorldStore()
 const ui = useUiStore()
 const payments = usePaymentsStore()
 const isTouch = useIsTouch()
+const mapOpen = useMapOpen()
 
 const authMode = ref<'login' | 'register'>('login')
 const username = ref('')
@@ -23,8 +25,18 @@ const authBusy = ref(false)
 
 const ready = ref(false)
 
-// interaction (E key on desktop, TALK button on touch)
+// unified action key: exit vehicle > board vehicle > door > entity interact
 function tryInteract() {
+  const ride = useRide().value
+  const doorPrompt = useDoorPrompt().value
+  if (ride.active || ride.prompt) {
+    fireKkEvent('kk-ride-toggle')
+    return
+  }
+  if (doorPrompt) {
+    fireKkEvent('kk-door-use')
+    return
+  }
   const prox = useState<{ entityId: string } | null>('kk_proximity').value
   if (prox && !ui.anyBlocking) ui.interactWith(prox as any)
 }
@@ -33,10 +45,15 @@ function tryInteract() {
 function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement) return
   if (e.key === 'e' || e.key === 'E') tryInteract()
-  if (e.key === 'Escape') ui.closeAll()
+  if (e.key === 'Escape') {
+    if (mapOpen.value) mapOpen.value = false
+    else ui.closeAll()
+  }
   if (e.key === 'i' || e.key === 'I') ui.open('inventory')
   if (e.key === 'j' || e.key === 'J') ui.open('jobs')
   if (e.key === 't' || e.key === 'T') ui.open('ledger')
+  if (e.key === 'm' || e.key === 'M') mapOpen.value = !mapOpen.value
+  if (e.key === 'v' || e.key === 'V') fireKkEvent('kk-ride-view')
 }
 
 async function bootstrap() {
@@ -234,6 +251,8 @@ function fmtNgn(minor: number) {
     <!-- in-game UI -->
     <template v-if="ready && player.authenticated">
       <Hud @open="(p) => ui.open(p)" />
+      <Minimap />
+      <MapOverlay />
       <MobileControls />
       <InteractionPrompt />
       <ShopPanel v-if="ui.openPanel === 'shop'" />
@@ -303,15 +322,15 @@ function fmtNgn(minor: number) {
         v-if="!isTouch"
         class="pointer-events-none absolute bottom-4 left-4 z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
-        <div>WASD or arrow keys to move · click the ground to walk there</div>
-        <div>right-drag to look around · wheel to zoom · E to interact · Esc to close</div>
+        <div>WASD or arrows to walk · Shift to sprint · click the ground to go there</div>
+        <div>E board a keke, car, okada, bus, boat or plane · V inner view · M city map</div>
       </div>
       <div
         v-else
         class="pointer-events-none absolute bottom-44 left-1/2 z-20 -translate-x-1/2 rounded-2xl bg-ink/45 px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
-        <div>left stick to move · drag to look around · pinch to zoom</div>
-        <div>tap the ground to walk there · TALK when near a spot</div>
+        <div>left stick to move (push fully to sprint) · drag to look · pinch to zoom</div>
+        <div>tap the ground to walk there · TALK to board vehicles and enter homes</div>
       </div>
     </template>
   </div>

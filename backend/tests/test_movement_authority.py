@@ -19,7 +19,7 @@ import pytest
 from starlette.testclient import TestClient
 
 # mirrors settings.movement_max_speed_units_per_s (keep in sync)
-MAX_SPEED = 14.0
+MAX_SPEED = 48.0
 
 
 async def test_rest_interaction_cannot_fabricate_proximity(client, auth_headers, world_ctx):
@@ -121,7 +121,11 @@ def test_ws_teleport_is_clamped_with_correction_event():
 
         pos = _resync_position(ws)
         drift_resync = math.dist((pos[0], pos[2]), (spawn[0], spawn[2]))
-        assert drift_resync < 30.0, f"server accepted a teleport: {drift_resync} units"
+        # two moves were sent 0.2s apart: one full envelope step plus one
+        # 0.2s step - still nowhere near the claimed (100, 100) teleport
+        assert drift_resync <= MAX_SPEED * 1.05 + MAX_SPEED * 0.25, (
+            f"server accepted a teleport: {drift_resync} units"
+        )
 
 
 def test_ws_legitimate_move_within_envelope_is_accepted():
@@ -174,9 +178,9 @@ def test_ws_reconnect_seeds_envelope_from_server_state():
             f"disconnect flush failed: {far}"
         )
 
-        # one giant jump back to spawn → clamped to ≤ MAX_SPEED from `far`
+        # one giant jump back past spawn → clamped to ≤ MAX_SPEED from `far`
         ws2.send_json(
-            {"type": "player.move", "payload": {"position": spawn, "facing": 0.0}}
+            {"type": "player.move", "payload": {"position": [spawn[0] - 60.0, 0.0, spawn[2]], "facing": 0.0}}
         )
         m = ws2.receive_json()
         assert m["type"] == "player.position_corrected", m

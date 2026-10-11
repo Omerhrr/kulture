@@ -56,7 +56,23 @@ export const PLAYER_RADIUS = 0.6
 // Downtown fallback spawn (Ahmadu Bello Way roadside).
 export const SPAWN: [number, number] = [-98, 40]
 
+// While the player is inside a house interior the room's own walls replace
+// the city colliders (the room sits directly below the house footprint, so
+// x/z never leaves the world rectangle and the server envelope is happy).
+let interiorWalls: Box[] | null = null
+export function setInteriorWalls(boxes: Box[] | null) {
+  interiorWalls = boxes
+}
+
 export function collides(x: number, z: number): boolean {
+  if (interiorWalls) {
+    for (const b of interiorWalls) {
+      if (Math.abs(x - b.x) < b.w / 2 + PLAYER_RADIUS && Math.abs(z - b.z) < b.d / 2 + PLAYER_RADIUS) {
+        return true
+      }
+    }
+    return false
+  }
   for (const b of BUILDINGS) {
     if (Math.abs(x - b.x) < b.w / 2 + PLAYER_RADIUS && Math.abs(z - b.z) < b.d / 2 + PLAYER_RADIUS) {
       return true

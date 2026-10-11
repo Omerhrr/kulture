@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     # than max_speed * dt (dt capped). Teleport attempts are clamped, and
     # REST interactions always use the server-stored position.
     # ------------------------------------------------------------------
-    movement_max_speed_units_per_s: float = 14.0   # client walks at 9.5 u/s
+    movement_max_speed_units_per_s: float = 48.0   # walk 16, sprint 30, road vehicles up to ~38
     movement_dt_cap_seconds: float = 1.0
     movement_persist_interval_seconds: float = 0.5  # DB write throttle per mover
     interactions_use_server_position: bool = True
