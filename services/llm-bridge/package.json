@@ -1,0 +1,14 @@
+{
+  "name": "kk-llm-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAI-compatible /v1/chat/completions bridge for Kaduna Kulture DSH agents. Sandbox provider: z-ai-web-dev-sdk. Production: point KK_LLM_BASE_URL at https://api.deepseek.com and skip this bridge.",
+  "scripts": {
+    "dev": "bun --hot bridge.ts",
+    "start": "bun bridge.ts"
+  },
+  "dependencies": {
+    "z-ai-web-dev-sdk": "^0.0.18"
+  }
+}

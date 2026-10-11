@@ -1,0 +1,41 @@
+# ---- dependencies ---------------------------------------------------------
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# ---- build artifacts ------------------------------------------------------
+.nuxt/
+.output/
+dist/
+build/
+*.tsbuildinfo
+
+# ---- databases (runtime artifacts; schema lives in alembic/) --------------
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- environment & secrets ------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---- test / coverage caches ----------------------------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ---- logs & OS junk -------------------------------------------------------
+logs/
+*.log
+.DS_Store
+Thumbs.db
+
+# ---- editor ---------------------------------------------------------------
+.idea/
+.vscode/
+*.swp

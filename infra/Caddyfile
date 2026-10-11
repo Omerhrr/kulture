@@ -1,0 +1,18 @@
+# Caddy reverse proxy — routes the single public origin to the product.
+# /api + /ws -> FastAPI; everything else -> Nuxt.
+
+:80 {
+	@api path /api/* /healthz
+	handle @api {
+		reverse_proxy backend:8000
+	}
+
+	@ws path /ws/*
+	handle @ws {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
