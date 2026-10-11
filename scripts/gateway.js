@@ -124,10 +124,12 @@ h1{font-size:2.2rem;margin:0 0 8px;color:#E8B84B}
 
 const server = http.createServer((req, res) => {
   const path = req.url || ''
+  // changeOrigin: rewrite the Host header to the upstream — sandbox preview
+  // domains (*.fcapp.run etc.) must never leak through to the dev servers.
   if (path.startsWith('/api/') || path.startsWith('/healthz')) {
-    proxy.web(req, res, { target: API })
+    proxy.web(req, res, { target: API, changeOrigin: true })
   } else {
-    proxy.web(req, res, { target: NUXT })
+    proxy.web(req, res, { target: NUXT, changeOrigin: true })
   }
 })
 
@@ -135,7 +137,7 @@ const server = http.createServer((req, res) => {
 server.on('upgrade', (req, socket, head) => {
   const path = req.url || ''
   const target = path.startsWith('/ws') ? API : NUXT
-  proxy.ws(req, socket, head, { target }, (err) => {
+  proxy.ws(req, socket, head, { target, changeOrigin: true }, (err) => {
     if (err) {
       socket.destroy()
     }

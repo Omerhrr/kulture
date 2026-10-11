@@ -30,6 +30,15 @@ export default defineNuxtConfig({
     }
   },
 
+  // Dev-server host allowlist: the sandbox preview routes the app through
+  // platform-specific domains (e.g. *.fcapp.run), so the Vite host check must
+  // not block them. Dev-only — production serves a nitro build (no check).
+  vite: {
+    server: {
+      allowedHosts: true
+    }
+  },
+
   // Direct-dev convenience: when Nuxt runs alone (no gateway), proxy API + WS
   // to the FastAPI backend. In production the gateway/Caddy owns this route.
   nitro: {
