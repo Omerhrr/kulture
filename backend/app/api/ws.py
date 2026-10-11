@@ -13,6 +13,8 @@ Server → client (authoritative events only):
 Rules enforced here:
 - never accept a client message as proof of settlement
 - server-side distance validation for interactions (uses last reported move)
+- movement authority: speed envelope + world bounds — the server reconciles
+  every move against its own position; teleports are clamped, never trusted
 - reconnect support: state.resync returns full authoritative snapshot
 """
 
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -67,20 +70,29 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
     await manager.connect(player_id, ws)
     mover = RateLimiter(settings.movement_rate_limit_hz)
     interactor = RateLimiter(2.0)  # interactions ≤ 2/s
-    last_pos: list[float] = [0.0, 0.0, 0.0]
+
+    # Seed the session position from the AUTHORITATIVE server state — never
+    # from the client's first message (P1: server-authoritative movement).
+    async with AsyncSessionLocal() as db:
+        stored = await player_service.player_state(db, player_id)
+    last_pos: list[float] = [stored.position_x, stored.position_y, stored.position_z]
+    last_facing = 0.0
+    last_move_ts = 0.0
     last_persist = 0.0
     position_dirty = False
 
     # authoritative snapshot on connect
+    # NOTE: get_player_out is keyed by USER id; profile.id is the PLAYER id.
     async with AsyncSessionLocal() as db:
-        out = await player_service.get_player_out(db, player_id)
+        out = await player_service.get_player_out(db, profile.user_id)
+        inv_out = await inventory_service.get_inventory_out(db, player_id)
         await ws.send_json(
             {
                 "type": "player.state",
                 "payload": {
                     "reason": "connected",
-                    "player": out.model_dump() if out else None,
-                    "inventory": (await inventory_service.get_inventory_out(db, player_id)).model_dump(),
+                    "player": out.model_dump(mode="json") if out else None,
+                    "inventory": inv_out.model_dump(mode="json"),
                 },
             }
         )
@@ -114,10 +126,42 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 x = max(-120.0, min(120.0, x))
                 z = max(-120.0, min(120.0, z))
                 y = max(0.0, min(20.0, y))
-                last_pos = [x, y, z]
-                position_dirty = True
+
+                # Speed envelope (P1): a move may advance the player at most
+                # max_speed * dt since the last ACCEPTED move. Teleport attempts
+                # are clamped along the direction of travel and the client is
+                # told the reconciled position. Dropped (over-rate) messages do
+                # not accumulate allowance.
                 now = time.monotonic()
-                if now - last_persist > 2.0:  # throttle DB writes
+                dt = (
+                    min(now - last_move_ts, settings.movement_dt_cap_seconds)
+                    if last_move_ts
+                    else settings.movement_dt_cap_seconds
+                )
+                last_move_ts = now
+                dx, dy, dz = x - last_pos[0], y - last_pos[1], z - last_pos[2]
+                dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+                max_dist = settings.movement_max_speed_units_per_s * dt
+                if dist > max_dist > 0:
+                    scale = max_dist / dist
+                    x = last_pos[0] + dx * scale
+                    y = max(0.0, min(20.0, last_pos[1] + dy * scale))
+                    z = last_pos[2] + dz * scale
+                    await ws.send_json(
+                        {
+                            "type": "player.position_corrected",
+                            "payload": {"position": [round(x, 3), round(y, 3), round(z, 3)]},
+                        }
+                    )
+
+                last_pos = [x, y, z]
+                last_facing = facing
+                position_dirty = True
+                if now - last_persist > settings.movement_persist_interval_seconds:
+                    # Tight throttle: the stored position is the REST-interaction
+                    # authority and the reconnect seed, so staleness must stay
+                    # small (≤0.5s ⇒ ≤7 units at max speed). Best-effort flushes
+                    # on resync/disconnect cover the rest.
                     async with AsyncSessionLocal() as db:
                         await player_service.apply_movement(db, player_id, x, y, z, facing)
                     last_persist = now
@@ -154,7 +198,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                         )
                     ).scalar_one_or_none()
                     if npc and npc.status == "active":
-                        player_out = await player_service.get_player_out(db, player_id)
+                        player_out = await player_service.get_player_out(db, profile.user_id)
                         from app.services.shop_service import get_business_out
                         biz_snapshot = None
                         if npc.business_id:
@@ -182,16 +226,26 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 continue
 
             if mtype == "state.resync":
+                # Flush the live session position first — the DB lags behind
+                # the session by the persist throttle, and the snapshot (like
+                # REST interactions) must reflect the server's CURRENT belief.
+                if position_dirty:
+                    async with AsyncSessionLocal() as db:
+                        await player_service.apply_movement(
+                            db, player_id, *last_pos, facing=last_facing
+                        )
+                    position_dirty = False
+                    last_persist = time.monotonic()
                 async with AsyncSessionLocal() as db:
-                    out = await player_service.get_player_out(db, player_id)
+                    out = await player_service.get_player_out(db, profile.user_id)
                     inv = await inventory_service.get_inventory_out(db, player_id)
                 await ws.send_json(
                     {
                         "type": "player.state",
                         "payload": {
                             "reason": "resync",
-                            "player": out.model_dump() if out else None,
-                            "inventory": inv.model_dump(),
+                            "player": out.model_dump(mode="json") if out else None,
+                            "inventory": inv.model_dump(mode="json"),
                         },
                     }
                 )
@@ -209,7 +263,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
             try:
                 async with AsyncSessionLocal() as db:
                     await player_service.apply_movement(
-                        db, player_id, *last_pos, facing=0.0
+                        db, player_id, *last_pos, facing=last_facing
                     )
             except Exception:  # noqa: BLE001
                 pass

@@ -52,6 +52,11 @@ async def test_region_payload(client, auth_headers, world_ctx):
 
 
 async def test_interaction_distance_validated_server_side(client, auth_headers, world_ctx):
+    """Server-authoritative (P1): REST interactions use the SERVER-stored
+    position — the client-supplied position is never trusted."""
+    from app.db.session import AsyncSessionLocal
+    from app.services import player_service
+
     entities = world_ctx["entities"]
     musa = entities["musa_shop"]
     spawn = entities["spawn_roadside"]
@@ -62,13 +67,25 @@ async def test_interaction_distance_validated_server_side(client, auth_headers, 
         json={"entity_id": musa["id"], "position": [spawn["position"][0], 0, spawn["position"][2]]},
     )
     assert far.status_code == 422
-    # standing at the shop — allowed, offers shop options
-    near = await client.post(
+    # fabricated proximity — claiming to stand at the shop without moving there
+    fake = await client.post(
         "/api/v1/interactions",
         headers=auth_headers,
         json={"entity_id": musa["id"], "position": musa["position"]},
     )
-    assert near.status_code == 200
+    assert fake.status_code == 422, "client position must not be trusted"
+    # after a REAL server-side move to the shop — allowed, offers shop options
+    me = (await client.get("/api/v1/players/me", headers=auth_headers)).json()
+    async with AsyncSessionLocal() as db:
+        await player_service.apply_movement(
+            db, me["id"], musa["position"][0], 0.0, musa["position"][2], 0.0
+        )
+    near = await client.post(
+        "/api/v1/interactions",
+        headers=auth_headers,
+        json={"entity_id": musa["id"], "position": [spawn["position"][0], 0, spawn["position"][2]]},
+    )
+    assert near.status_code == 200, "server position should win over the lying body"
     kinds = [o["kind"] for o in near.json()["options"]]
     assert "shop" in kinds
 

@@ -35,6 +35,9 @@ logs/
 .DS_Store
 Thumbs.db
 
+# ---- backups (ship off-box, never commit) ---------------------------------
+backups/
+
 # ---- editor ---------------------------------------------------------------
 .idea/
 .vscode/

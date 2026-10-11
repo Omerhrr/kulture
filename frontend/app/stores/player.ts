@@ -46,6 +46,13 @@ export const usePlayerStore = defineStore('player', {
           if (e.payload?.inventory) this.applyInventory(e.payload.inventory.items)
           break
         }
+        case 'player.position_corrected': {
+          // Movement authority: server reconciled a teleport/over-speed move.
+          // Keep the store's view of position authoritative-consistent.
+          const pos = e.payload?.position
+          if (pos && this.profile) this.profile.position = pos
+          break
+        }
         case 'inventory.updated': {
           // authoritative refresh follows via player.state usually; fetch to be sure
           useGameApi()

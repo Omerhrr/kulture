@@ -73,3 +73,35 @@ A background loop (`payment_maintenance_worker`) periodically:
    `process_settlement` pipeline (covers missed webhooks and app restarts).
 
 Network timeouts are treated as unknown outcomes until reconciled.
+
+## Node webhook (P1)
+
+When running against a real node, settlement notifications arrive at
+`POST /api/v1/payments/webhook`. Transport authentication is mandatory and
+the endpoint is disabled until configured:
+
+```bash
+KK_WEBHOOK_BEARER=<random-32B>       # Authorization: Bearer <token>
+KK_WEBHOOK_SECRET=<random-32B>       # HMAC-SHA256 over "{ts}.{raw_body}"
+KK_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS=300
+```
+
+Node-side wiring: on `channel.payment_received`, POST
+
+```json
+{
+  "provider": "ldk_node",
+  "provider_event_id": "<unique event id>",
+  "payment_hash": "<hash>",
+  "amount_paid_sats": 1234,
+  "settled_at": 1760000000
+}
+```
+
+with headers `Authorization: Bearer …`, `X-KK-Timestamp: <unix seconds>` and
+`X-KK-Signature: hex(HMAC-SHA256(secret, "{ts}.{body}"))`.
+
+Transport auth is only the front door — the event still passes independent
+adapter verification (`validate_settlement_event`) and the exactly-once
+fulfillment pipeline, so replays can never double-fulfill. Missed webhooks
+are covered by the reconciliation loop below.

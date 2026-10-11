@@ -30,7 +30,11 @@ from app.payments.lightning_service import expire_stale_invoices, reconcile_pend
 log = logging.getLogger("kk.workers")
 
 POLL_INTERVAL = 0.75
-_INTERNAL_TYPES = {"agent.trigger", "world.restore_business"}
+# Event types owned by DEDICATED workers — the outbox poller must leave these
+# pending (NOT mark processed). agent.trigger is NOT here: it is dispatched by
+# _dispatch() (spawns the DSH runtime); it used to be wrongly listed here,
+# which silently killed all NPC dialogue after the ownership fix.
+_INTERNAL_TYPES = {"world.restore_business"}
 
 
 async def _dispatch(event: OutboxEvent) -> None:

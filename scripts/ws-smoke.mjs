@@ -52,8 +52,26 @@ async function main() {
   await expect('player.state')
   console.log('✓ connected snapshot received')
 
-  ws.send(JSON.stringify({ type: 'player.move', payload: { position: [-16.5, 0, -8.5], facing: 0 } }))
-  await new Promise((r) => setTimeout(r, 600))
+  // Walk to Musa LEGALLY — the server enforces a 14 u/s speed envelope, so
+  // hop ≤13.5 units per move with ≥1.05s gaps (dt cap → full allowance).
+  const from = { x: 0, z: 42 } // spawn_roadside
+  const to = { x: -16.5, z: -8.5 }
+  const dist = Math.hypot(to.x - from.x, to.z - from.z)
+  const hops = Math.ceil(dist / 13.5)
+  const ux = (to.x - from.x) / dist
+  const uz = (to.z - from.z) / dist
+  console.log(`  walking ${dist.toFixed(1)} units in ${hops} hops (server speed envelope)…`)
+  for (let k = 1; k <= hops; k++) {
+    const d = Math.min(13.5 * k, dist)
+    ws.send(
+      JSON.stringify({
+        type: 'player.move',
+        payload: { position: [from.x + ux * d, 0, from.z + uz * d], facing: 0 }
+      })
+    )
+    await new Promise((r) => setTimeout(r, 1100))
+  }
+  console.log('✓ walked to Musa within the speed envelope')
 
   ws.send(
     JSON.stringify({ type: 'entity.interact', payload: { entity_id: musa.id, message: 'Sannu boss! I wan buy suya spice with Lightning.' } })

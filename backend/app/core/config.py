@@ -81,6 +81,34 @@ class Settings(BaseSettings):
     job_reward_currency: str = "ngn_minor"
 
     # ------------------------------------------------------------------
+    # Movement authority (P1 hardening) — the server reconciles client moves
+    # through a speed envelope: a move may never advance the player more
+    # than max_speed * dt (dt capped). Teleport attempts are clamped, and
+    # REST interactions always use the server-stored position.
+    # ------------------------------------------------------------------
+    movement_max_speed_units_per_s: float = 14.0   # client walks at 9.5 u/s
+    movement_dt_cap_seconds: float = 1.0
+    movement_persist_interval_seconds: float = 0.5  # DB write throttle per mover
+    interactions_use_server_position: bool = True
+
+    # ------------------------------------------------------------------
+    # Real-node webhook authentication (P1 hardening).
+    # POST /api/v1/payments/webhook stays disabled (503) until BOTH secrets
+    # are configured. Auth = bearer token + HMAC-SHA256 over
+    # "{timestamp}.{raw_body}" + timestamp tolerance window (anti-replay).
+    # ------------------------------------------------------------------
+    webhook_bearer_token: str = ""
+    webhook_signature_secret: str = ""
+    webhook_timestamp_tolerance_seconds: int = 300
+
+    # ------------------------------------------------------------------
+    # Test-only: disable connection pooling (NullPool) so sessions opened on
+    # different event loops (pytest-asyncio session loop vs TestClient
+    # portals) never share pooled aiosqlite connections.
+    # ------------------------------------------------------------------
+    db_null_pool: bool = False
+
+    # ------------------------------------------------------------------
     # World simulation scheduler
     # ------------------------------------------------------------------
     world_event_interval_seconds: int = 240

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import error, get_current_profile
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.player import PlayerProfile
 from app.schemas.game import InteractionIn, InteractionOut, RegionOut
@@ -35,10 +36,17 @@ async def interact(
     profile: PlayerProfile = Depends(get_current_profile),
     db: AsyncSession = Depends(get_db),
 ) -> InteractionOut:
+    # P1 hardening: the distance check uses the SERVER-STORED position, not
+    # the client-supplied one — a POST can no longer fabricate proximity.
+    # (body.position is accepted for protocol compatibility only; flip
+    # settings.interactions_use_server_position off to restore legacy behavior.)
+    if settings.interactions_use_server_position:
+        state = await player_service.player_state(db, profile.id)
+        px, py, pz = state.position_x, state.position_y, state.position_z
+    else:
+        px, py, pz = body.position
     try:
-        return await world_service.validate_interaction(
-            db, profile.id, body.entity_id, *body.position
-        )
+        return await world_service.validate_interaction(db, profile.id, body.entity_id, px, py, pz)
     except LookupError:
         raise error("entity_not_found", "That entity does not exist.", 404)
     except PermissionError as exc:

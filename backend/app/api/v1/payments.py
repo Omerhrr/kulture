@@ -11,9 +11,14 @@ Security notes:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import time
 import uuid
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -134,6 +139,92 @@ async def cancel_intent(
 @router.get("/lightning/health")
 async def lightning_health() -> dict:
     return await get_adapter().get_node_health()
+
+
+# --------------------------------------------------- real-node webhook (P1-4)
+@router.post("/payments/webhook")
+async def lightning_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Authenticated Lightning-node settlement webhook.
+
+    Transport authentication (three layers, all required):
+      1. Bearer token   — Authorization: Bearer <KK_WEBHOOK_BEARER>
+      2. Payload HMAC   — X-KK-Signature = HMAC-SHA256(KK_WEBHOOK_SECRET,
+                          "{timestamp}.{raw_body}")
+      3. Timestamp win  — X-KK-Timestamp within ±tolerance (anti-replay)
+
+    Application-layer security is unchanged and independent: the event still
+    goes through process_settlement, which re-verifies against the adapter and
+    enforces exactly-once fulfillment (unique provider_event_id + status
+    transition guard). A stolen or replayed webhook can never double-fulfill.
+    Disabled (503) until both webhook secrets are configured.
+    """
+    if not (settings.webhook_bearer_token and settings.webhook_signature_secret):
+        raise error("webhook_disabled", "Node webhook is not configured on this server.", 503)
+
+    auth_header = request.headers.get("authorization", "")
+    if not hmac.compare_digest(auth_header, f"Bearer {settings.webhook_bearer_token}"):
+        raise error("webhook_unauthorized", "Invalid webhook credentials.", 401)
+
+    ts_raw = request.headers.get("x-kk-timestamp", "")
+    try:
+        ts = int(ts_raw)
+    except ValueError:
+        raise error("webhook_unauthorized", "Missing or malformed X-KK-Timestamp.", 401)
+    if abs(int(time.time()) - ts) > settings.webhook_timestamp_tolerance_seconds:
+        raise error("webhook_unauthorized", "Timestamp outside tolerance window.", 401)
+
+    raw = await request.body()
+    expected_sig = hmac.new(
+        settings.webhook_signature_secret.encode(),
+        f"{ts}.".encode() + raw,
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(request.headers.get("x-kk-signature", ""), expected_sig):
+        raise error("webhook_unauthorized", "Signature verification failed.", 401)
+
+    try:
+        data = json.loads(raw)
+        settled_at = (
+            datetime.fromtimestamp(int(data["settled_at"]), tz=timezone.utc)
+            if data.get("settled_at")
+            else datetime.now(timezone.utc)
+        )
+        event = SettlementEvent(
+            provider_event_id=f"node-{str(data['provider_event_id'])}"[:128],
+            payment_hash=str(data["payment_hash"]),
+            bolt11=str(data["bolt11"]) if data.get("bolt11") else None,
+            amount_paid_sats=int(data["amount_paid_sats"]),
+            settled_at=settled_at,
+            raw={"source": "node_webhook", "provider": str(data.get("provider", "unknown"))},
+        )
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        raise error("webhook_bad_payload", "Could not parse settlement event.", 400)
+
+    outcome = await process_settlement(db, event)
+
+    # Notify the paying player over WS when the event was processed (for
+    # rejected_* outcomes the reconciliation worker owns the follow-up).
+    if outcome["outcome"] in ("fulfilled", "duplicate"):
+        inv = (
+            await db.execute(
+                select(LightningInvoice).where(LightningInvoice.payment_hash == event.payment_hash)
+            )
+        ).scalar_one()
+        intent = (
+            await db.execute(select(PaymentIntent).where(PaymentIntent.id == inv.payment_intent_id))
+        ).scalar_one()
+        await emit(
+            db, "payment.status", intent.id,
+            {"intent_id": intent.id, "status": "settled", "outcome": outcome["outcome"],
+             "via": "node_webhook"},
+            player_id=intent.player_id,
+        )
+        await db.commit()
+
+    return {"outcome": outcome["outcome"], "provider_event_id": event.provider_event_id}
 
 
 # ------------------------------------------------------------------ dev-only

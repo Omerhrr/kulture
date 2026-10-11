@@ -12,7 +12,10 @@ os.environ["KK_DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
     os.path.dirname(__file__), "test_kaduna.db"
 )
 os.environ["KK_LLM_ENABLED"] = "false"
-os.environ["KK_JWT_SECRET"] = "test-secret"
+os.environ["KK_JWT_SECRET"] = "test-secret-0123456789abcdef-0123456789abcdef"
+# Tests run DB sessions on multiple event loops (pytest-asyncio session loop +
+# starlette TestClient portals) — never share pooled connections across loops.
+os.environ["KK_DB_NULL_POOL"] = "true"
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402

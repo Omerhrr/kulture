@@ -76,6 +76,12 @@ onMounted(async () => {
       // resync after (re)connect — authoritative snapshot
       world.load().catch(() => {})
     }
+    if (ev.type === 'player.position_corrected' && Array.isArray(ev.payload?.position)) {
+      // Movement authority: the server reconciled an over-speed move (teleport
+      // attempt) — snap the locally predicted avatar to the authoritative pos.
+      const [x, y, z] = ev.payload.position as [number, number, number]
+      useState<[number, number, number]>('kk_player_pos').value = [x, y, z]
+    }
   })
   socket.connect()
 
