@@ -127,9 +127,9 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 except (TypeError, ValueError, IndexError):
                     await ws.send_json({"type": "error", "payload": {"code": "bad_move"}})
                     continue
-                # world bounds (compact neighborhood): clamp, never trust client
-                x = max(-120.0, min(120.0, x))
-                z = max(-120.0, min(120.0, z))
+                # world bounds (full Kaduna city map): clamp, never trust client
+                x = max(-1400.0, min(700.0, x))
+                z = max(-1020.0, min(1450.0, z))
                 y = max(0.0, min(20.0, y))
 
                 # Speed envelope (P1): a move may advance the player at most
@@ -226,7 +226,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
 
             if mtype == "world.subscribe":
                 await ws.send_json(
-                    {"type": "world.subscribed", "payload": {"region": "ali-akilu-road"}}
+                    {"type": "world.subscribed", "payload": {"region": "kaduna-city"}}
                 )
                 continue
 

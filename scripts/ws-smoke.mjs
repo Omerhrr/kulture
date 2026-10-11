@@ -16,10 +16,11 @@ async function main() {
   const token = reg.access_token
   if (!token) throw new Error('register failed: ' + JSON.stringify(reg))
 
-  const world = await fetch(`${GATEWAY}/api/v1/world/regions/ali-akilu-road`, {
+  const world = await fetch(`${GATEWAY}/api/v1/world/regions/kaduna-city`, {
     headers: { Authorization: `Bearer ${token}` }
   }).then((r) => r.json())
   const musa = world.entities.find((e) => e.code === 'npc_musa')
+  const spawn = world.entities.find((e) => e.code === 'spawn_roadside')
 
   const ws = new WebSocket(`ws://${GATEWAY.split('//')[1]}/ws/game?token=${token}`)
   const seen = []
@@ -54,8 +55,8 @@ async function main() {
 
   // Walk to Musa LEGALLY - the server enforces a 14 u/s speed envelope, so
   // hop ≤13.5 units per move with ≥1.05s gaps (dt cap → full allowance).
-  const from = { x: 0, z: 42 } // spawn_roadside
-  const to = { x: -16.5, z: -8.5 }
+  const from = { x: spawn.position[0], z: spawn.position[2] } // spawn_roadside
+  const to = { x: musa.position[0], z: musa.position[2] }
   const dist = Math.hypot(to.x - from.x, to.z - from.z)
   const hops = Math.ceil(dist / 13.5)
   const ux = (to.x - from.x) / dist

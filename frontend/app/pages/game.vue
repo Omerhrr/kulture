@@ -1,12 +1,18 @@
 <script setup lang="ts">
 // Game page - auth gate, world bootstrap, socket wiring, panel orchestration.
 
-useHead({ title: 'Kaduna Kulture - Enter the World' })
+import { unstick } from '~/utils/collision'
+
+useHead({
+  title: 'Kaduna Kulture - Enter the World',
+  viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+})
 
 const player = usePlayerStore()
 const world = useWorldStore()
 const ui = useUiStore()
 const payments = usePaymentsStore()
+const isTouch = useIsTouch()
 
 const authMode = ref<'login' | 'register'>('login')
 const username = ref('')
@@ -17,13 +23,16 @@ const authBusy = ref(false)
 
 const ready = ref(false)
 
+// interaction (E key on desktop, TALK button on touch)
+function tryInteract() {
+  const prox = useState<{ entityId: string } | null>('kk_proximity').value
+  if (prox && !ui.anyBlocking) ui.interactWith(prox as any)
+}
+
 // keyboard shortcuts
 function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement) return
-  if (e.key === 'e' || e.key === 'E') {
-    const prox = useState<{ entityId: string } | null>('kk_proximity').value
-    if (prox && !ui.anyBlocking) ui.interactWith(prox as any)
-  }
+  if (e.key === 'e' || e.key === 'E') tryInteract()
   if (e.key === 'Escape') ui.closeAll()
   if (e.key === 'i' || e.key === 'I') ui.open('inventory')
   if (e.key === 'j' || e.key === 'J') ui.open('jobs')
@@ -51,7 +60,16 @@ async function bootstrap() {
 const socket = useGameSocket()
 
 onMounted(async () => {
-  window.addEventListener('keydown', onKey)
+  try {
+    // temporary debug: capture uncaught RAF errors (loop killer detection)
+    window.addEventListener('error', (e) => {
+      ;(window as any).__kk_win_err = (window as any).__kk_win_err || []
+      ;(window as any).__kk_win_err.push(
+        `${e.message} @ ${String(e.filename).split('/').slice(-2).join('/')}:${e.lineno}`
+      )
+    })
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('kk-do-interact', tryInteract)
   player.token = localStorage.getItem('kk_token') || ''
   player.authenticated = !!player.token
   if (!player.authenticated) return
@@ -78,6 +96,9 @@ onMounted(async () => {
     if (ev.type === 'player.position_corrected' && Array.isArray(ev.payload?.position)) {
       // Movement authority: the server reconciled an over-speed move (teleport
       // attempt) - snap the locally predicted avatar to the authoritative pos.
+      // Dev teleports (headless surveying) are exempt for a short window.
+      const tpAt = (window as any).__kk_teleport_at || 0
+      if (Date.now() - tpAt < 1500) return
       const [x, y, z] = ev.payload.position as [number, number, number]
       useState<[number, number, number]>('kk_player_pos').value = [x, y, z]
     }
@@ -93,9 +114,16 @@ onMounted(async () => {
       ui.showToast(e.message || 'World failed to load', 'error')
     }
   }
+  } catch (e: any) {
+    ;(window as any).__kk_game_err = String(e?.stack || e)
+    throw e
+  }
 })
 
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('kk-do-interact', tryInteract)
+})
 
 async function submitAuth() {
   authBusy.value = true
@@ -137,7 +165,7 @@ function fmtNgn(minor: number) {
 </script>
 
 <template>
-  <div class="relative h-screen w-screen overflow-hidden bg-paper">
+  <div class="relative h-[100dvh] w-full overflow-hidden overscroll-none bg-paper">
     <!-- 3D world -->
     <ClientOnly>
       <GameCanvas v-if="ready" />
@@ -206,6 +234,7 @@ function fmtNgn(minor: number) {
     <!-- in-game UI -->
     <template v-if="ready && player.authenticated">
       <Hud @open="(p) => ui.open(p)" />
+      <MobileControls />
       <InteractionPrompt />
       <ShopPanel v-if="ui.openPanel === 'shop'" />
       <InventoryPanel v-if="ui.openPanel === 'inventory'" />
@@ -270,9 +299,19 @@ function fmtNgn(minor: number) {
       </transition>
 
       <!-- controls hint (sits directly on the 3D world) -->
-      <div class="pointer-events-none absolute bottom-4 left-4 z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm">
+      <div
+        v-if="!isTouch"
+        class="pointer-events-none absolute bottom-4 left-4 z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
+      >
         <div>WASD or arrow keys to move · click the ground to walk there</div>
         <div>right-drag to look around · wheel to zoom · E to interact · Esc to close</div>
+      </div>
+      <div
+        v-else
+        class="pointer-events-none absolute bottom-44 left-1/2 z-20 -translate-x-1/2 rounded-2xl bg-ink/45 px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
+      >
+        <div>left stick to move · drag to look around · pinch to zoom</div>
+        <div>tap the ground to walk there · TALK when near a spot</div>
       </div>
     </template>
   </div>

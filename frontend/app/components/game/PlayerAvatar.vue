@@ -1,23 +1,28 @@
 <script setup lang="ts">
 // PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
-// Inputs: WASD / arrow keys, plus click-to-move (kk_move_target from
-// PointerControls). The server still validates every interaction distance
-// and clamps the movement speed envelope (client is untrusted).
+// Inputs: WASD / arrow keys, the touch joystick (mobile), plus
+// click-to-move (kk_move_target from PointerControls). Keys and the
+// joystick are camera-relative (up = away from camera). The server still
+// validates every interaction distance and clamps the movement speed
+// envelope (client is untrusted).
 
 import * as THREE from 'three'
+import { collides, clampBounds } from '~/utils/collision'
 
 const world = useWorldStore()
 const { isDown } = useKeyboard()
 const { onBeforeRender } = useLoop()
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [0, 0, 42])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
 const playerFacing = useState<number>('kk_player_facing', () => 0)
 const proximity = useState<{ entityId: string; name: string; code: string } | null>(
   'kk_proximity',
   () => null
 )
 const moveTarget = useMoveTarget()
+const orbit = useCamOrbit()
+const touchMove = useTouchMove()
 
 const group = ref()
 const targetRing = ref()
@@ -30,15 +35,19 @@ const socketSend = useState<(type: string, payload: Record<string, unknown>) => 
 )
 
 // Dev-only debug hook (headless test automation): teleport player + sync server.
+// Sets __kk_teleport_at so the position_corrected snap-back is ignored briefly.
 if (import.meta.dev) {
   ;(window as any).__kk_teleport = (x: number, z: number) => {
+    ;(window as any).__kk_teleport_at = Date.now()
     playerPos.value = [x, 0, z]
     moveTarget.value = null
     socketSend.value('player.move', { position: [x, 0, z], facing: 0 })
   }
+  ;(window as any).__kk_pos = () => [+playerPos.value[0].toFixed(2), +playerPos.value[2].toFixed(2)]
+  ;(window as any).__kk_collides = (x: number, z: number) => collides(x, z)
 }
 
-const SPEED = 9.5
+const SPEED = 12
 const ARRIVE_RADIUS = 0.45
 const TARGET_TIMEOUT = 4000 // ms: give up on targets we cannot reach
 
@@ -55,24 +64,46 @@ onBeforeRender(({ delta }) => {
 
   const dt = Math.min(delta || 0.016, 0.1) // clamp long stalls (tab switch)
 
-  // 1) keyboard intent
-  let dx = 0
-  let dz = 0
-  if (isDown('KeyW', 'ArrowUp', 'z', 'w')) dz -= 1
-  if (isDown('KeyS', 'ArrowDown', 's')) dz += 1
-  if (isDown('KeyA', 'ArrowLeft', 'q', 'a')) dx -= 1
-  if (isDown('KeyD', 'ArrowRight', 'd')) dx += 1
+  // camera basis: forward = away from camera, right = screen right
+  const yaw = orbit.value.yaw
+  const fx = -Math.sin(yaw)
+  const fz = -Math.cos(yaw)
+  const rx = Math.cos(yaw)
+  const rz = -Math.sin(yaw)
 
-  const keyMoving = dx !== 0 || dz !== 0
-  if (keyMoving) moveTarget.value = null // keys always win over click-to-move
+  // 1) keyboard intent (camera-relative: W = up the screen)
+  let ix = 0
+  let iy = 0
+  if (isDown('KeyW', 'ArrowUp', 'z', 'w')) iy += 1
+  if (isDown('KeyS', 'ArrowDown', 's')) iy -= 1
+  if (isDown('KeyA', 'ArrowLeft', 'q', 'a')) ix -= 1
+  if (isDown('KeyD', 'ArrowRight', 'd')) ix += 1
 
-  // 2) click-to-move intent
+  // 2) touch joystick intent (screen-right / screen-up)
+  if (touchMove.value.active) {
+    ix += touchMove.value.x
+    iy += touchMove.value.y
+  }
+
+  const len2 = Math.hypot(ix, iy)
+  if (len2 > 1) {
+    ix /= len2
+    iy /= len2
+  }
+  const keyMoving = ix !== 0 || iy !== 0
+  if (keyMoving) moveTarget.value = null // direct input always wins over click-to-move
+
+  // map screen intent onto the world via the camera basis
+  const dx = fx * iy + rx * ix
+  const dz = fz * iy + rz * ix
+
+  // 3) click-to-move intent
   let tdx = 0
   let tdz = 0
   const target = moveTarget.value
   if (!keyMoving && target) {
     // keep the destination inside the walkable world
-    const [txc, tzc] = clampWorld(target.x, target.z)
+    const [txc, tzc] = clampBounds(target.x, target.z)
     const tx = txc - playerPos.value[0]
     const tz = tzc - playerPos.value[2]
     const dist = Math.hypot(tx, tz)
@@ -114,7 +145,7 @@ onBeforeRender(({ delta }) => {
     const len = Math.hypot(vx, vz) || 1
     let nx = playerPos.value[0] + (vx / len) * SPEED * dt
     let nz = playerPos.value[2] + (vz / len) * SPEED * dt
-    ;[nx, nz] = clampWorld(nx, nz)
+    ;[nx, nz] = clampBounds(nx, nz)
 
     if (stuck) {
       // Spawned or pushed inside a footprint: walking out beats being trapped.

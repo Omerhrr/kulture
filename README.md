@@ -12,11 +12,14 @@ A 3D browser-based life simulator with a Bitcoin Lightning-native economy.
 
 ## What is this?
 
-Kaduna Kulture is a playable, persistent Kaduna city simulation. Players walk a
-compact neighborhood inspired by Ali Akilu Road, take delivery jobs from an
+Kaduna Kulture is a playable, persistent Kaduna city simulation. Players walk
+the full city map - River Kaduna, Murtala Square, the Central Market, Ahmadu
+Bello Stadium, Barnawa, Kakuri, Kawo, Rigasa, the airport and more (layout
+derived from OpenStreetMap data, stylized) - take delivery jobs from an
 **AI shopkeeper** (DSH-powered, with a full audit trail), and buy goods with
 **real Bitcoin sats over Lightning** - where the backend independently verifies
-settlement before delivering items exactly once.
+settlement before delivering items exactly once. On phones the game runs with
+a touch joystick in landscape.
 
 This is a Bitcoin-native economy, not a conventional game with a crypto
 balance bolted on: an invoice is a payment *request*, never proof of payment;

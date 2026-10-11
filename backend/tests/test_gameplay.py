@@ -92,6 +92,7 @@ async def test_interaction_distance_validated_server_side(client, auth_headers, 
 
 async def test_delivery_job_full_loop(client, auth_headers, world_ctx):
     entities = world_ctx["entities"]
+    spawn = entities["spawn_roadside"]
     jobs = (await client.get("/api/v1/jobs/available", headers=auth_headers)).json()
     assert len(jobs) >= 1
     job = jobs[0]
@@ -106,7 +107,7 @@ async def test_delivery_job_full_loop(client, auth_headers, world_ctx):
     bad = await client.post(
         f"/api/v1/jobs/{job['id']}/pickup",
         headers=auth_headers,
-        json={"position": [0.0, 0.0, 42.0]},
+        json={"position": [spawn["position"][0], 0.0, spawn["position"][2]]},
     )
     assert bad.status_code == 422
 

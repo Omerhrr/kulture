@@ -1,5 +1,9 @@
 // Shared collision helpers (client-side prediction only; the server is the
-// authority for interactions and movement envelopes).
+// authority for interactions and movement envelopes). Colliders come from
+// the baked Kaduna layout: every house footprint, landmark keepout and the
+// playable structures rendered by WorldScene.
+
+import { BAKE, clampWorld } from './kaduna'
 
 export interface Box {
   x: number
@@ -8,18 +12,49 @@ export interface Box {
   d: number
 }
 
-// Building footprints, matching WorldScene geometry.
-export const BUILDINGS: Box[] = [
-  { x: -20, z: -12, w: 14, d: 10 }, // Musa's store
-  { x: 0, z: -20, w: 3.4, d: 3.4 }, // POS kiosk
-  { x: -40, z: -36, w: 16, d: 12 }, // AREWA House
-  { x: 36, z: 24, w: 4, d: 4 }, // Stonetech monument
-  { x: 30, z: -24, w: 22, d: 14 }, // market stalls block
-  { x: -5.5, z: 31.5, w: 10, d: 4 } // keke stop shelter
+// Playable structures (WorldScene renders these at the server positions).
+const PLAYABLE: Box[] = [
+  { x: -70, z: 75, w: 15, d: 11 }, // Musa's store
+  { x: -25, z: 8, w: 4.4, d: 4.4 }, // POS kiosk
+  { x: -80, z: 102, w: 54, d: 36 }, // Central Market shed block
+  { x: -20, z: -164, w: 17, d: 13 }, // Arewa House
+  { x: -55, z: 360, w: 5, d: 5 }, // Stonetech monument
+  { x: -245, z: 420, w: 11, d: 5 } // keke stop shelter
 ]
 
+function buildColliders(): Box[] {
+  const boxes: Box[] = [...PLAYABLE]
+  // Only genuinely solid landmarks get collision boxes. Open areas (plazas,
+  // the market floor, campuses, the stadium bowl, parks) stay walkable.
+  const solidKinds = new Set([
+    'cathedral',
+    'mosque',
+    'govhouse',
+    'hotel',
+    'museum',
+    'hospital',
+    'factory',
+    'refinery',
+    'station',
+    'junction',
+    'mast'
+  ])
+  for (const lm of BAKE.landmarks) {
+    if (lm.kw > 0 && solidKinds.has(lm.kind)) {
+      boxes.push({ x: lm.x, z: lm.z, w: lm.kw, d: lm.kd })
+    }
+  }
+  for (const h of BAKE.houses) {
+    boxes.push({ x: h[0], z: h[1], w: h[2], d: h[3] })
+  }
+  return boxes
+}
+
+export const BUILDINGS: Box[] = buildColliders()
+
 export const PLAYER_RADIUS = 0.6
-export const WORLD_BOUNDS = 58
+// Downtown fallback spawn (Ahmadu Bello Way roadside).
+export const SPAWN: [number, number] = [-98, 40]
 
 export function collides(x: number, z: number): boolean {
   for (const b of BUILDINGS) {
@@ -47,7 +82,7 @@ export function unstick(x: number, z: number): [number, number] {
   if (!collides(x, z)) return [x, z]
   // Try progressively wider rings around the point, axis-aligned first
   // (feels natural when walking out of a wall), then diagonals.
-  for (let r = 0.5; r <= 20; r += 0.5) {
+  for (let r = 0.5; r <= 24; r += 0.5) {
     const candidates: Array<[number, number]> = [
       [x, z - r],
       [x, z + r],
@@ -62,10 +97,10 @@ export function unstick(x: number, z: number): [number, number] {
       if (!collides(cx, cz) && !insideCore(cx, cz)) return [cx, cz]
     }
   }
-  return [0, 42] // downtown spawn fallback
+  return SPAWN // downtown fallback
 }
 
-/** Clamp to world bounds. */
-export function clampWorld(x: number, z: number): [number, number] {
-  return [Math.max(-WORLD_BOUNDS, Math.min(WORLD_BOUNDS, x)), Math.max(-WORLD_BOUNDS, Math.min(WORLD_BOUNDS, z))]
+/** Clamp to the walkable world rectangle. */
+export function clampBounds(x: number, z: number): [number, number] {
+  return clampWorld(x, z)
 }

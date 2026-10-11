@@ -19,7 +19,7 @@ export const useWorldStore = defineStore('world', {
       this.loading = true
       try {
         const api = useGameApi()
-        this.region = await api.region('ali-akilu-road')
+        this.region = await api.region('kaduna-city')
       } finally {
         this.loading = false
       }

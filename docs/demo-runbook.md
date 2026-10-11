@@ -33,7 +33,7 @@ node scripts/ws-smoke.mjs                            # WS + agent E2E (should pr
 
 ### 3. Walk + talk to the AI shopkeeper (90 s)
 
-- Walk (WASD) up Ali Akilu Road to **Musa's Provision Store**, press **E**.
+- Walk (WASD or the touch joystick) up Ahmadu Bello Way to **Musa's Provision Store**, press **E** (or the TALK button on mobile).
 - **Talk to Mallam Musa** - the dialogue box shows the 🤖 **DSH agent** badge.
   He answers in character, referencing live stock and Lightning prices.
 - Mention: every tool call he makes is validated (allowlist + schema +

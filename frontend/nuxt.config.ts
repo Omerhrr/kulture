@@ -12,7 +12,7 @@ export default defineNuxtConfig({
       title: 'Kaduna Kulture - A Living Kaduna. An Economy Powered by Bitcoin.',
       htmlAttrs: { lang: 'en' },
       meta: [
-        { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover' },
         {
           name: 'description',
           content:

@@ -1,35 +1,35 @@
 <script setup lang="ts">
-// GameCanvas - TresJS canvas + lighting + world + avatars.
-// NOTE: anything using useRenderLoop must be a CHILD of TresCanvas
-// (see CameraRig / PlayerAvatar / NpcAvatar).
+// GameCanvas - TresJS canvas + lighting + the full Kaduna city + avatars.
+// NOTE: anything using useLoop must be a CHILD of TresCanvas
+// (see CameraRig / SunLight / PlayerAvatar / NpcAvatar).
 
 const world = useWorldStore()
 
 const musa = computed(() => world.npcEntities.find((e) => e.code === 'npc_musa'))
 const amina = computed(() => world.npcEntities.find((e) => e.code === 'npc_amina'))
+
+// mount telemetry (headless debugging)
+onMounted(() => {
+  const w = window as any
+  w.__kk_canvas_mounts = (w.__kk_canvas_mounts || 0) + 1
+})
+onUnmounted(() => {
+  const w = window as any
+  w.__kk_canvas_unmounts = (w.__kk_canvas_unmounts || 0) + 1
+})
 </script>
 
 <template>
-  <TresCanvas shadows :clear-color="'#87b7d4'">
+  <TresCanvas shadows :clear-color="'#9ec7de'">
     <CameraRig />
     <PointerControls />
-    <TresFog :args="['#87b7d4', 60, 220]" />
+    <TresFog :args="['#9ec7de', 420, 2500]" />
 
-    <TresAmbientLight :intensity="0.75" color="#fff4e0" />
-    <TresDirectionalLight
-      :position="[40, 60, 30]"
-      :intensity="1.5"
-      color="#fff2d8"
-      cast-shadow
-      :shadow-mapSize-width="2048"
-      :shadow-mapSize-height="2048"
-      :shadow-camera-left="-80"
-      :shadow-camera-right="80"
-      :shadow-camera-top="80"
-      :shadow-camera-bottom="-80"
-    />
-    <TresHemisphereLight :args="['#bfd9e8', '#8a7d5a', 0.55]" />
+    <TresAmbientLight :intensity="0.72" color="#fff4e0" />
+    <SunLight />
+    <TresHemisphereLight :args="['#bfd9e8', '#8a7d5a', 0.5]" />
 
+    <KadunaCity />
     <WorldScene />
     <PlayerAvatar />
     <NpcAvatar

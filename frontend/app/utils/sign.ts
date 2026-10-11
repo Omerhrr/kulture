@@ -43,3 +43,36 @@ export function makeSignTexture(
   cache.set(key, tex)
   return tex
 }
+
+/**
+ * Floating place-name label (transparent background, outlined text).
+ * Rendered on THREE.Sprite billboards across the city map.
+ * Each texture gets its own canvas: sharing one canvas would make every
+ * texture re-render with the latest text.
+ */
+export function makeLabelTexture(text: string, color = '#ffffff'): THREE.CanvasTexture {
+  const key = `label|${text}|${color}`
+  const hit = cache.get(key)
+  if (hit) return hit
+
+  const canvas = document.createElement('canvas')
+  canvas.width = 1024
+  canvas.height = 192
+  const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, 1024, 192)
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const size = text.length > 26 ? 58 : text.length > 16 ? 72 : 84
+  ctx.font = `700 ${size}px system-ui, 'Segoe UI', sans-serif`
+  ctx.lineJoin = 'round'
+  ctx.strokeStyle = 'rgba(20, 32, 26, 0.85)'
+  ctx.lineWidth = 14
+  ctx.strokeText(text, 512, 96)
+  ctx.fillStyle = color
+  ctx.fillText(text, 512, 96)
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  cache.set(key, tex)
+  return tex
+}

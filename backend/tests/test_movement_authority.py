@@ -45,6 +45,7 @@ async def test_rest_interaction_uses_server_position_after_real_movement(
 
     me = (await client.get("/api/v1/players/me", headers=auth_headers)).json()
     musa = world_ctx["entities"]["musa_shop"]
+    spawn = world_ctx["entities"]["spawn_roadside"]
     ex, ey, ez = musa["position"]
 
     async with AsyncSessionLocal() as db:
@@ -54,7 +55,7 @@ async def test_rest_interaction_uses_server_position_after_real_movement(
     r = await client.post(
         "/api/v1/interactions",
         headers=auth_headers,
-        json={"entity_id": musa["id"], "position": [0.0, 0.0, 42.0]},
+        json={"entity_id": musa["id"], "position": [spawn["position"][0], 0.0, spawn["position"][2]]},
     )
     assert r.status_code == 200, r.text
     assert r.json()["entity_id"] == musa["id"]

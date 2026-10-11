@@ -40,7 +40,7 @@ async def register_player(
         raise AuthError("username_taken")
 
     region = (
-        await db.execute(select(WorldRegion).where(WorldRegion.slug == "ali-akilu-road"))
+        await db.execute(select(WorldRegion).where(WorldRegion.slug == "kaduna-city"))
     ).scalar_one_or_none()
     if region is None:
         raise AuthError("world_not_seeded")

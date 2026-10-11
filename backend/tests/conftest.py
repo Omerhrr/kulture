@@ -69,7 +69,7 @@ async def auth_headers(client) -> dict:
 @pytest_asyncio.fixture
 async def world_ctx(client, auth_headers) -> dict:
     """Region + key entities + musa's business for flow tests."""
-    reg = (await client.get("/api/v1/world/regions/ali-akilu-road", headers=auth_headers)).json()
+    reg = (await client.get("/api/v1/world/regions/kaduna-city", headers=auth_headers)).json()
     entities = {e["code"]: e for e in reg["entities"]}
     biz = (
         await client.get(f"/api/v1/businesses/{entities['musa_shop']['business_id']}", headers=auth_headers)

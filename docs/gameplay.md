@@ -1,19 +1,27 @@
 # Gameplay
 
-## World - initial region
+## World - Kaduna City
 
-A compact neighborhood inspired by Kaduna's city center (manually modeled,
-approximate - not survey data; layout inspiration credited to OpenStreetMap
-contributors).
+The full city map at roughly 1 unit = 10 m: River Kaduna crossing the city,
+the road grid (Ahmadu Bello Way, Yakubu Gowon Way, Ali Akilu Road, Nnamdi
+Azikiwe Way, Kachia Road and more), real districts (Kawo, Malali, Badiko,
+Rigasa, Barnawa, Kakuri, Sabon Tasha, Narayi, Television and others) and
+landmarks at their mapped positions: Murtala Square, Kaduna Central Market,
+Ahmadu Bello Stadium, Sultan Bello Mosque, St. Joseph's Cathedral, Government
+House, Kaduna Junction, Rigasa Station, Kaduna Airport, NDA, the refinery,
+textile mill and Millennium City. The layout is derived from OpenStreetMap
+data (c) OpenStreetMap contributors, ODbL - stylized game geometry, not
+survey data. Bridges: Coronation Bridge, Yar'adua Way Bridge, Nnamdi Azikiwe
+Bridge.
 
 | Landmark | Purpose |
 |----------|---------|
 | Musa's Provision Store | DSH shopkeeper, goods, delivery-job issuer |
 | Arewa QuickPOS Kiosk | Lightning point-of-service reference + asset-class explainer |
 | Kaduna Central Market | Stalls, market events |
-| AREWA House | Recognizable city center landmark |
+| Arewa House | Recognizable city center landmark (Sir Ahmadu Bello's residence) |
 | Stonetech Square | Community plaza, delivery drop-off (Hajiya Amina) |
-| Keke Napep Stop | Transport prototype |
+| Keke Napep Stop | Transport prototype (at Kaduna Junction) |
 
 ## Player capabilities (MVP)
 

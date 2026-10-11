@@ -1,8 +1,10 @@
-"""World seed data - compact Kaduna city-center-inspired neighborhood.
+"""World seed data - Kaduna city map (OSM-derived, stylized).
 
-Landmarks (spec game_design.world): AREWA House, Ali Akilu Road,
-Kaduna Central Market, Stonetech Square. Coordinates are a local Three.js
-coordinate system (not survey data) - approximate, manually authored.
+The layout follows the real geography of Kaduna: River Kaduna, Ahmadu
+Bello Way, the Central Market, Murtala Square, Barnawa, Kakuri, Kawo,
+Rigasa, the airport and the rest of the city (see scripts/kaduna-osm/).
+Coordinates are the local Three.js system (1 unit = 10 m, origin at
+Murtala Square) - approximate, manually reconciled with OSM data.
 """
 
 from __future__ import annotations
@@ -30,15 +32,15 @@ ITEMS = [
 
 ENTITIES = [
     # code, name, type, x, z, rotation, radius
-    ("spawn_roadside", "Ali Akilu Road - Roadside Spawn", "spawn", 0.0, 42.0, 0.0, 8.0),
-    ("musa_shop", "Musa's Provision Store", "shop", -20.0, -12.0, 0.4, 7.0),
-    ("arewa_pos", "Arewa QuickPOS Kiosk", "pos_kiosk", 0.0, -20.0, 0.0, 5.0),
-    ("kaduna_central_market", "Kaduna Central Market", "market", 32.0, -24.0, -0.5, 11.0),
-    ("arewa_house", "AREWA House", "landmark", -40.0, -36.0, 0.9, 10.0),
-    ("stonetech_square", "Stonetech Square", "landmark", 36.0, 24.0, -0.4, 10.0),
-    ("keke_stop", "Keke Napep Stop", "transport_stop", -8.0, 30.0, 0.2, 6.0),
-    ("npc_musa", "Mallam Musa", "npc", -16.5, -8.5, 0.5, 4.0),
-    ("npc_amina", "Hajiya Amina", "npc", 33.0, 20.5, -0.3, 4.0),
+    ("spawn_roadside", "Ahmadu Bello Way - Roadside Spawn", "spawn", -98.0, 40.0, 0.0, 8.0),
+    ("musa_shop", "Musa's Provision Store", "shop", -70.0, 75.0, 0.4, 10.0),
+    ("arewa_pos", "Arewa QuickPOS Kiosk", "pos_kiosk", -25.0, 8.0, 0.0, 6.0),
+    ("kaduna_central_market", "Kaduna Central Market", "market", -80.0, 102.0, -0.5, 14.0),
+    ("arewa_house", "Arewa House", "landmark", -20.0, -164.0, 0.9, 10.0),
+    ("stonetech_square", "Stonetech Square, Barnawa", "landmark", -55.0, 360.0, -0.4, 10.0),
+    ("keke_stop", "Keke Napep Stop, Kaduna Junction", "transport_stop", -245.0, 420.0, 0.2, 8.0),
+    ("npc_musa", "Mallam Musa", "npc", -74.0, 70.0, 0.5, 4.0),
+    ("npc_amina", "Hajiya Amina", "npc", -60.0, 355.0, -0.3, 4.0),
 ]
 
 SHOP_LISTINGS = [
@@ -69,12 +71,14 @@ async def seed_if_empty(db: AsyncSession) -> bool:
         return False
 
     region = WorldRegion(
-        name="Ali Akilu Road & Kaduna Central Market",
-        slug="ali-akilu-road",
-        description="Compact city-center neighborhood inspired by Kaduna. "
-        "Manually modeled, approximate layout - not survey data.",
-        map_metadata={"attribution": "Layout inspired by OpenStreetMap data; "
-                      "\u00a9 OpenStreetMap contributors (game geometry is approximate)"},
+        name="Kaduna City",
+        slug="kaduna-city",
+        description="The full city map: River Kaduna, Ahmadu Bello Way, "
+        "Murtala Square, Kaduna Central Market, Barnawa, Kakuri, Kawo, "
+        "Rigasa, the airport and more. Manually modeled, approximate layout "
+        "reconciled with OpenStreetMap - not survey data.",
+        map_metadata={"attribution": "Layout derived from OpenStreetMap data; "
+                      "\u00a9 OpenStreetMap contributors (ODbL). Game geometry is approximate."},
     )
     db.add(region)
     await db.flush()
