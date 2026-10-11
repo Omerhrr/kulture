@@ -8,6 +8,7 @@ import { fireKkEvent, useMapOpen } from '~/composables/useControlsState'
 
 const isTouch = useIsTouch()
 const proximity = useState<{ entityId: string; name: string; code: string } | null>('kk_proximity', () => null)
+const pedPrompt = useState<{ id: number; name: string } | null>('kk_ped_prompt', () => null)
 const ride = useRide()
 const mapOpen = useMapOpen()
 
@@ -71,17 +72,17 @@ function tryLandscape() {
       >
         {{ ride.inner ? '🚗' : '🪑' }}
       </button>
-      <!-- interact / board / exit -->
+      <!-- interact / board / chat / exit -->
       <button
         class="pointer-events-auto flex h-[76px] w-[76px] touch-none select-none flex-col items-center justify-center rounded-full border-2 text-xs font-extrabold shadow-xl transition active:scale-95"
         :class="
-          ride.active || ride.prompt || proximity
+          ride.active || ride.prompt || proximity || pedPrompt
             ? 'border-gold/80 bg-gold/90 text-ink'
             : 'border-white/40 bg-ink/25 text-white/70 backdrop-blur-sm'
         "
         @pointerdown.stop="fireInteract"
       >
-        <span class="block text-2xl leading-none">{{ ride.active ? '🛴' : ride.prompt ? '🔑' : '✋' }}</span>
+        <span class="block text-2xl leading-none">{{ ride.active ? '🛴' : ride.prompt ? '🔑' : pedPrompt ? '💬' : '✋' }}</span>
         <span class="mt-0.5 block">{{ ride.active ? 'EXIT' : ride.prompt ? 'BOARD' : 'TALK' }}</span>
       </button>
     </div>

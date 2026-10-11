@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // InteractionPrompt - nearest interactable + action menu (options are
 // server-validated on interaction; the client never decides what is possible).
-// Also surfaces the ride and door prompts (board a keke, enter a house).
+// Also surfaces the ride, pedestrian chat and door prompts.
 
 import { fireKkEvent } from '~/composables/useControlsState'
 
@@ -11,7 +11,17 @@ const proximity = useState<{ entityId: string; name: string; code: string } | nu
 )
 const ride = useRide()
 const doorPrompt = useDoorPrompt()
+const pedPrompt = useState<{ id: number; name: string; kind: string } | null>('kk_ped_prompt', () => null)
 const ui = useUiStore()
+
+const kindLabel: Record<string, string> = {
+  walker: 'Passer by',
+  hawker: 'Street hawker',
+  vendor: 'Market vendor',
+  worker: 'Bricklayer',
+  kid: 'Kid playing',
+  shopper: 'Shopper'
+}
 </script>
 
 <template>
@@ -48,6 +58,14 @@ const ui = useUiStore()
         <button class="kk-btn-primary mt-2" @click="fireKkEvent('kk-door-use')">
           {{ doorPrompt.action === 'enter' ? 'Walk in' : 'Step out' }}
           <span class="ml-1 rounded-md bg-white/20 px-1.5 py-0.5 text-[10px]">E</span>
+        </button>
+      </div>
+      <!-- stop to chat with someone on the street -->
+      <div v-else-if="pedPrompt && !ui.anyBlocking" class="kk-panel px-5 py-3.5 text-center">
+        <div class="text-[11px] font-bold uppercase tracking-widest text-ink/40">{{ kindLabel[pedPrompt.kind] || 'Local' }}</div>
+        <div class="font-display text-base font-semibold text-ink">{{ pedPrompt.name }}</div>
+        <button class="kk-btn-primary mt-2" @click="fireKkEvent('kk-ped-talk')">
+          Chat <span class="ml-1 rounded-md bg-white/20 px-1.5 py-0.5 text-[10px]">E</span>
         </button>
       </div>
       <div v-else-if="proximity && !ui.anyBlocking" class="kk-panel pointer-events-auto px-5 py-3.5 text-center">

@@ -25,6 +25,7 @@ onUnmounted(() => {
     <PointerControls />
     <TresFog :args="['#9ec7de', 420, 2500]" />
 
+    <DayNight />
     <TresAmbientLight :intensity="0.72" color="#fff4e0" />
     <SunLight />
     <TresHemisphereLight :args="['#bfd9e8', '#8a7d5a', 0.5]" />
@@ -42,6 +43,8 @@ onUnmounted(() => {
       :z="musa.position[2]"
       name="Mallam Musa"
       shirt="#b8433a"
+      hair-style="cap"
+      :beard="true"
     />
     <NpcAvatar
       v-if="amina"
@@ -50,6 +53,7 @@ onUnmounted(() => {
       name="Hajiya Amina"
       :female="true"
       shirt="#3f6fae"
+      hair-style="braids"
     />
   </TresCanvas>
 </template>

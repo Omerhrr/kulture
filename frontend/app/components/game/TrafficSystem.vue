@@ -1,14 +1,24 @@
 <script setup lang="ts">
-// TrafficSystem - ambient traffic on the road network (instanced, one draw
-// call per vehicle class), the running train on the rail line, and a plane
-// working the airport circuit. Pure ambience: RideSystem owns the vehicles
-// you can actually board.
+// TrafficSystem v2 - ambient traffic that behaves like real street traffic:
+//   - vehicles keep their lane, follow the car ahead and never overlap
+//   - they stop at the new traffic signals (market front, the square, the
+//     keke stop road) and queue at the market congestion zone
+//   - they honk when stuck (quietly, and only when you are nearby)
+//   - headlight glows come on with the night from the DayNight clock
+// The train and the airport circuit plane stay here as ambience. Live
+// vehicle positions are published through trafficProbe so pedestrians wait
+// for gaps and dodge.
 import * as THREE from 'three'
 import { BAKE } from '~/utils/kaduna'
 import { vehicleSpec, type VehicleKind } from '~/utils/vehicles'
+import { signals, signalPhase, marketFront, type Signal } from '~/utils/kadunaLighting'
+import { probeReset, probePush, trafficProbe } from '~/utils/trafficProbe'
+import { kkAudio } from '~/utils/audio'
 import { useIsTouch } from '~/composables/useControlsState'
 
 const isTouch = useIsTouch()
+const nightFactor = useState<number>('kk_night', () => 0)
+const playerPosState = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
 
 // ---------------------------------------------------------------- routes
 interface Route {
@@ -58,18 +68,37 @@ function routePoint(rt: Route, s: number, out: { x: number; z: number; fx: numbe
   out.fz = (bz - az) / segLen
 }
 
+// ---------------------------------------------------------------- fleet
 interface Car {
   route: Route
   s: number
   dir: 1 | -1
-  speed: number
+  base: number
+  v: number
+  x: number
+  z: number
+  fx: number
+  fz: number
+  h: number
+  stuck: number
 }
 function spawnCar(routes: Route[], min: number, max: number): Car {
   const route = routes[Math.floor(Math.random() * routes.length)] ?? routes[0]
-  return { route, s: Math.random() * route.total, dir: Math.random() < 0.5 ? 1 : -1, speed: min + Math.random() * (max - min) }
+  return {
+    route,
+    s: Math.random() * route.total,
+    dir: Math.random() < 0.5 ? 1 : -1,
+    base: min + Math.random() * (max - min),
+    v: min + Math.random() * (max - min),
+    x: 0,
+    z: 0,
+    fx: 0,
+    fz: 1,
+    h: 0,
+    stuck: 0
+  }
 }
 
-// ---------------------------------------------------------------- classes
 interface ClassDef {
   kind: VehicleKind
   count: number
@@ -80,7 +109,7 @@ interface ClassDef {
 }
 const CLASSES: ClassDef[] = [
   { kind: 'car', count: isTouch.value ? 8 : 14, routes: mainRoutes, min: 16, max: 26, tint: ['#dfe3ea', '#2b3440', '#3f6fae', '#3f7d5b', '#b8bcc4', '#7a4a8a'] },
-  { kind: 'car', count: isTouch.value ? 3 : 5, routes: mainRoutes, min: 15, max: 24, tint: ['#e8c84a'] }, // taxis
+  { kind: 'car', count: isTouch.value ? 3 : 5, routes: mainRoutes, min: 15, max: 24, tint: ['#e8c84a'] },
   { kind: 'keke', count: isTouch.value ? 5 : 9, routes: allRoutes, min: 10, max: 15 },
   { kind: 'okada', count: isTouch.value ? 4 : 7, routes: allRoutes, min: 13, max: 20 },
   { kind: 'bus', count: isTouch.value ? 3 : 6, routes: mainRoutes, min: 12, max: 18 },
@@ -88,18 +117,29 @@ const CLASSES: ClassDef[] = [
   { kind: 'bicycle', count: isTouch.value ? 2 : 4, routes: allRoutes, min: 6, max: 9 }
 ].filter((c) => c.routes.length > 0)
 
-const carsByClass: Car[][] = CLASSES.map((c) =>
-  Array.from({ length: c.count }, () => spawnCar(c.routes, c.min, c.max))
-)
+const carsByClass: Car[][] = CLASSES.map((c) => Array.from({ length: c.count }, () => spawnCar(c.routes, c.min, c.max)))
+const allCars: Car[] = carsByClass.flat()
+
+const SIGNALS = signals()
+const MARKET = marketFront()
 
 // ---------------------------------------------------------------- meshes
 const groupRef = ref<THREE.Group | null>(null)
 const meshes: THREE.InstancedMesh[] = []
+let headlightM: THREE.InstancedMesh | null = null
+interface LampSet {
+  red: THREE.MeshBasicMaterial
+  amber: THREE.MeshBasicMaterial
+  green: THREE.MeshBasicMaterial
+}
+const lampMats: LampSet[] = []
 
 onMounted(() => {
   const g = groupRef.value
   if (!g) return
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true })
+  let total = 0
+  for (const c of CLASSES) total += c.count
   CLASSES.forEach((c, ci) => {
     const spec = vehicleSpec(c.kind)
     const m = new THREE.InstancedMesh(spec.geo, mat, c.count)
@@ -115,23 +155,87 @@ onMounted(() => {
     meshes.push(m)
   })
 
+  // one instanced quad pair per vehicle for headlight glow at night
+  const hlGeo = buildCrossQuads(0.42, 0.28)
+  headlightM = new THREE.InstancedMesh(hlGeo, new THREE.MeshBasicMaterial({ color: '#ffedb8', transparent: true, opacity: 0, depthWrite: false }), total)
+  headlightM.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  headlightM.renderOrder = 3
+  g.add(headlightM)
+
+  buildSignalPoles(g)
   g.add(buildTrain())
   g.add(buildPlane())
 })
 
+function buildCrossQuads(w: number, h: number): THREE.BufferGeometry {
+  const pos: number[] = []
+  // two crossed vertical quads centered on origin
+  const q1 = [
+    [-w, -h, 0], [w, -h, 0], [w, h, 0],
+    [-w, -h, 0], [w, h, 0], [-w, h, 0]
+  ]
+  const q2 = [
+    [0, -h, -w], [0, -h, w], [0, h, w],
+    [0, -h, -w], [0, h, w], [0, h, -w]
+  ]
+  for (const q of [q1, q2]) for (const [x, y, z] of q) pos.push(x, y, z)
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  return g
+}
+
+const DARK = 0x2a2320
+const LIT: Record<string, string> = { red: '#ff4a3a', amber: '#ffb03a', green: '#4ae05a' }
+
+function buildSignalPoles(g: THREE.Group) {
+  for (const sig of SIGNALS) {
+    const poleMat = new THREE.MeshLambertMaterial({ color: '#3a3f46' })
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 4.6, 6), poleMat)
+    pole.position.set(sig.px, 2.3, sig.pz)
+    pole.castShadow = true
+    g.add(pole)
+    // arm reaching over the road toward the lane the signal controls
+    const dirSide = (sig.px - sig.x) * -sig.fz + (sig.pz - sig.z) * sig.fx > 0 ? 1 : -1
+    const armLen = sig.rw / 2 + 1.0
+    const ax = -sig.fz * armLen * dirSide
+    const az = sig.fx * armLen * dirSide
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, armLen), poleMat)
+    // orient the box along the arm direction
+    arm.position.set(sig.px + ax / 2, 4.4, sig.pz + az / 2)
+    arm.rotation.y = Math.atan2(ax, az) + Math.PI / 2
+    g.add(arm)
+    // housing + three lamps at the arm tip, facing back along the road
+    const hx = sig.px + ax
+    const hz = sig.pz + az
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.0, 0.3), new THREE.MeshLambertMaterial({ color: '#22262c' }))
+    housing.position.set(hx, 4.0, hz)
+    g.add(housing)
+    const mk = (y: number) => {
+      const m = new THREE.MeshBasicMaterial({ color: DARK })
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), m)
+      lamp.position.set(hx, y, hz)
+      g.add(lamp)
+      return m
+    }
+    lampMats.push({ red: mk(4.32), amber: mk(4.0), green: mk(3.68) })
+  }
+}
+
 onBeforeUnmount(() => {
   for (const m of meshes) m.dispose()
+  headlightM?.dispose()
 })
 
 // ---------------------------------------------------------------- train
 let trainMesh: THREE.Mesh | null = null
 let trainRoute: Route | null = null
 let trainS = 0
+let trainX = 0
+let trainZ = 0
 const puffs: Array<{ sprite: THREE.Sprite; mat: THREE.SpriteMaterial }> = []
 
 function buildTrain(): THREE.Group {
   const group = new THREE.Group()
-  // longest rail line
   let best: [number, number][] | null = null
   let bestLen = 0
   for (const line of BAKE.rail) {
@@ -153,20 +257,18 @@ function buildTrain(): THREE.Group {
       cum[i] = total
     }
     trainRoute = { pts: flat, cum, total, rw: 1.7 }
-    // consist: green loco + 3 yellow coaches
     const parts: Array<[string, THREE.BufferGeometry]> = []
     const boxAt = (hex: string, w: number, h: number, d: number, z: number) => {
       const gg = new THREE.BoxGeometry(w, h, d)
       gg.translate(0, h / 2 + 0.55, z)
       parts.push([hex, gg])
     }
-    boxAt('#3f6f3a', 2.4, 2.6, 8.5, 0) // loco
+    boxAt('#3f6f3a', 2.4, 2.6, 8.5, 0)
     boxAt('#d8c23c', 2.3, 2.4, 8.0, -10)
     boxAt('#d8c23c', 2.3, 2.4, 8.0, -19)
     boxAt('#d8c23c', 2.3, 2.4, 8.0, -28)
     boxAt('#22262c', 2.0, 0.7, 38, -14)
     const geo = new THREE.BufferGeometry()
-    // manual merge
     const geos = parts.map(([hex, gg]) => {
       const g2 = gg.toNonIndexed()
       gg.dispose()
@@ -200,7 +302,6 @@ function buildTrain(): THREE.Group {
     trainMesh.castShadow = true
     group.add(trainMesh)
 
-    // smoke puffs
     const cv = document.createElement('canvas')
     cv.width = cv.height = 64
     const ctx = cv.getContext('2d')!
@@ -253,18 +354,30 @@ const posV = new THREE.Vector3()
 const q = new THREE.Quaternion()
 const oneV = new THREE.Vector3(1, 1, 1)
 const eul = new THREE.Euler()
+let honkCooldown = 0
 
 const { onBeforeRender } = useLoop()
-onBeforeRender(({ delta }) => {
+onBeforeRender(({ delta, elapsed }) => {
   const dt = Math.min(delta || 0.016, 0.1)
+  probeReset()
 
-  CLASSES.forEach((c, ci) => {
+  // ---------------- signal lamp colors
+  for (let si = 0; si < SIGNALS.length && si < lampMats.length; si++) {
+    const ph = signalPhase(SIGNALS[si], elapsed)
+    lampMats[si].red.color.set(ph === 'red' ? LIT.red : '#3a2622')
+    lampMats[si].amber.color.set(ph === 'amber' ? LIT.amber : '#3a3222')
+    lampMats[si].green.color.set(ph === 'green' ? LIT.green : '#1e3324')
+  }
+
+  // ---------------- drive every ambient vehicle
+  for (let ci = 0; ci < CLASSES.length; ci++) {
     const mesh = meshes[ci]
-    if (!mesh) return
+    if (!mesh) continue
     const cars = carsByClass[ci]
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]
-      car.s += car.speed * car.dir * dt
+      // route position + heading
+      car.s += car.v * car.dir * dt
       if (car.s >= car.route.total) {
         car.s = car.route.total - 0.1
         car.dir = -1
@@ -274,23 +387,125 @@ onBeforeRender(({ delta }) => {
       }
       routePoint(car.route, car.s, tmp)
       const off = car.route.rw * 0.24 + 0.55
-      const x = tmp.x + -tmp.fz * off * car.dir
-      const z = tmp.z + tmp.fx * off * car.dir
-      const heading = Math.atan2(tmp.fx * car.dir, tmp.fz * car.dir)
-      m4.compose(posV.set(x, 0, z), q.setFromEuler(eul.set(0, heading, 0)), oneV)
+      car.x = tmp.x + -tmp.fz * off * car.dir
+      car.z = tmp.z + tmp.fx * off * car.dir
+      car.fx = tmp.fx * car.dir
+      car.fz = tmp.fz * car.dir
+      car.h = Math.atan2(car.fx, car.fz)
+
+      // target speed: base, then constraints
+      let target = car.base
+
+      // traffic signals: stop line 3.2 before the head
+      for (const sig of SIGNALS) {
+        const dx = sig.x - car.x
+        const dz = sig.z - car.z
+        const along = dx * car.fx + dz * car.fz
+        if (along < 0.8 || along > 34) continue
+        const side = Math.abs(dx * -car.fz + dz * car.fx)
+        if (side > sig.rw / 2 + 1.6) continue
+        const ph = signalPhase(sig, elapsed)
+        if (ph === 'green') continue
+        const stopIn = along - 3.4
+        if (ph === 'red') {
+          target = Math.min(target, Math.max(0, (stopIn - 0.6) * 0.9))
+        } else {
+          // amber: stop when there is room, go when already close
+          if (stopIn > 5) target = Math.min(target, Math.max(0, (stopIn - 0.6) * 0.9))
+        }
+      }
+
+      // follow the vehicle ahead (any class, both directions considered)
+      for (const other of allCars) {
+        if (other === car) continue
+        const dx = other.x - car.x
+        const dz = other.z - car.z
+        const d2 = dx * dx + dz * dz
+        if (d2 > 121) continue
+        const along = dx * car.fx + dz * car.fz
+        if (along < 0.3) continue
+        const lat = Math.abs(dx * -car.fz + dz * car.fx)
+        if (lat > 2.0) continue
+        const gap = along - 2.6
+        target = Math.min(target, Math.max(0, (gap / 5.5) * other.v))
+      }
+
+      // the player's vehicle is an obstacle too
+      const pv = trafficProbe.player
+      if (pv) {
+        const dx = pv.x - car.x
+        const dz = pv.z - car.z
+        const along = dx * car.fx + dz * car.fz
+        const lat = Math.abs(dx * -car.fz + dz * car.fx)
+        if (along > 0.3 && along < 10 && lat < 2.2) {
+          target = Math.min(target, Math.max(0, ((along - 3) / 5) * trafficProbe.playerSpeed))
+        }
+      }
+
+      // market congestion: everyone crawls through the market front
+      const md = Math.hypot(car.x - MARKET.x, car.z - MARKET.z)
+      if (md < MARKET.r) {
+        target = Math.min(target, 7)
+      }
+
+      // accelerate / brake toward the target
+      if (car.v < target) car.v = Math.min(target, car.v + 9 * dt)
+      else car.v = Math.max(target, car.v - 14 * dt)
+      if (target < 0.2 && car.v < 0.25) car.v = 0
+
+      // honk when stuck (only near the player)
+      if (target < 0.3 && car.base > 8) {
+        car.stuck += dt
+        honkCooldown -= dt
+        if (car.stuck > 2.2 && honkCooldown <= 0 && Math.random() < 0.35) {
+          car.stuck = 0
+          honkCooldown = 3 + Math.random() * 6
+          const px = playerPosState.value
+          const d = Math.hypot(car.x - px[0], car.z - px[2])
+          if (d < 85) {
+            kkAudio.init()
+            kkAudio.horn(CLASSES[ci].kind)
+          }
+        }
+      } else {
+        car.stuck = 0
+      }
+
+      // draw
+      m4.compose(posV.set(car.x, 0, car.z), q.setFromEuler(eul.set(0, car.h, 0)), oneV)
       mesh.setMatrixAt(i, m4)
+
+      // publish to pedestrians + headlight slot
+      probePush(car.x, car.z, car.v, car.h, 1.6)
+      if (headlightM) {
+        const slot = classOffset[ci] + i
+        m4.compose(
+          posV.set(car.x + car.fx * 1.5, 0.55, car.z + car.fz * 1.5),
+          q.setFromEuler(eul.set(0, car.h, 0)),
+          oneV
+        )
+        headlightM.setMatrixAt(slot, m4)
+      }
     }
     mesh.instanceMatrix.needsUpdate = true
-  })
+  }
+  if (headlightM) {
+    headlightM.instanceMatrix.needsUpdate = true
+    const mat = headlightM.material as THREE.MeshBasicMaterial
+    mat.opacity = Math.max(0, (nightFactor.value - 0.3) / 0.7) * 0.85
+    headlightM.visible = mat.opacity > 0.02
+  }
 
   // train
   if (trainMesh && trainRoute) {
     trainS += 9 * dt
     if (trainS >= trainRoute.total - 30) trainS = 0
     routePoint(trainRoute, trainS, tmp)
+    trainX = tmp.x
+    trainZ = tmp.z
     trainMesh.position.set(tmp.x, 0, tmp.z)
     trainMesh.rotation.y = Math.atan2(tmp.fx, tmp.fz)
-    // smoke
+    probePush(tmp.x, tmp.z, 9, Math.atan2(tmp.fx, tmp.fz), 3.4)
     for (let i = 0; i < puffs.length; i++) {
       const age = ((performance.now() / 1000) * 0.9 + i / puffs.length) % 1
       const fx = Math.sin(trainMesh.rotation.y)
@@ -321,7 +536,7 @@ onBeforeRender(({ delta }) => {
       planeZ += Math.cos(planeHeading) * planeSpeed * dt
       if (planeSpeed > 24) planePhase = 'circle'
     } else if (planePhase === 'circle') {
-      const rate = 0.16 // rad/s, gentle bank
+      const rate = 0.16
       planeHeading += rate * dt
       turnAccum += rate * dt
       planeSpeed = Math.min(spec.maxSpeed * 0.72, planeSpeed)
@@ -348,8 +563,32 @@ onBeforeRender(({ delta }) => {
     plane.rotation.y = planeHeading
     plane.rotation.z = planePhase === 'circle' ? -0.16 : 0
     plane.rotation.x = planePhase === 'circle' ? 0.06 : planePhase === 'approach' ? -0.05 : 0
+    if (planePhase === 'roll' || planePhase === 'circle') {
+      probePush(planeX, planeZ, planeSpeed, planeHeading, 3.2)
+    }
   }
 })
+
+// first instance index of each class inside the shared headlight buffer
+const classOffset: number[] = []
+{
+  let acc = 0
+  for (const c of CLASSES) {
+    classOffset.push(acc)
+    acc += c.count
+  }
+}
+
+// headless verification probe
+if (import.meta.dev) {
+  ;(window as any).__kk_traffic = () => ({
+    cars: allCars.length,
+    stopped: allCars.filter((c) => c.v < 0.3).length,
+    signals: SIGNALS.length,
+    avgV: +(allCars.reduce((s, c) => s + c.v, 0) / Math.max(1, allCars.length)).toFixed(1),
+    probe: trafficProbe.cars.length
+  })
+}
 </script>
 
 <template>

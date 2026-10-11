@@ -17,6 +17,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { BAKE, BRIDGE_NAMES } from '~/utils/kaduna'
+import { crosswalks, roadMedians } from '~/utils/kadunaLighting'
 import {
   TOWERS,
   FARMS,
@@ -63,6 +64,8 @@ const bucketColor: Record<string, string> = {
   window: '#26323e',
   glass: '#8fb6c4',
   concrete: '#c8c4b8',
+  curb: '#c8c2b2',
+  median: '#c2bca9',
   soil: '#7a5c38',
   crop1: '#8fae4a',
   crop2: '#4f8f3f',
@@ -74,12 +77,28 @@ const bucketColor: Record<string, string> = {
   line: '#f0eee6'
 }
 
-// Nigerian wall palette (no red walls - that was the v2 complaint) and a
-// roof palette where red is a deliberate minority.
+// Nigerian wall palette (no red walls - that was the v2 complaint) and
+// roof palettes dominated by zinc silver, stone coated brown/green and
+// slate like the real city. Red is a deliberate rarity now, not a default.
 const WALLS = ['#e8dcc4', '#ece8dc', '#e9d78f', '#bcd8e0', '#a8b89a', '#c47a52', '#d8c8a0', '#e0b89a', '#c8c8c2', '#b8d4c0']
-const ROOFS_PITCH = ['#8a4a3a', '#6b7280', '#b04a3a', '#5d6e46', '#7d5a4a']
-const ROOFS_FLAT = ['#b8b4a8', '#9aa0a6', '#c8beb0', '#8a9298']
+// weighted pitch roof pick: zinc gray and silver first, then bronze,
+// stone green, brown, slate; brick red under 8 percent
+const ROOFS_PITCH = ['#6b7280', '#9aa0a6', '#8a6a4a', '#5d6e46', '#7d5a4a', '#4a5a6a', '#3f5a48', '#8a4a3a']
+const ROOFS_FLAT = ['#b8b4a8', '#9aa0a6', '#c8beb0', '#8a9298', '#a8a89e']
 const UMBRELLAS = ['#c94a3a', '#e8b84b', '#3f7d5b', '#3f6fae']
+
+function pickRoofPitch(h: number): string {
+  // cumulative weights: zinc 0.3, silver 0.2, bronze 0.14, green 0.12,
+  // brown 0.1, slate 0.08, deep green 0.04, red 0.02
+  if (h < 0.3) return ROOFS_PITCH[0]
+  if (h < 0.5) return ROOFS_PITCH[1]
+  if (h < 0.64) return ROOFS_PITCH[2]
+  if (h < 0.76) return ROOFS_PITCH[3]
+  if (h < 0.86) return ROOFS_PITCH[4]
+  if (h < 0.94) return ROOFS_PITCH[5]
+  if (h < 0.98) return ROOFS_PITCH[6]
+  return ROOFS_PITCH[7]
+}
 
 type Buckets = Record<string, THREE.BufferGeometry[]>
 
@@ -178,6 +197,8 @@ function buildCity(): {
     sprites.push({ texture: makeLabelTexture(text, color), x, y, z, w, h: w * 0.1875 })
   }
 
+  const rng = mulberry32(0x7ee5)
+
   // ---------------------------------------------------------------- ground
   // subdivided savanna: base greens, dry patches, lush band near water
   {
@@ -250,9 +271,17 @@ function buildCity(): {
   }
 
   // ---------------------------------------------------------------- roads
+  // real street section: compacted shoulder + concrete sidewalks with a
+  // curb line on both sides, asphalt on top, lane paint on main roads and
+  // zebra crossings at the busy spots
   const roadWidth = (cls: string) => (cls === 'trunk' ? 3.2 : cls === 'primary' ? 2.6 : 1.8)
   for (const r of BAKE.roads) {
-    ribbon('asphalt', r.pts, roadWidth(r.class), undefined, 0.04)
+    const rw = roadWidth(r.class)
+    // sidewalk slab under the whole street section (white vertex colors so
+    // the bucket material color lands exactly, not squared)
+    ribbon('concrete', r.pts, rw + 3.6, '#ffffff', 0.028)
+    ribbon('curb', r.pts, rw + 3.2, '#ffffff', 0.05)
+    ribbon('asphalt', r.pts, rw, '#ffffff', 0.06)
     if (r.class === 'trunk' || r.class === 'primary') {
       for (let i = 0; i < r.pts.length - 1; i++) {
         const [ax, az] = r.pts[i]
@@ -261,9 +290,32 @@ function buildCity(): {
         const n = Math.max(1, Math.floor(len / 9))
         for (let k = 0; k < n; k++) {
           const t = (k + 0.5) / n
-          box('gold', 0.28, 0.02, 1.6, ax + (bx - ax) * t, 0.09, az + (bz - az) * t, Math.atan2(bz - az, bx - ax))
+          box('gold', 0.28, 0.02, 1.6, ax + (bx - ax) * t, 0.1, az + (bz - az) * t, Math.atan2(bz - az, bx - ax))
         }
       }
+    }
+  }
+
+  // zebra crossings (shared with the pedestrian AI so people cross here)
+  for (const cw of crosswalks()) {
+    const stripes = Math.ceil((cw.rw + 2.6) / 1.15)
+    for (let k = 0; k < stripes; k++) {
+      const off = (k - (stripes - 1) / 2) * 1.15
+      const sx = cw.x + cw.nx * off
+      const sz = cw.z + cw.nz * off
+      box('white', 2.3, 0.025, 0.55, sx, 0.085, sz, Math.atan2(cw.fx, cw.fz))
+    }
+    // stop line on the approach side
+    box('white', 0.35, 0.025, cw.rw + 2.2, cw.x + cw.fx * 2.6, 0.085, cw.z + cw.fz * 2.6, Math.atan2(cw.nx, cw.nz))
+  }
+
+  // boulevard medians between twin carriageways (raised concrete island)
+  for (const md of roadMedians()) {
+    ribbon('median', md.pts, 2.0, '#ffffff', 0.09)
+    // palms along the island
+    for (let i = 2; i < md.pts.length - 2; i += 6) {
+      const [mx, mz] = md.pts[i]
+      tree(mx, mz, 0.9, 2)
     }
   }
 
@@ -360,7 +412,7 @@ function buildCity(): {
       box('roof', w + 0.5, 0.32, d + 0.5, x, hh + 0.16, z, rot, ROOFS_FLAT[Math.floor(h3 * ROOFS_FLAT.length)])
       if (h3 > 0.68) cyl('dark', 0.55, 0.55, 0.9, 8, x + w * 0.22, hh + 0.75, z - d * 0.18)
     } else {
-      cone('roof', Math.max(w, d) * 0.74, 1.9, 4, x, hh + 0.95, z, rot + Math.PI / 4, ROOFS_PITCH[ri % ROOFS_PITCH.length])
+      cone('roof', Math.max(w, d) * 0.74, 1.9, 4, x, hh + 0.95, z, rot + Math.PI / 4, pickRoofPitch(hash01(x, z, 77)))
     }
 
     // door faces the nearest road
@@ -400,7 +452,6 @@ function buildCity(): {
   }
 
   // ---------------------------------------------------------------- trees
-  const rng = mulberry32(0x7ee5)
   function tree(x: number, z: number, s: number, species: number) {
     if (species === 0) {
       // neem: dense round canopy
@@ -521,20 +572,19 @@ function buildCity(): {
         break
       }
       case 'market': {
+        // NOTE: the shed grid + pad are rendered by WorldScene (server
+        // entity). Duplicating them here z-fights, so this pass only adds
+        // the life: vendor tables, goods, umbrellas and perimeter stalls.
         for (let r = 0; r < 4; r++) {
           for (let c = 0; c < 6; c++) {
             const sx = x - 21 + c * 8.4
             const sz = z - 12 + r * 8
-            box('wall', 6.4, 2.6, 5.2, sx, 1.3, sz, 0, '#5d6e46')
-            box('roof', 7.2, 0.3, 6.2, sx, 2.85, sz, 0, r % 2 ? '#b8433a' : '#e8b84b')
-            // vendor table + goods
             box('trunk', 4.2, 0.75, 2.2, sx, 0.38, sz + 3.6)
             box('crop2', 1.1, 0.5, 1.0, sx - 1.2, 1.0, sz + 3.5)
             box('white', 0.9, 0.6, 0.9, sx + 0.2, 1.05, sz + 3.7, 0, UMBRELLAS[(r + c) % 4])
             box('crop1', 1.2, 0.4, 1.1, sx + 1.3, 0.95, sz + 3.6)
           }
         }
-        box('stone', 46, 0.1, 34, x, 0.06, z, 0, '#a89f85')
         // perimeter stalls with umbrellas
         for (let i = 0; i < 10; i++) {
           const a = (i / 10) * Math.PI * 2
@@ -728,7 +778,7 @@ function buildCity(): {
           const hx = x - 48 + (i % 4) * 30
           const hz = z - 22 + Math.floor(i / 4) * 20
           box('white', 9, 3.6, 7, hx, 1.8, hz, 0, '#efe9dc')
-          cone('roof', 6.4, 2, 4, hx, 4.6, hz, Math.PI / 4, '#b04a3a')
+          cone('roof', 6.4, 2, 4, hx, 4.6, hz, Math.PI / 4, pickRoofPitch(hash01(hx, hz, 91)))
           tree(hx + 9, hz + 6, 1.2, i % 2 ? 0 : 1)
         }
         box('gold', 7, 3.4, 0.4, x, 1.7, z - 40, 0, '#d8b13c')

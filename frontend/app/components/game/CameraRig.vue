@@ -75,10 +75,24 @@ onBeforeRender(({ delta }) => {
   const cam = camera.value
   if (!cam) return
   const k = 1 - Math.pow(0.0015, Math.min(delta || 0.016, 0.1)) // frame-rate safe damping
-  smooth.yaw += (orbit.value.yaw - smooth.yaw) * k
-  smooth.pitch += (orbit.value.pitch - smooth.pitch) * k
-  smooth.dist += (orbit.value.dist - smooth.dist) * k
 
+  // inside a house the camera must stay INSIDE the room: clamp the orbit
+  // radius and pitch so we never pull through a wall or the ceiling
+  if (interior.value.inside) {
+    orbit.value.dist = Math.min(orbit.value.dist, 3.6)
+    orbit.value.pitch = Math.max(0.12, Math.min(orbit.value.pitch, 0.62))
+  }
+  if (snapNext) {
+    // instant framing (entering a house / leaving it) - no slow damping
+    snapNext = false
+    smooth.yaw = orbit.value.yaw
+    smooth.pitch = orbit.value.pitch
+    smooth.dist = orbit.value.dist
+  } else {
+    smooth.yaw += (orbit.value.yaw - smooth.yaw) * k
+    smooth.pitch += (orbit.value.pitch - smooth.pitch) * k
+    smooth.dist += (orbit.value.dist - smooth.dist) * k
+  }
   // cockpit view: camera rides inside the vehicle, looking forward
   if (ride.value.active && ride.value.inner && ridePose.active) {
     const h = ridePose.heading
@@ -101,10 +115,31 @@ onBeforeRender(({ delta }) => {
     vy + 1.4 + Math.sin(smooth.pitch) * smooth.dist,
     pz + Math.cos(smooth.yaw) * horiz
   )
-  cam.position.lerp(desired, k)
+  if (snapNext) {
+    snapNext = false
+    cam.position.copy(desired)
+  } else {
+    cam.position.lerp(desired, k)
+  }
   followTarget.set(px, vy + 1.6, pz)
   cam.lookAt(followTarget)
 })
+
+// entering a house snaps the camera to a cozy interior framing
+let snapNext = false
+watch(
+  () => interior.value.inside,
+  (inside) => {
+    if (inside) {
+      orbit.value.dist = 3.6
+      orbit.value.pitch = 0.3
+    } else {
+      orbit.value.dist = 20
+      orbit.value.pitch = 0.58
+    }
+    snapNext = true
+  }
+)
 </script>
 
 <template>

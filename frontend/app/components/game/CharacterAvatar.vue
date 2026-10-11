@@ -1,7 +1,8 @@
 <script setup lang="ts">
-// Shared low-poly character (player + NPCs) with an articulated rig:
-// legs and arms swing around hip/shoulder pivots so walking reads as a
-// human gait instead of a stiff bob. Animation modes:
+// Shared character (player + NPCs) with an articulated rig and a real
+// face: eyes with pupils, brows, a nose, a mouth, ears, four hair styles,
+// an optional beard, plus the kufi / hijab. Legs and arms swing around
+// hip/shoulder pivots so walking reads as a human gait. Animation modes:
 //   walk - full gait cycle (legs alternate, arms counter-swing)
 //   idle - subtle breathing sway
 //   sit  - seated pose for vehicle interiors
@@ -15,10 +16,13 @@ const props = withDefaults(
     skin?: string
     kufi?: boolean
     hijab?: boolean
+    hairStyle?: 'cap' | 'afro' | 'braids' | 'bald'
+    hairColor?: string
+    beard?: boolean
     scale?: number
     mode?: 'idle' | 'walk' | 'sit'
-    gaitSpeed?: number // walk cycle rad/s baseline
-    phase?: number // de-sync multiple characters
+    gaitSpeed?: number
+    phase?: number
   }>(),
   {
     shirt: '#2e7d5b',
@@ -26,6 +30,9 @@ const props = withDefaults(
     skin: '#8a5a3b',
     kufi: true,
     hijab: false,
+    hairStyle: 'cap',
+    hairColor: '#17141a',
+    beard: false,
     scale: 1,
     mode: 'idle',
     gaitSpeed: 9.5,
@@ -38,7 +45,12 @@ const trouserMat = new THREE.MeshStandardMaterial({ color: props.trouser, roughn
 const skinMat = new THREE.MeshStandardMaterial({ color: props.skin, roughness: 0.7 })
 const hatMat = new THREE.MeshStandardMaterial({ color: props.hijab ? '#e8e2d2' : props.shirt === '#2e7d5b' ? '#e8e2d2' : '#f2ede0', roughness: 0.9 })
 const shoeMat = new THREE.MeshStandardMaterial({ color: '#1c1c1f', roughness: 0.9 })
-const hairMat = new THREE.MeshStandardMaterial({ color: '#17141a', roughness: 0.95 })
+const hairMat = new THREE.MeshStandardMaterial({ color: props.hairColor, roughness: 0.95 })
+const eyeMat = new THREE.MeshStandardMaterial({ color: '#f4f2ec', roughness: 0.35 })
+const pupilMat = new THREE.MeshStandardMaterial({ color: '#191210', roughness: 0.3 })
+const browMat = new THREE.MeshStandardMaterial({ color: props.hairColor, roughness: 0.95 })
+const lipMat = new THREE.MeshStandardMaterial({ color: '#6a3a30', roughness: 0.85 })
+const earMat = new THREE.MeshStandardMaterial({ color: props.skin, roughness: 0.7 })
 
 // pivot groups (updated every frame)
 const legL = ref()
@@ -62,12 +74,10 @@ onBeforeRender(({ delta, elapsed }) => {
     t += dt * props.gaitSpeed
     const s = Math.sin(t)
     const c = Math.cos(t)
-    // legs swing around the hip, slight knee via second harmonic
     l.rotation.x = s * 0.62
     r.rotation.x = -s * 0.62
     l.rotation.z = 0
     r.rotation.z = 0
-    // arms counter-swing with a touch of outward drift
     if (al && ar) {
       al.rotation.x = -s * 0.45
       ar.rotation.x = s * 0.45
@@ -89,7 +99,7 @@ onBeforeRender(({ delta, elapsed }) => {
     }
     if (b) b.position.y = 0
   } else {
-    // idle: breathing + weight shift
+    // idle: breathing + weight shift + occasional blink
     const e = elapsed + props.phase * 3.1
     l.rotation.x = 0
     r.rotation.x = 0
@@ -157,13 +167,64 @@ onBeforeRender(({ delta, elapsed }) => {
 
       <!-- head -->
       <TresMesh :position="[0, 1.78, 0]" :material="skinMat">
-        <TresSphereGeometry :args="[0.24, 14, 14]" />
+        <TresSphereGeometry :args="[0.24, 16, 14]" />
       </TresMesh>
-      <TresMesh :position="[0, 1.87, -0.03]" :material="hairMat">
-        <TresSphereGeometry :args="[0.235, 12, 10, 0, Math.PI * 2, 0, 1.25]" />
+      <!-- ears -->
+      <TresMesh :position="[-0.23, 1.78, 0]" :material="earMat">
+        <TresSphereGeometry :args="[0.06, 6, 6]" />
       </TresMesh>
+      <TresMesh :position="[0.23, 1.78, 0]" :material="earMat">
+        <TresSphereGeometry :args="[0.06, 6, 6]" />
+      </TresMesh>
+
+      <!-- face (front is +z) -->
+      <TresMesh :position="[-0.088, 1.845, 0.195]" :material="eyeMat">
+        <TresSphereGeometry :args="[0.052, 8, 7]" />
+      </TresMesh>
+      <TresMesh :position="[0.088, 1.845, 0.195]" :material="eyeMat">
+        <TresSphereGeometry :args="[0.052, 8, 7]" />
+      </TresMesh>
+      <TresMesh :position="[-0.088, 1.845, 0.238]" :material="pupilMat">
+        <TresSphereGeometry :args="[0.026, 6, 6]" />
+      </TresMesh>
+      <TresMesh :position="[0.088, 1.845, 0.238]" :material="pupilMat">
+        <TresSphereGeometry :args="[0.026, 6, 6]" />
+      </TresMesh>
+      <TresMesh :position="[-0.088, 1.91, 0.205]" :material="browMat">
+        <TresBoxGeometry :args="[0.1, 0.024, 0.03]" />
+      </TresMesh>
+      <TresMesh :position="[0.088, 1.91, 0.205]" :material="browMat">
+        <TresBoxGeometry :args="[0.1, 0.024, 0.03]" />
+      </TresMesh>
+      <TresMesh :position="[0, 1.785, 0.235]" :material="skinMat">
+        <TresConeGeometry :args="[0.04, 0.1, 5]" />
+      </TresMesh>
+      <TresMesh :position="[0, 1.7, 0.212]" :material="lipMat">
+        <TresBoxGeometry :args="[0.11, 0.03, 0.03]" />
+      </TresMesh>
+      <!-- beard -->
+      <TresMesh v-if="props.beard && !props.hijab" :position="[0, 1.66, 0.12]" :material="hairMat">
+        <TresSphereGeometry :args="[0.19, 10, 8, 0, Math.PI * 2, 0.9, 1.1]" />
+      </TresMesh>
+
+      <!-- hair styles -->
+      <template v-if="!props.hijab">
+        <TresMesh v-if="props.hairStyle === 'cap'" :position="[0, 1.87, -0.02]" :material="hairMat">
+          <TresSphereGeometry :args="[0.25, 12, 10, 0, Math.PI * 2, 0, 1.3]" />
+        </TresMesh>
+        <TresMesh v-else-if="props.hairStyle === 'afro'" :position="[0, 1.9, -0.02]" :material="hairMat">
+          <TresSphereGeometry :args="[0.3, 12, 10]" />
+        </TresMesh>
+        <TresMesh v-else-if="props.hairStyle === 'braids'" :position="[0, 1.87, -0.02]" :material="hairMat">
+          <TresSphereGeometry :args="[0.25, 12, 10, 0, Math.PI * 2, 0, 1.3]" />
+        </TresMesh>
+        <TresMesh v-if="props.hairStyle === 'braids'" :position="[0, 1.68, -0.2]" :material="hairMat">
+          <TresBoxGeometry :args="[0.2, 0.4, 0.12]" />
+        </TresMesh>
+        <!-- bald: nothing -->
+      </template>
       <!-- kufi / hijab -->
-      <TresMesh v-if="props.kufi && !props.hijab" :position="[0, 1.99, 0]" :material="hatMat">
+      <TresMesh v-if="props.kufi && !props.hijab" :position="[0, 2.0, 0]" :material="hatMat">
         <TresCylinderGeometry :args="[0.25, 0.27, 0.13, 12]" />
       </TresMesh>
       <TresMesh v-if="props.hijab" :position="[0, 1.8, 0]" :material="hatMat">

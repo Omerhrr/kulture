@@ -9,9 +9,11 @@
 // speeds stay under the server envelope (48 u/s), so no reconciliation
 // snaps occur while driving.
 import * as THREE from 'three'
-import { BUILDINGS, clampBounds, unstick } from '~/utils/collision'
+import { BUILDINGS, clampBounds, unstick, setVehicleObstacles } from '~/utils/collision'
 import { waterDist } from '~/utils/kadunaExtras'
 import { ridePose } from '~/utils/rideState'
+import { trafficProbe } from '~/utils/trafficProbe'
+import { kkAudio } from '~/utils/audio'
 import { vehicleSpec, buildInterior, buildDriverFigure, type VehicleKind } from '~/utils/vehicles'
 import { BAKE } from '~/utils/kaduna'
 import { useKeyboard } from '~/composables/useKeyboard'
@@ -60,8 +62,18 @@ function boatSpot(): [number, number] {
 onMounted(() => {
   try {
     mountFleet()
+    // parked vehicles block the player on foot (no more walking through cars)
+    setVehicleObstacles(
+      fleet.map((p) => ({
+        x: p.x,
+        z: p.z,
+        w: vehicleSpec(p.kind).radius * 2.4,
+        d: vehicleSpec(p.kind).radius * 2.4
+      }))
+    )
     window.addEventListener('kk-ride-toggle', onToggle)
     window.addEventListener('kk-ride-view', toggleView)
+    window.addEventListener('kk-horn', onHorn)
   } catch (e) {
     ;(window as any).__kk_ride_err = String((e as Error)?.stack || e)
     throw e
@@ -149,7 +161,13 @@ function mountFleet() {
 onBeforeUnmount(() => {
   window.removeEventListener('kk-ride-toggle', onToggle)
   window.removeEventListener('kk-ride-view', toggleView)
+  window.removeEventListener('kk-horn', onHorn)
 })
+
+function onHorn() {
+  kkAudio.init()
+  kkAudio.horn(current?.kind ?? 'car')
+}
 
 // ---------------------------------------------------------------- state
 let current: Parked | null = null
@@ -233,6 +251,9 @@ function exitVehicle() {
   ride.value.name = ''
   ride.value.speed = 0
   ridePose.active = false
+  trafficProbe.player = null
+  trafficProbe.playerSpeed = 0
+  kkAudio.setEngine(false, 0, '')
   if (p.driver) p.driver.visible = false
   if (p.interior) p.interior.visible = false
   current = null
@@ -401,6 +422,11 @@ onBeforeRender(({ delta }) => {
   ridePose.z = p.z
   ridePose.heading = p.heading
   ridePose.speed = speed
+
+  // publish to the traffic probe so cars brake for you and peds dodge
+  trafficProbe.player = { x: p.x, z: p.z, v: Math.abs(speed), h: p.heading, r: spec.radius }
+  trafficProbe.playerSpeed = Math.abs(speed)
+  kkAudio.setEngine(true, Math.abs(speed), p.kind)
 
   // the world follows the vehicle
   playerPos.value = [p.x, 0, p.z]

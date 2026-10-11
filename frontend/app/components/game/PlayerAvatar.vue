@@ -10,6 +10,8 @@
 import * as THREE from 'three'
 import { collides, clampBounds } from '~/utils/collision'
 import { INTERIOR_DROP } from '~/utils/kadunaExtras'
+import { hashDist, roadHash } from '~/utils/kadunaExtras'
+import { kkAudio } from '~/utils/audio'
 
 const world = useWorldStore()
 const { isDown } = useKeyboard()
@@ -64,6 +66,7 @@ let targetStartDist = Infinity
 let lastProximityCheck = 0
 let lastSent = 0
 let lastSentKey = ''
+let stepDistance = 0
 
 onBeforeRender(({ delta }) => {
   const g = group.value
@@ -182,6 +185,17 @@ onBeforeRender(({ delta }) => {
     playerFacing.value = Math.atan2(vx, vz)
     playerPos.value[1] = 0
 
+    // footsteps: one click every ~2.1 units, surface aware
+    stepDistance += speed * dt
+    if (stepDistance > 2.1) {
+      stepDistance = 0
+      kkAudio.init()
+      const onRoad =
+        interior.value.inside ||
+        hashDist(roadHash(), playerPos.value[0], playerPos.value[2], 26) < 3.2
+      kkAudio.footstep(onRoad)
+    }
+
     const now = performance.now()
     const px = +playerPos.value[0].toFixed(2)
     const pz = +playerPos.value[2].toFixed(2)
@@ -228,6 +242,8 @@ onBeforeRender(({ delta }) => {
       shirt="#2e7d5b"
       trouser="#2b3440"
       :kufi="true"
+      hair-style="cap"
+      :beard="true"
       :mode="walking ? 'walk' : 'idle'"
       :gait-speed="sprinting ? 12.5 : 9.5"
     />

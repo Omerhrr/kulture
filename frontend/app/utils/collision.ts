@@ -64,6 +64,14 @@ export function setInteriorWalls(boxes: Box[] | null) {
   interiorWalls = boxes
 }
 
+// Parked / boardable vehicles block the player on foot (no more walking
+// through cars). RideSystem registers its fleet here on mount; while you
+// are driving, your own vehicle is excluded via the ride flag below.
+let vehicleBoxes: Box[] = []
+export function setVehicleObstacles(boxes: Box[]) {
+  vehicleBoxes = boxes
+}
+
 export function collides(x: number, z: number): boolean {
   if (interiorWalls) {
     for (const b of interiorWalls) {
@@ -78,12 +86,34 @@ export function collides(x: number, z: number): boolean {
       return true
     }
   }
+  for (const b of vehicleBoxes) {
+    if (Math.abs(x - b.x) < b.w / 2 + PLAYER_RADIUS && Math.abs(z - b.z) < b.d / 2 + PLAYER_RADIUS) {
+      return true
+    }
+  }
+  return false
+}
+
+/** Pedestrians use a smaller radius when testing the same boxes. */
+export function collidesRadius(x: number, z: number, r: number): boolean {
+  if (interiorWalls) {
+    for (const b of interiorWalls) {
+      if (Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r) return true
+    }
+    return false
+  }
+  for (const b of BUILDINGS) {
+    if (Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r) return true
+  }
   return false
 }
 
 /** True when the point is inside a footprint WITHOUT the player padding. */
 function insideCore(x: number, z: number): boolean {
   for (const b of BUILDINGS) {
+    if (Math.abs(x - b.x) < b.w / 2 && Math.abs(z - b.z) < b.d / 2) return true
+  }
+  for (const b of vehicleBoxes) {
     if (Math.abs(x - b.x) < b.w / 2 && Math.abs(z - b.z) < b.d / 2) return true
   }
   return false

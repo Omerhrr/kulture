@@ -10,17 +10,19 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { OPEN_HOUSES, INTERIOR_DROP, doorFront, type OpenHouse } from '~/utils/kadunaExtras'
 import { setInteriorWalls, type Box } from '~/utils/collision'
 import { makeLabelTexture } from '~/utils/sign'
-import { useInterior, useDoorPrompt, useRide } from '~/composables/useControlsState'
+import { useInterior, useDoorPrompt, useRide, useCamOrbit } from '~/composables/useControlsState'
 
 const ride = useRide()
 const interior = useInterior()
 const doorPrompt = useDoorPrompt()
+const orbit = useCamOrbit()
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
 
 interface Room {
   house: OpenHouse
   group: THREE.Group | null
   light: THREE.PointLight | null
+  fill: THREE.PointLight | null
   walls: Box[]
   rot: number
   W: number
@@ -41,6 +43,16 @@ const bx = (w: number, h: number, d: number, x: number, y: number, z: number) =>
 }
 const cylAt = (rt: number, rb: number, h: number, x: number, y: number, z: number) => {
   const g = new THREE.CylinderGeometry(rt, rb, h, 10)
+  g.translate(x, y, z)
+  return g
+}
+const coneAt = (r: number, h: number, x: number, y: number, z: number) => {
+  const g = new THREE.ConeGeometry(r, h, 10)
+  g.translate(x, y, z)
+  return g
+}
+const sphereAt = (r: number, x: number, y: number, z: number) => {
+  const g = new THREE.SphereGeometry(r, 10, 8)
   g.translate(x, y, z)
   return g
 }
@@ -75,6 +87,10 @@ function buildRoom(W: number, D: number): THREE.BufferGeometry {
   // floor + ceiling
   push(parts, '#b8a888', bx(W, 0.2, D, 0, -0.1, 0))
   push(parts, '#e8e4d8', bx(W + 0.4, 0.2, D + 0.4, 0, wallH + 0.1, 0))
+  // ceiling lamp fixture hangs in the middle
+  push(parts, '#3a2a1a', cylAt(0.03, 0.03, 0.5, 0, wallH - 0.15, 0))
+  push(parts, '#ffe9b8', coneAt(0.34, 0.3, 0, wallH - 0.42, 0))
+
   // outer walls, door gap (1.8) centered on the +z edge
   push(parts, '#e2d6c0', bx(W, wallH, t, 0, wallH / 2, -D / 2)) // back
   push(parts, '#e2d6c0', bx(t, wallH, D, -W / 2, wallH / 2, 0)) // left
@@ -84,6 +100,27 @@ function buildRoom(W: number, D: number): THREE.BufferGeometry {
   push(parts, '#e2d6c0', bx(segW, wallH, t, 1.8 / 2 + segW / 2, wallH / 2, D / 2))
   // lintel over the door
   push(parts, '#e2d6c0', bx(1.8, wallH - 2.2, t, 0, 2.2 + (wallH - 2.2) / 2, D / 2))
+
+  // curtained windows on the left wall (warm glow panels inside)
+  push(parts, '#fff3d0', bx(0.06, 1.1, 1.3, -W / 2 + t / 2 + 0.02, 1.7, -0.4))
+  push(parts, '#c47a52', bx(0.1, 1.25, 1.5, -W / 2 + t / 2 + 0.08, 1.7, -0.4))
+  push(parts, '#fff3d0', bx(0.06, 1.1, 1.3, W / 2 - t / 2 - 0.02, 1.7, 1.2))
+  push(parts, '#3f6fae', bx(0.1, 1.25, 1.5, W / 2 - t / 2 - 0.08, 1.7, 1.2))
+
+  // enclosed yard outside the door so the view out is a real place
+  const yard = 26
+  push(parts, '#7a8a56', bx(yard, 0.16, yard, 0, -0.14, D / 2 + yard / 2))
+  push(parts, '#a89a7a', bx(3.2, 0.14, 2.4, 0, -0.03, D / 2 + 1.9)) // front steps
+  // low compound wall flanking the yard, open toward the street
+  const fy = D / 2 + yard - 0.6
+  push(parts, '#c8c2b2', bx(yard, 1.5, 0.35, 0, 0.6, fy))
+  push(parts, '#c8c2b2', bx(0.35, 1.5, yard, -yard / 2 + 0.2, 0.6, D / 2 + yard / 2))
+  push(parts, '#c8c2b2', bx(0.35, 1.5, yard, yard / 2 - 0.2, 0.6, D / 2 + yard / 2))
+  // a neem tree + clothesline in the yard
+  push(parts, '#7a5c3a', cylAt(0.14, 0.22, 2.6, -5.5, 1.2, D / 2 + 5))
+  push(parts, '#4f7d3f', sphereAt(1.5, -5.5, 3.1, D / 2 + 5))
+  push(parts, '#6b4a2f', cylAt(0.05, 0.05, 0.05, 3.2, 1.6, D / 2 + 4))
+  push(parts, '#d8d8d0', bx(1.1, 0.02, 0.7, 2.7, 1.52, D / 2 + 4.2))
 
   // bedroom partition (back-left corner)
   const bz = -D / 2 + 4.4
@@ -225,8 +262,9 @@ onMounted(() => {
     const W = h.nz !== 0 ? h.w : h.d
     const D = h.nz !== 0 ? h.d : h.w
 
-    // furnished room below the footprint
-    const room = new THREE.Mesh(buildRoom(W, D), new THREE.MeshLambertMaterial({ vertexColors: true }))
+    // furnished room below the footprint; DoubleSide so the walls are
+    // solid when seen from inside (the isolation fix)
+    const room = new THREE.Mesh(buildRoom(W, D), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }))
     room.receiveShadow = false
     room.castShadow = false
     const holder = new THREE.Group()
@@ -235,9 +273,12 @@ onMounted(() => {
     holder.rotation.y = rot
     g.add(holder)
 
-    const light = new THREE.PointLight('#ffe8c8', 0, 26, 1.6)
-    light.position.set(h.x, -INTERIOR_DROP + 2.6, h.z)
+    const light = new THREE.PointLight('#ffe8c8', 0, 34, 1.3)
+    light.position.set(h.x, -INTERIOR_DROP + 2.5, h.z)
     g.add(light)
+    const fill = new THREE.PointLight('#dff0ff', 0, 24, 1.6)
+    fill.position.set(h.x - 2, -INTERIOR_DROP + 1.6, h.z + 2)
+    g.add(fill)
 
     // doorway dressing in the street
     const dw = buildDoorway(h)
@@ -252,7 +293,7 @@ onMounted(() => {
     g.add(dHolder)
     signs.value.push({ tex: dw.sign, x: fx + h.nx * 0.6, y: 3.4, z: fz + h.nz * 0.6 })
 
-    rooms.push({ house: h, group: holder, light, walls: roomWalls(h), rot, W, D })
+    rooms.push({ house: h, group: holder, light, fill, walls: roomWalls(h), rot, W, D })
   }
 })
 
@@ -295,13 +336,17 @@ function enter(slot: number) {
   setInteriorWalls(r.walls)
   interior.value = { inside: true, name: r.house.name }
   doorPrompt.value = null
-  if (r.light) r.light.intensity = 1.15
+  if (r.light) r.light.intensity = 1.35
+  if (r.fill) r.fill.intensity = 0.5
   // step just inside the entry
   const cos = Math.round(Math.cos(r.rot))
   const sin = Math.round(Math.sin(r.rot))
   const lx = 0
   const lz = r.D / 2 - 1.3
   playerPos.value = [r.house.x + lx * cos + lz * sin, 0, r.house.z - lx * sin + lz * cos]
+  // face into the room at a slight angle so the first view shows the
+  // living room furniture, not just the far wall
+  orbit.value.yaw = r.rot + Math.PI - 0.55
 }
 
 function exit(slot: number) {
@@ -311,6 +356,7 @@ function exit(slot: number) {
   interior.value = { inside: false, name: '' }
   doorPrompt.value = null
   if (r.light) r.light.intensity = 0
+  if (r.fill) r.fill.intensity = 0
   const [fx, fz] = doorFront(r.house)
   playerPos.value = [fx + r.house.nx * 0.8, 0, fz + r.house.nz * 0.8]
 }

@@ -17,6 +17,15 @@ const wallMusa = new THREE.MeshStandardMaterial({ color: '#7C4A2D', roughness: 0
 const roofMusa = new THREE.MeshStandardMaterial({ color: '#c8c2b6', roughness: 0.6, metalness: 0.25 })
 const wallArewa = new THREE.MeshStandardMaterial({ color: '#c9b18a', roughness: 0.8 })
 const wallShed = new THREE.MeshStandardMaterial({ color: '#5d6e46', roughness: 0.9 })
+// market shed roofs: varied zinc / stone coated colors, red only a hint
+const shedRoofs = [
+  new THREE.MeshStandardMaterial({ color: '#6b7280', roughness: 0.55, metalness: 0.3 }),
+  new THREE.MeshStandardMaterial({ color: '#e8b84b', roughness: 0.7 }),
+  new THREE.MeshStandardMaterial({ color: '#3f7d5b', roughness: 0.7 }),
+  new THREE.MeshStandardMaterial({ color: '#9aa0a6', roughness: 0.55, metalness: 0.3 }),
+  new THREE.MeshStandardMaterial({ color: '#b8433a', roughness: 0.7 }),
+  new THREE.MeshStandardMaterial({ color: '#4a5a6a', roughness: 0.6 })
+]
 const awning1 = new THREE.MeshStandardMaterial({ color: '#b8433a', roughness: 0.8 })
 const awning2 = new THREE.MeshStandardMaterial({ color: '#e8b84b', roughness: 0.8 })
 const woodMat = new THREE.MeshStandardMaterial({ color: '#6b4a2f', roughness: 0.95 })
@@ -122,7 +131,7 @@ const labels = computed(() => {
         <TresMesh :position="[s[0], 1.3, s[1]]" cast-shadow :material="wallShed">
           <TresBoxGeometry :args="[6.4, 2.6, 5.2]" />
         </TresMesh>
-        <TresMesh :position="[s[0], 2.85, s[1]]" cast-shadow :material="s[2] === 0 ? awning1 : awning2">
+        <TresMesh :position="[s[0], 2.85, s[1]]" cast-shadow :material="shedRoofs[(i % 6 + Math.floor(i / 6)) % shedRoofs.length]">
           <TresBoxGeometry :args="[7.2, 0.3, 6.2]" />
         </TresMesh>
       </TresGroup>

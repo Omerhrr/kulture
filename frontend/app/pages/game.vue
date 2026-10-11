@@ -25,12 +25,18 @@ const authBusy = ref(false)
 
 const ready = ref(false)
 
-// unified action key: exit vehicle > board vehicle > door > entity interact
+// unified action key: exit vehicle > board vehicle > chat to a pedestrian >
+// door > entity interact
 function tryInteract() {
   const ride = useRide().value
+  const pedPrompt = useState<{ id: number } | null>('kk_ped_prompt').value
   const doorPrompt = useDoorPrompt().value
   if (ride.active || ride.prompt) {
     fireKkEvent('kk-ride-toggle')
+    return
+  }
+  if (pedPrompt) {
+    fireKkEvent('kk-ped-talk')
     return
   }
   if (doorPrompt) {
@@ -54,6 +60,12 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 't' || e.key === 'T') ui.open('ledger')
   if (e.key === 'm' || e.key === 'M') mapOpen.value = !mapOpen.value
   if (e.key === 'v' || e.key === 'V') fireKkEvent('kk-ride-view')
+  if (e.key === 'n' || e.key === 'N') fireKkEvent('kk-time-skip')
+  if (e.key === 'h' || e.key === 'H') fireKkEvent('kk-horn')
+  if (e.key === 'p' || e.key === 'P') {
+    const t = window as any
+    if (t.__kk_toggle_mute) t.__kk_toggle_mute()
+  }
 }
 
 async function bootstrap() {
@@ -255,6 +267,7 @@ function fmtNgn(minor: number) {
       <MapOverlay />
       <MobileControls />
       <InteractionPrompt />
+      <AudioSystem />
       <ShopPanel v-if="ui.openPanel === 'shop'" />
       <InventoryPanel v-if="ui.openPanel === 'inventory'" />
       <JobsPanel v-if="ui.openPanel === 'jobs'" />
@@ -323,14 +336,15 @@ function fmtNgn(minor: number) {
         class="pointer-events-none absolute bottom-4 left-4 z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
         <div>WASD or arrows to walk · Shift to sprint · click the ground to go there</div>
-        <div>E board a keke, car, okada, bus, boat or plane · V inner view · M city map</div>
+        <div>E talk, board a keke, car, okada, bus, boat or plane, or enter homes · V inner view</div>
+        <div>M city map · N skip 2 hours · H horn · P sound on/off</div>
       </div>
       <div
         v-else
         class="pointer-events-none absolute bottom-44 left-1/2 z-20 -translate-x-1/2 rounded-2xl bg-ink/45 px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
         <div>left stick to move (push fully to sprint) · drag to look · pinch to zoom</div>
-        <div>tap the ground to walk there · TALK to board vehicles and enter homes</div>
+        <div>tap the ground to walk there · TALK to chat, board vehicles and enter homes</div>
       </div>
     </template>
   </div>

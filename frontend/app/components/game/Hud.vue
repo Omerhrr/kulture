@@ -1,15 +1,27 @@
 <script setup lang="ts">
 // Top HUD: identity, balances (clearly separated asset classes per spec),
-// connection state, and world event banner.
+// connection state, the day/night clock and the world event banner.
+
+import { useClock, formatHour } from '~/composables/useTimeOfDay'
+import { fireKkEvent } from '~/composables/useControlsState'
 
 const player = usePlayerStore()
 const wsStatus = useState<'connecting' | 'open' | 'closed'>('kk_ws_status', () => 'closed')
 const world = useWorldStore()
 const mapOpen = useMapOpen()
+const hour = useClock()
 
 const emit = defineEmits<{
   (e: 'open', panel: 'inventory' | 'jobs' | 'ledger'): void
 }>()
+
+const phaseIcon = computed(() => {
+  const h = hour.value % 24
+  if (h >= 5 && h < 8) return '🌅'
+  if (h >= 8 && h < 17) return '☀️'
+  if (h >= 17 && h < 19.5) return '🌇'
+  return '🌙'
+})
 </script>
 
 <template>
@@ -37,8 +49,16 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <!-- right: panels + help -->
+    <!-- right: clock + panels + help -->
     <div class="pointer-events-auto flex items-center gap-2">
+      <button
+        class="kk-btn-ghost !px-3 font-mono text-sm"
+        title="Tap to skip 2 hours (N)"
+        @click="fireKkEvent('kk-time-skip')"
+      >
+        {{ phaseIcon }} {{ formatHour(hour) }}
+      </button>
+      <AudioSystem />
       <button class="kk-btn-ghost !px-3.5" title="City map (M)" @click="mapOpen = true">
         🗺 <span class="hidden sm:inline">Map</span>
       </button>
