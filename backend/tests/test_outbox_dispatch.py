@@ -1,7 +1,7 @@
 """Regression: the outbox poller must dispatch agent.trigger events.
 
 History: an ownership fix added "agent.trigger" to the poller's internal-skip
-set, but no dedicated worker owns that type — NPC dialogue silently died
+set, but no dedicated worker owns that type - NPC dialogue silently died
 (triggers accumulated as pending forever). This test locks the invariant:
 agent.trigger is dispatched by the poller itself.
 """
@@ -20,7 +20,7 @@ async def test_agent_trigger_not_in_poller_skip_set():
     from app.workers.runner import _INTERNAL_TYPES
 
     assert "agent.trigger" not in _INTERNAL_TYPES, (
-        "agent.trigger has no dedicated worker — the outbox poller must "
+        "agent.trigger has no dedicated worker - the outbox poller must "
         "dispatch it via _dispatch(); listing it as 'internal' kills all "
         "NPC dialogue"
     )

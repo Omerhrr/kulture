@@ -1,4 +1,4 @@
-"""Inventory service — transactional item grants (exactly-once fulfillment helper)."""
+"""Inventory service - transactional item grants (exactly-once fulfillment helper)."""
 
 from __future__ import annotations
 

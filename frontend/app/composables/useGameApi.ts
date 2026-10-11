@@ -1,4 +1,4 @@
-// Typed API client — the frontend has NO authority over game state.
+// Typed API client - the frontend has NO authority over game state.
 // All gameplay mutations go through the authoritative backend.
 
 import type {

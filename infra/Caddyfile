@@ -1,4 +1,4 @@
-# Caddy reverse proxy — routes the single public origin to the product.
+# Caddy reverse proxy - routes the single public origin to the product.
 # /api + /ws -> FastAPI; everything else -> Nuxt.
 
 :80 {

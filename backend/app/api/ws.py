@@ -1,4 +1,4 @@
-"""Game WebSocket — /ws/game?token=<jwt>
+"""Game WebSocket - /ws/game?token=<jwt>
 
 Client → server (validated, rate-limited):
   player.move      {position:[x,y,z], facing}   ≤ 20 Hz
@@ -13,7 +13,7 @@ Server → client (authoritative events only):
 Rules enforced here:
 - never accept a client message as proof of settlement
 - server-side distance validation for interactions (uses last reported move)
-- movement authority: speed envelope + world bounds — the server reconciles
+- movement authority: speed envelope + world bounds - the server reconciles
   every move against its own position; teleports are clamped, never trusted
 - reconnect support: state.resync returns full authoritative snapshot
 """
@@ -35,6 +35,10 @@ from app.events.bus import manager
 from app.events.outbox_service import emit
 from app.models.business import NPCAgent
 from app.services import inventory_service, player_service, world_service
+
+import logging
+
+logger = logging.getLogger("kk.ws")
 
 router = APIRouter()
 
@@ -68,10 +72,11 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
 
     player_id = profile.id
     await manager.connect(player_id, ws)
+    logger.info("ws connect player=%s sockets=%s", player_id, len(manager._connections.get(player_id, ())))
     mover = RateLimiter(settings.movement_rate_limit_hz)
     interactor = RateLimiter(2.0)  # interactions ≤ 2/s
 
-    # Seed the session position from the AUTHORITATIVE server state — never
+    # Seed the session position from the AUTHORITATIVE server state - never
     # from the client's first message (P1: server-authoritative movement).
     async with AsyncSessionLocal() as db:
         stored = await player_service.player_state(db, player_id)
@@ -226,7 +231,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 continue
 
             if mtype == "state.resync":
-                # Flush the live session position first — the DB lags behind
+                # Flush the live session position first - the DB lags behind
                 # the session by the persist throttle, and the snapshot (like
                 # REST interactions) must reflect the server's CURRENT belief.
                 if position_dirty:
@@ -259,6 +264,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
         raise
     finally:
         await manager.disconnect(player_id, ws)
+        logger.info("ws disconnect player=%s sockets=%s", player_id, len(manager._connections.get(player_id, ())))
         if position_dirty:
             try:
                 async with AsyncSessionLocal() as db:

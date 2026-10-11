@@ -1,10 +1,10 @@
-"""Jobs service — accept / pickup / complete with server-validated positions.
+"""Jobs service - accept / pickup / complete with server-validated positions.
 
 The delivery flow (spec KK-002):
-1. accept   — job must be `available`; becomes `assigned` to this player.
-2. pickup   — player must be within the pickup entity radius; grants the
+1. accept   - job must be `available`; becomes `assigned` to this player.
+2. pickup   - player must be within the pickup entity radius; grants the
               quest item `package_parcel`; job becomes `in_progress`.
-3. complete — player must be within the dropoff radius AND hold the parcel;
+3. complete - player must be within the dropoff radius AND hold the parcel;
               consumes it, pays NGN + reputation through the ledger.
 All position checks happen here, server-side, against authoritative state.
 """

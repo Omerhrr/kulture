@@ -1,4 +1,4 @@
-"""Lightning payment service — orchestrates the 10-step purchase flow.
+"""Lightning payment service - orchestrates the 10-step purchase flow.
 
 Critical guarantees implemented here (spec security_rules):
 - Settlement is processed idempotently: unique ``provider_event_id`` +
@@ -142,7 +142,7 @@ async def invoice_for_intent(db: AsyncSession, intent_id: str) -> tuple[PaymentI
 async def process_settlement(
     db: AsyncSession, event: SettlementEvent
 ) -> dict[str, str]:
-    """Step 7-8: verify, persist, and fulfill — exactly once.
+    """Step 7-8: verify, persist, and fulfill - exactly once.
 
     Returns an outcome: ``fulfilled`` | ``duplicate`` | ``rejected_<reason>``.
     """
@@ -156,7 +156,7 @@ async def process_settlement(
     if not inv:
         return {"outcome": "rejected_unknown_payment_hash"}
 
-    # Independent verification against the node/adapter — never trust the
+    # Independent verification against the node/adapter - never trust the
     # incoming event alone.
     if not await adapter.validate_settlement_event(event):
         return {"outcome": "rejected_unverified_by_node"}
@@ -168,7 +168,7 @@ async def process_settlement(
     if event.amount_paid_sats != intent.amount_sats or intent.amount_sats != inv.amount_sats:
         return {"outcome": "rejected_amount_mismatch"}
 
-    # 1) idempotent event record — unique provider_event_id
+    # 1) idempotent event record - unique provider_event_id
     payload_hash = hashlib.sha256(
         json.dumps({"h": event.payment_hash, "a": event.amount_paid_sats, "t": int(event.settled_at.timestamp())}, sort_keys=True).encode()
     ).hexdigest()
@@ -180,7 +180,7 @@ async def process_settlement(
     if existing_event and existing_event.processed_at:
         return {"outcome": "duplicate"}
 
-    # 2) exactly-once fulfillment guard — atomic status transition
+    # 2) exactly-once fulfillment guard - atomic status transition
     result = await db.execute(
         update(PaymentIntent)
         .where(PaymentIntent.id == intent_id, PaymentIntent.status != "settled")

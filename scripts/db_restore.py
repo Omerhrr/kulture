@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kaduna Kulture — restore a SQLite backup and verify its integrity.
+"""Kaduna Kulture - restore a SQLite backup and verify its integrity.
 
 Usage:
     python scripts/db_restore.py <backup.db> [target_db]

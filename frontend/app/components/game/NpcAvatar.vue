@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// NpcAvatar — server-positioned NPC with idle animation.
+// NpcAvatar - server-positioned NPC with idle animation.
 const props = withDefaults(
   defineProps<{
     x: number

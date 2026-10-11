@@ -53,28 +53,28 @@ async def test_region_payload(client, auth_headers, world_ctx):
 
 async def test_interaction_distance_validated_server_side(client, auth_headers, world_ctx):
     """Server-authoritative (P1): REST interactions use the SERVER-stored
-    position — the client-supplied position is never trusted."""
+    position - the client-supplied position is never trusted."""
     from app.db.session import AsyncSessionLocal
     from app.services import player_service
 
     entities = world_ctx["entities"]
     musa = entities["musa_shop"]
     spawn = entities["spawn_roadside"]
-    # from spawn — too far from the shop
+    # from spawn - too far from the shop
     far = await client.post(
         "/api/v1/interactions",
         headers=auth_headers,
         json={"entity_id": musa["id"], "position": [spawn["position"][0], 0, spawn["position"][2]]},
     )
     assert far.status_code == 422
-    # fabricated proximity — claiming to stand at the shop without moving there
+    # fabricated proximity - claiming to stand at the shop without moving there
     fake = await client.post(
         "/api/v1/interactions",
         headers=auth_headers,
         json={"entity_id": musa["id"], "position": musa["position"]},
     )
     assert fake.status_code == 422, "client position must not be trusted"
-    # after a REAL server-side move to the shop — allowed, offers shop options
+    # after a REAL server-side move to the shop - allowed, offers shop options
     me = (await client.get("/api/v1/players/me", headers=auth_headers)).json()
     async with AsyncSessionLocal() as db:
         await player_service.apply_movement(

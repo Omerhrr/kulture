@@ -1,7 +1,9 @@
 <script setup lang="ts">
-// PlayerAvatar — local movement prediction with server throttled sync,
+// PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
-// The server still validates every interaction distance (client is untrusted).
+// Inputs: WASD / arrow keys, plus click-to-move (kk_move_target from
+// PointerControls). The server still validates every interaction distance
+// and clamps the movement speed envelope (client is untrusted).
 
 import * as THREE from 'three'
 
@@ -15,8 +17,10 @@ const proximity = useState<{ entityId: string; name: string; code: string } | nu
   'kk_proximity',
   () => null
 )
+const moveTarget = useMoveTarget()
 
 const group = ref()
+const targetRing = ref()
 const walking = ref(false)
 const bobT = ref(0)
 
@@ -29,72 +33,117 @@ const socketSend = useState<(type: string, payload: Record<string, unknown>) => 
 if (import.meta.dev) {
   ;(window as any).__kk_teleport = (x: number, z: number) => {
     playerPos.value = [x, 0, z]
+    moveTarget.value = null
     socketSend.value('player.move', { position: [x, 0, z], facing: 0 })
   }
 }
-const BUILDINGS = [
-  // Building footprints for basic collision (matches WorldScene geometry).
-  { x: -20, z: -12, w: 14, d: 10 },   // Musa's store
-  { x: 0, z: -20, w: 3.4, d: 3.4 },   // POS kiosk
-  { x: -40, z: -36, w: 16, d: 12 },   // AREWA House
-  { x: 36, z: 24, w: 4, d: 4 },       // Stonetech monument
-  { x: 30, z: -24, w: 22, d: 14 },    // market stalls block
-  { x: -5.5, z: 31.5, w: 10, d: 4 }   // keke stop shelter
-]
 
 const SPEED = 9.5
+const ARRIVE_RADIUS = 0.45
+const TARGET_TIMEOUT = 4000 // ms: give up on targets we cannot reach
 
-function collides(x: number, z: number): boolean {
-  for (const b of BUILDINGS) {
-    if (
-      Math.abs(x - b.x) < b.w / 2 + 0.6 &&
-      Math.abs(z - b.z) < b.d / 2 + 0.6
-    ) {
-      return true
-    }
-  }
-  return false
-}
+let targetStartedAt = 0
+let targetStartDist = Infinity
 
 let lastProximityCheck = 0
 let lastSent = 0
+let lastSentKey = ''
 
-onBeforeRender(({ delta, elapsed }) => {
+onBeforeRender(({ delta }) => {
   const g = group.value
   if (!g) return
 
+  const dt = Math.min(delta || 0.016, 0.1) // clamp long stalls (tab switch)
+
+  // 1) keyboard intent
   let dx = 0
   let dz = 0
-  if (isDown('KeyW', 'ArrowUp')) dz -= 1
-  if (isDown('KeyS', 'ArrowDown')) dz += 1
-  if (isDown('KeyA', 'ArrowLeft')) dx -= 1
-  if (isDown('KeyD', 'ArrowRight')) dx += 1
+  if (isDown('KeyW', 'ArrowUp', 'z', 'w')) dz -= 1
+  if (isDown('KeyS', 'ArrowDown', 's')) dz += 1
+  if (isDown('KeyA', 'ArrowLeft', 'q', 'a')) dx -= 1
+  if (isDown('KeyD', 'ArrowRight', 'd')) dx += 1
 
-  const moving = dx !== 0 || dz !== 0
+  const keyMoving = dx !== 0 || dz !== 0
+  if (keyMoving) moveTarget.value = null // keys always win over click-to-move
+
+  // 2) click-to-move intent
+  let tdx = 0
+  let tdz = 0
+  const target = moveTarget.value
+  if (!keyMoving && target) {
+    // keep the destination inside the walkable world
+    const [txc, tzc] = clampWorld(target.x, target.z)
+    const tx = txc - playerPos.value[0]
+    const tz = tzc - playerPos.value[2]
+    const dist = Math.hypot(tx, tz)
+    if (dist <= ARRIVE_RADIUS) {
+      moveTarget.value = null
+    } else {
+      // progress guard: if a target became unreachable (blocked corner,
+      // clamp edge), abandon it instead of walking in place forever
+      if (targetStartedAt === 0 || dist + 0.5 < targetStartDist) {
+        targetStartedAt = performance.now()
+        targetStartDist = dist
+      } else if (performance.now() - targetStartedAt > TARGET_TIMEOUT) {
+        moveTarget.value = null
+        targetStartedAt = 0
+        targetStartDist = Infinity
+      }
+      tdx = tx / dist
+      tdz = tz / dist
+    }
+  }
+  if (!moveTarget.value) {
+    targetStartedAt = 0
+    targetStartDist = Infinity
+  }
+
+  const vx = keyMoving ? dx : tdx
+  const vz = keyMoving ? dz : tdz
+  const moving = vx !== 0 || vz !== 0
   walking.value = moving
 
+  // free the ring marker when idle
+  if (targetRing.value) targetRing.value.visible = !!moveTarget.value
+  if (moveTarget.value && targetRing.value) {
+    targetRing.value.position.set(moveTarget.value.x, 0.06, moveTarget.value.z)
+  }
+
+  const stuck = collides(playerPos.value[0], playerPos.value[2])
   if (moving) {
-    const len = Math.hypot(dx, dz) || 1
-    let nx = playerPos.value[0] + (dx / len) * SPEED * delta
-    let nz = playerPos.value[2] + (dz / len) * SPEED * delta
-    nx = Math.max(-58, Math.min(58, nx))
-    nz = Math.max(-58, Math.min(58, nz))
-    // axis-separated collision resolution
-    if (!collides(nx, playerPos.value[2])) playerPos.value[0] = nx
-    if (!collides(playerPos.value[0], nz)) playerPos.value[2] = nz
-    playerFacing.value = Math.atan2(dx, dz)
+    const len = Math.hypot(vx, vz) || 1
+    let nx = playerPos.value[0] + (vx / len) * SPEED * dt
+    let nz = playerPos.value[2] + (vz / len) * SPEED * dt
+    ;[nx, nz] = clampWorld(nx, nz)
+
+    if (stuck) {
+      // Spawned or pushed inside a footprint: walking out beats being trapped.
+      playerPos.value[0] = nx
+      playerPos.value[2] = nz
+    } else {
+      // axis-separated collision resolution
+      if (!collides(nx, playerPos.value[2])) playerPos.value[0] = nx
+      if (!collides(playerPos.value[0], nz)) playerPos.value[2] = nz
+    }
+    playerFacing.value = Math.atan2(vx, vz)
     playerPos.value[1] = 0
 
     const now = performance.now()
-    if (now - lastSent > 110) {
+    const px = +playerPos.value[0].toFixed(2)
+    const pz = +playerPos.value[2].toFixed(2)
+    const sendKey = `${px}:${pz}:${playerFacing.value.toFixed(2)}`
+    if (now - lastSent > 110 && sendKey !== lastSentKey) {
       lastSent = now
-      const pos: [number, number, number] = [playerPos.value[0], 0, playerPos.value[2]]
-      socketSend.value('player.move', { position: pos, facing: playerFacing.value })
+      lastSentKey = sendKey
+      socketSend.value('player.move', {
+        position: [playerPos.value[0], 0, playerPos.value[2]],
+        facing: playerFacing.value
+      })
     }
   }
 
   // walk bob
-  bobT.value = moving ? bobT.value + delta * 11 : 0
+  bobT.value = moving ? bobT.value + dt * 11 : 0
   g.position.set(playerPos.value[0], Math.abs(Math.sin(bobT.value)) * 0.08, playerPos.value[2])
   g.rotation.y = playerFacing.value
 
@@ -124,6 +173,14 @@ onBeforeRender(({ delta, elapsed }) => {
     <!-- soft shadow blob -->
     <TresMesh :position="[0, 0.02, 0]" :rotation="[-Math.PI / 2, 0, 0]">
       <TresCircleGeometry :args="[0.55, 20]" />
+    </TresMesh>
+  </TresGroup>
+
+  <!-- click-to-move destination marker -->
+  <TresGroup ref="targetRing" :visible="!!moveTarget">
+    <TresMesh :rotation="[-Math.PI / 2, 0, 0]" :position="[0, 0.06, 0]">
+      <TresRingGeometry :args="[0.42, 0.6, 24]" />
+      <TresMeshBasicMaterial color="#e8b84b" transparent :opacity="0.9" />
     </TresMesh>
   </TresGroup>
 </template>

@@ -52,7 +52,7 @@ async function main() {
   await expect('player.state')
   console.log('✓ connected snapshot received')
 
-  // Walk to Musa LEGALLY — the server enforces a 14 u/s speed envelope, so
+  // Walk to Musa LEGALLY - the server enforces a 14 u/s speed envelope, so
   // hop ≤13.5 units per move with ≥1.05s gaps (dt cap → full allowance).
   const from = { x: 0, z: 42 } // spawn_roadside
   const to = { x: -16.5, z: -8.5 }

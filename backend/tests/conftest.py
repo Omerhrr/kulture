@@ -1,4 +1,4 @@
-"""Test configuration — file-based SQLite, fresh DB per session, no LLM."""
+"""Test configuration - file-based SQLite, fresh DB per session, no LLM."""
 
 from __future__ import annotations
 
@@ -14,8 +14,14 @@ os.environ["KK_DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
 os.environ["KK_LLM_ENABLED"] = "false"
 os.environ["KK_JWT_SECRET"] = "test-secret-0123456789abcdef-0123456789abcdef"
 # Tests run DB sessions on multiple event loops (pytest-asyncio session loop +
-# starlette TestClient portals) — never share pooled connections across loops.
+# starlette TestClient portals) - never share pooled connections across loops.
 os.environ["KK_DB_NULL_POOL"] = "true"
+
+# Fresh DB per session: a stale file would keep old usernames alive and fail
+# registration tests with 409 conflicts.
+_TEST_DB = os.path.join(os.path.dirname(__file__), "test_kaduna.db")
+if os.path.exists(_TEST_DB):
+    os.remove(_TEST_DB)
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402

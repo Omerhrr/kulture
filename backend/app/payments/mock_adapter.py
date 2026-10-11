@@ -4,7 +4,7 @@ Purpose: exercise the FULL payment state machine (invoice creation, expiry,
 settlement events, idempotent fulfillment, reconciliation) without a running
 bitcoind/LDK node. It produces structurally valid BOLT11 invoices (proper
 bech32 encoding, regtest hrp ``lnbcrt``) so QR codes can be scanned and parsed
-by real wallets — payment would only succeed on regtest, and only through the
+by real wallets - payment would only succeed on regtest, and only through the
 dev-only simulation endpoint that emits settlement events through the exact
 same idempotent pipeline a real node webhook would use.
 
@@ -74,7 +74,7 @@ def _encode_tagged(tag: int, payload: bytes) -> list[int]:
 def build_bolt11(
     amount_sats: int, payment_hash: bytes, description: str, expiry_seconds: int, timestamp: int
 ) -> str:
-    """Structurally valid lnbcrt invoice (fake signature — regtest simulator)."""
+    """Structurally valid lnbcrt invoice (fake signature - regtest simulator)."""
     hrp = "lnbcrt"
     # amount in millisatoshi -> pico-btc digits (bech32 amount field)
     msat = amount_sats * 1000
@@ -181,7 +181,7 @@ class MockRegtestAdapter(LightningAdapter):
             "healthy": True,
             "known_invoices": len(self._invoices),
             "settled_invoices": settled,
-            "note": "Mock adapter — settlement is simulated for development only.",
+            "note": "Mock adapter - settlement is simulated for development only.",
         }
 
     async def reconcile_pending_invoices(self, payment_hashes: list[str]) -> list[SettlementEvent]:

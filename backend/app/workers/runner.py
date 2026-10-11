@@ -30,7 +30,7 @@ from app.payments.lightning_service import expire_stale_invoices, reconcile_pend
 log = logging.getLogger("kk.workers")
 
 POLL_INTERVAL = 0.75
-# Event types owned by DEDICATED workers — the outbox poller must leave these
+# Event types owned by DEDICATED workers - the outbox poller must leave these
 # pending (NOT mark processed). agent.trigger is NOT here: it is dispatched by
 # _dispatch() (spawns the DSH runtime); it used to be wrongly listed here,
 # which silently killed all NPC dialogue after the ownership fix.
@@ -55,7 +55,7 @@ async def _dispatch(event: OutboxEvent) -> None:
         await manager.send_to_player(event.player_id, {"type": etype, "payload": payload})
     else:
         # payment/global events without an explicit player go to everyone
-        # (e.g. market-wide status) — currently a narrow, safe set:
+        # (e.g. market-wide status) - currently a narrow, safe set:
         if etype in ("npc.dialogue", "agent.action"):
             await manager.broadcast({"type": etype, "payload": payload})
         else:
@@ -105,7 +105,7 @@ async def outbox_worker() -> None:
                 for event in rows:
                     # Internal event types are owned by their dedicated workers
                     # (e.g. business_restore_worker time-gates restores). The
-                    # outbox poller must leave them pending — NOT mark processed.
+                    # outbox poller must leave them pending - NOT mark processed.
                     if event.event_type in _INTERNAL_TYPES:
                         continue
                     try:
@@ -146,7 +146,7 @@ _EVENTS = [
     {
         "id": "market_rush",
         "name": "Market Rush",
-        "description": "Market rush! Everyone dey buy — vendors happy.",
+        "description": "Market rush! Everyone dey buy - vendors happy.",
         "effect": "hype",
         "duration_s": 120,
     },

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Kaduna Kulture — SQLite backup (online-safe via the sqlite3 backup API).
+"""Kaduna Kulture - SQLite backup (online-safe via the sqlite3 backup API).
 
 Usage:
     python scripts/db_backup.py [source_db] [dest_path]

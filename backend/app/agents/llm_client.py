@@ -6,7 +6,7 @@ Bring-your-own model access per the spec:
 - Production: point KK_LLM_BASE_URL at https://api.deepseek.com and set
   KK_LLM_API_KEY. No model keys are ever hard-coded or logged.
 If the LLM is unavailable / times out, the orchestrator falls back to
-deterministic behavior — never blocks gameplay.
+deterministic behavior - never blocks gameplay.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class DSHLLMClient:
 
     async def chat_json(self, system: str, user: str) -> LLMResult:
         """Request a JSON-only completion. Returns LLMResult.ok=False on any
-        failure — the orchestrator treats that as 'model unavailable'."""
+        failure - the orchestrator treats that as 'model unavailable'."""
         if not settings.llm_enabled:
             return LLMResult(ok=False, error="llm_disabled_by_config")
         try:

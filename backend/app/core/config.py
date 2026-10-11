@@ -1,4 +1,4 @@
-"""Kaduna Kulture backend — application configuration.
+"""Kaduna Kulture backend - application configuration.
 
 Environment-based configuration (12-factor). All tunables come from
 environment variables prefixed with ``KK_`` so the same image can run
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # ------------------------------------------------------------------
-    # Database — SQLite (aiosqlite) for local dev, PostgreSQL for
+    # Database - SQLite (aiosqlite) for local dev, PostgreSQL for
     # staging/production. SQLAlchemy URL, e.g.
     #   sqlite+aiosqlite:///./kaduna.db
     #   postgresql+asyncpg://kk:kk@db:5432/kaduna
@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     job_reward_currency: str = "ngn_minor"
 
     # ------------------------------------------------------------------
-    # Movement authority (P1 hardening) — the server reconciles client moves
+    # Movement authority (P1 hardening) - the server reconciles client moves
     # through a speed envelope: a move may never advance the player more
     # than max_speed * dt (dt capped). Teleport attempts are clamped, and
     # REST interactions always use the server-stored position.

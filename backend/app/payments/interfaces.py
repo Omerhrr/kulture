@@ -1,4 +1,4 @@
-"""Lightning adapter interface — the ONLY boundary between the game and any
+"""Lightning adapter interface - the ONLY boundary between the game and any
 Lightning implementation (LDK Node today, others tomorrow).
 
 Rules (from the spec):

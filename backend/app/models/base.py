@@ -1,4 +1,4 @@
-"""Shared model mixins — portable across SQLite and PostgreSQL."""
+"""Shared model mixins - portable across SQLite and PostgreSQL."""
 
 from __future__ import annotations
 

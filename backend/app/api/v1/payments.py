@@ -150,10 +150,10 @@ async def lightning_webhook(
     """Authenticated Lightning-node settlement webhook.
 
     Transport authentication (three layers, all required):
-      1. Bearer token   — Authorization: Bearer <KK_WEBHOOK_BEARER>
-      2. Payload HMAC   — X-KK-Signature = HMAC-SHA256(KK_WEBHOOK_SECRET,
+      1. Bearer token   - Authorization: Bearer <KK_WEBHOOK_BEARER>
+      2. Payload HMAC   - X-KK-Signature = HMAC-SHA256(KK_WEBHOOK_SECRET,
                           "{timestamp}.{raw_body}")
-      3. Timestamp win  — X-KK-Timestamp within ±tolerance (anti-replay)
+      3. Timestamp win  - X-KK-Timestamp within ±tolerance (anti-replay)
 
     Application-layer security is unchanged and independent: the event still
     goes through process_settlement, which re-verifies against the adapter and
@@ -237,7 +237,7 @@ async def dev_simulate_payment(
     """DEV ONLY (env=local): emulate an external wallet paying an invoice.
 
     This stands in for a real wallet + node webhook during development and
-    demo rehearsal. It emits a server-side SettlementEvent — the client is
+    demo rehearsal. It emits a server-side SettlementEvent - the client is
     never trusted as proof of payment. Hard-disabled unless settings allow.
     """
     if not settings.dev_sim_allowed:

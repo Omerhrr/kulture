@@ -4,7 +4,7 @@ Purchase creation is fully server-validated:
 - price comes from the listing row (never the client)
 - stock is checked and versioned (optimistic concurrency)
 - an idempotency key is mandatory (client-supplied or generated)
-- creating a purchase does NOT deliver anything — delivery happens only
+- creating a purchase does NOT deliver anything - delivery happens only
   after verified Lightning settlement (see payments/lightning_service).
 """
 

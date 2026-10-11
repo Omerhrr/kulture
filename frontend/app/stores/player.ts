@@ -12,7 +12,7 @@ export const usePlayerStore = defineStore('player', {
   }),
   getters: {
     ngnDisplay: (s) =>
-      s.profile ? `₦${(s.profile.ngn_balance_minor / 100).toLocaleString('en-NG', { maximumFractionDigits: 2 })}` : '₦—',
+      s.profile ? `₦${(s.profile.ngn_balance_minor / 100).toLocaleString('en-NG', { maximumFractionDigits: 2 })}` : '₦-',
     hasParcel: (s) => s.inventory.some((i) => i.code === 'quest_parcel' && i.quantity > 0)
   },
   actions: {

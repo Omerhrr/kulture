@@ -1,4 +1,4 @@
-"""World service — region payloads, entity resolution, server-side interaction validation."""
+"""World service - region payloads, entity resolution, server-side interaction validation."""
 
 from __future__ import annotations
 

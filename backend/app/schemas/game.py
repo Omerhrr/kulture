@@ -1,4 +1,4 @@
-"""Pydantic schemas — world, interactions, shops, jobs, payments, WS envelopes."""
+"""Pydantic schemas - world, interactions, shops, jobs, payments, WS envelopes."""
 
 from __future__ import annotations
 

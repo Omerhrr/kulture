@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// GameCanvas — TresJS canvas + lighting + world + avatars.
+// GameCanvas - TresJS canvas + lighting + world + avatars.
 // NOTE: anything using useRenderLoop must be a CHILD of TresCanvas
 // (see CameraRig / PlayerAvatar / NpcAvatar).
 
@@ -12,6 +12,7 @@ const amina = computed(() => world.npcEntities.find((e) => e.code === 'npc_amina
 <template>
   <TresCanvas shadows :clear-color="'#87b7d4'">
     <CameraRig />
+    <PointerControls />
     <TresFog :args="['#87b7d4', 60, 220]" />
 
     <TresAmbientLight :intensity="0.75" color="#fff4e0" />

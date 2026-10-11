@@ -1,113 +1,166 @@
 <script setup lang="ts">
-useHead({ title: 'Kaduna Kulture — A Living Kaduna. An Economy Powered by Bitcoin.' })
+useHead({ title: 'Kaduna Kulture - A Living Kaduna. An Economy Powered by Bitcoin.' })
+
+const features = [
+  {
+    icon: '⚡',
+    title: 'Bitcoin native, not bolted on',
+    body:
+      'An invoice is a request, never proof of payment. The backend verifies settlement against the Lightning node, then fulfills the purchase exactly once: idempotent, auditable, reconciled.'
+  },
+  {
+    icon: '🤖',
+    title: 'AI citizens with real limits',
+    body:
+      'Musa the shopkeeper reacts to live events through a validated tool registry: allowlisted, schema checked, economically bounded, with a full audit trail. No language model ever touches real money.'
+  },
+  {
+    icon: '🏙️',
+    title: 'A server-authoritative world',
+    body:
+      'Your browser renders the city, the server owns every sat, stock count, job and price. Drop your connection and the world resyncs itself the moment you are back.'
+  }
+]
+
+const landmarks = [
+  {
+    icon: '🏪',
+    name: "Musa's Provision Store",
+    body: 'AI shopkeeper. Suya spice to power banks. Pay with Lightning, work deliveries for NGN.'
+  },
+  {
+    icon: '⚡',
+    name: 'Arewa QuickPOS',
+    body: 'Lightning point-of-service kiosk, the bridge between real sats and the simulation.'
+  },
+  {
+    icon: '🧺',
+    name: 'Kaduna Central Market',
+    body: 'Market Rush events, vendor stalls, and the loudest haggling in the city.'
+  },
+  {
+    icon: '🏛️',
+    name: 'AREWA House',
+    body: 'The city center landmark. Look for it when you spin the camera around.'
+  },
+  {
+    icon: '🗿',
+    name: 'Stonetech Square',
+    body: "The gathering plaza, and Hajiya Amina's delivery drop-off."
+  },
+  {
+    icon: '🛺',
+    name: 'Keke Napep Stop',
+    body: 'The transport network prototype. Grab a ride, or just enjoy the shade.'
+  }
+]
 </script>
 
 <template>
-  <div class="min-h-screen bg-kakano text-kacream">
-    <!-- hero -->
-    <header class="relative overflow-hidden">
-      <div class="absolute inset-0 bg-gradient-to-br from-kadeep/70 via-kakano to-kakano" />
-      <div class="absolute -right-24 -top-24 h-96 w-96 rounded-full bg-kasand/10 blur-3xl" />
-      <div class="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-katerr/20 blur-3xl" />
+  <div class="min-h-screen bg-paper font-body text-ink">
+    <!-- ============ hero: the live world ============ -->
+    <section class="relative h-[100svh] min-h-[560px] overflow-hidden">
+      <!-- live 3D neighborhood (no pointer capture: the page stays scrollable) -->
+      <div class="pointer-events-none absolute inset-0">
+        <ClientOnly>
+          <HeroWorld />
+          <template #fallback>
+            <div class="h-full w-full bg-gradient-to-b from-[#a7cbe0] via-[#c8ddba] to-paper" />
+          </template>
+        </ClientOnly>
+      </div>
 
-      <div class="relative mx-auto max-w-5xl px-6 pb-16 pt-20 text-center">
-        <div class="kk-chip mx-auto mb-6 border-kasand/40 text-kasand">
-          🇳🇬 Bitcoin Build-Athon 2026 · Oct 29 — DevFest Kaduna City · Oct 31
-        </div>
-        <h1 class="text-5xl font-black leading-tight sm:text-7xl">
-          Kaduna <span class="text-kasand">Kulture</span>
-        </h1>
-        <p class="mx-auto mt-4 max-w-2xl text-lg text-white/70">
-          A living Kaduna. An economy powered by Bitcoin. A 3D browser life-simulator where AI
-          citizens run businesses, players take delivery jobs, and every real purchase settles
-          through <b class="text-kasand">Lightning</b> — verified server-side, exactly once.
-        </p>
-        <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <NuxtLink to="/game" class="kk-btn-primary !px-8 !py-3 !text-base">
-            🛺 Enter the world
-          </NuxtLink>
-          <a href="/api/docs" target="_blank" class="kk-btn-ghost !px-6 !py-3">API docs</a>
-        </div>
-        <div class="mt-4 text-xs text-white/40">
-          Demo account: <code class="text-kasand">demo_player</code> /
-          <code class="text-kasand">kaduna-demo-2026</code>
-        </div>
-      </div>
-    </header>
+      <!-- readability + blend into the next section -->
+      <div class="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/25 to-transparent" />
+      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-b from-transparent to-paper" />
 
-    <!-- pillars -->
-    <section class="mx-auto grid max-w-5xl gap-4 px-6 pb-16 sm:grid-cols-3">
-      <div class="kk-panel p-5">
-        <div class="mb-2 text-3xl">⚡</div>
-        <div class="mb-1 font-bold text-kasand">Bitcoin-native, not bolted-on</div>
-        <p class="text-sm leading-relaxed text-white/60">
-          An invoice is a request, never proof of payment. The backend verifies settlement against
-          the Lightning node, then fulfills the purchase exactly once — idempotent, auditable,
-          reconciled.
-        </p>
-      </div>
-      <div class="kk-panel p-5">
-        <div class="mb-2 text-3xl">🤖</div>
-        <div class="mb-1 font-bold text-kasand">Bounded AI citizens</div>
-        <p class="text-sm leading-relaxed text-white/60">
-          The DSH shopkeeper reacts to real events through a validated tool registry — allowlisted,
-          schema-checked, economically bounded, with a full audit trail. No LLM ever touches real
-          money.
-        </p>
-      </div>
-      <div class="kk-panel p-5">
-        <div class="mb-2 text-3xl">🏙️</div>
-        <div class="mb-1 font-bold text-kasand">Authoritative world</div>
-        <p class="text-sm leading-relaxed text-white/60">
-          Nuxt + TresJS render the city; FastAPI owns every sat, stock count, job, and price.
-          Reconnect-safe WebSockets resync authoritative state on drop.
-        </p>
-      </div>
-    </section>
+      <!-- floating pill navbar -->
+      <header class="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-3 sm:top-6">
+        <nav
+          class="pointer-events-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-full border border-white/40 bg-white/80 py-2 pl-4 pr-2 shadow-lg shadow-ink/10 backdrop-blur-md"
+        >
+          <div class="flex items-center gap-2">
+            <span class="flex h-9 w-9 items-center justify-center rounded-full bg-kadeep text-lg">🛺</span>
+            <span class="font-display text-lg font-semibold tracking-tight">Kaduna Kulture</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <NuxtLink to="/game" class="kk-btn-ghost !py-2">Log in</NuxtLink>
+            <NuxtLink to="/game" class="kk-btn-primary !py-2">Enter the world</NuxtLink>
+          </div>
+        </nav>
+      </header>
 
-    <!-- landmarks -->
-    <section class="mx-auto max-w-5xl px-6 pb-16">
-      <div class="kk-panel p-6">
-        <div class="mb-4 text-sm uppercase tracking-widest text-white/40">Explore the neighborhood</div>
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-            <div class="font-semibold text-kasand">🏪 Musa's Provision Store</div>
-            <p class="mt-1 text-xs text-white/55">AI shopkeeper. Suya spice to power banks. Pay with Lightning, work deliveries for NGN.</p>
+      <!-- floating CTA card, Lagos Life style -->
+      <div class="pointer-events-none absolute inset-x-0 bottom-10 z-20 flex justify-center px-3">
+        <div
+          class="pointer-events-auto w-[min(680px,94vw)] rounded-[2rem] border border-white/50 bg-white/85 p-7 text-center shadow-2xl shadow-ink/20 backdrop-blur-xl sm:p-9"
+        >
+          <div class="kk-chip mx-auto mb-3 border-kadeep/20 bg-kadeep/5 text-kadeep">
+            <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-leaf"></span>
+            The city is alive right now
           </div>
-          <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-            <div class="font-semibold text-kasand">⚡ Arewa QuickPOS</div>
-            <p class="mt-1 text-xs text-white/55">Lightning point-of-service kiosk — the bridge between real sats and the sim.</p>
+          <h1 class="font-display text-3xl font-semibold leading-tight tracking-tight sm:text-5xl">
+            Live the city.
+            <span class="text-leaf">Move real money.</span>
+          </h1>
+          <p class="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-ink/60 sm:text-base">
+            A 3D life simulator of Kaduna in your browser. Walk the streets, take delivery jobs for
+            naira, and shop from AI shopkeepers with Bitcoin Lightning. Every payment is verified
+            server side, exactly once.
+          </p>
+          <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <NuxtLink to="/game" class="kk-btn-primary !px-9 !py-3.5 !text-base">Play free</NuxtLink>
+            <NuxtLink to="/game" class="kk-btn-ghost !px-7 !py-3.5 !text-base">Log in</NuxtLink>
           </div>
-          <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-            <div class="font-semibold text-kasand">🧺 Kaduna Central Market</div>
-            <p class="mt-1 text-xs text-white/55">Market Rush events, vendor stalls, and the loudest haggling in the sim.</p>
-          </div>
-          <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-            <div class="font-semibold text-kasand">🏛️ AREWA House</div>
-            <p class="mt-1 text-xs text-white/55">The city-center landmark. DevFest energy lives here.</p>
-          </div>
-          <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-            <div class="font-semibold text-kasand">🗿 Stonetech Square</div>
-            <p class="mt-1 text-xs text-white/55">Build-Athon gathering point — and Hajiya Amina's delivery drop-off.</p>
-          </div>
-          <div class="rounded-lg border border-white/10 bg-white/5 p-4">
-            <div class="font-semibold text-kasand">🛺 Keke Napep Stop</div>
-            <p class="mt-1 text-xs text-white/55">Transport network prototype. Danfo routes coming post-hackathon.</p>
+          <div class="mt-4 text-xs text-ink/45">
+            No install, runs in the browser · demo account
+            <code class="rounded bg-ink/5 px-1.5 py-0.5 font-bold text-golddark">demo_player</code>
+            /
+            <code class="rounded bg-ink/5 px-1.5 py-0.5 font-bold text-golddark">kaduna-demo-2026</code>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- disclaimers -->
-    <section class="mx-auto max-w-5xl px-6 pb-20">
-      <div class="rounded-xl border border-amber-400/20 bg-amber-400/5 p-5 text-sm leading-relaxed text-amber-200/80">
-        <b>Demo economics:</b> Lightning invoices are real Bitcoin (sats) paid from your own wallet —
-        in this build they run against a regtest-style simulator, so no real funds move. Simulated
-        NGN is game currency and is <b>never</b> convertible to Bitcoin. Player withdrawals,
-        custody, and cash-out are deliberately out of scope pending security and legal review.
+    <!-- ============ pillars ============ -->
+    <section class="mx-auto max-w-5xl px-4 pb-20 pt-14 sm:px-6">
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div v-for="f in features" :key="f.title" class="kk-card">
+          <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-kadeep/5 text-2xl">{{ f.icon }}</div>
+          <div class="mb-1.5 font-display text-lg font-semibold">{{ f.title }}</div>
+          <p class="text-sm leading-relaxed text-ink/60">{{ f.body }}</p>
+        </div>
       </div>
-      <div class="mt-8 text-center text-xs text-white/30">
-        Open source · Nuxt 3 + TresJS + FastAPI + PostgreSQL + Lightning (LDK-ready) + DSH agents
+    </section>
+
+    <!-- ============ landmarks ============ -->
+    <section class="mx-auto max-w-5xl px-4 pb-20 sm:px-6">
+      <div class="mb-5 flex items-end justify-between">
+        <h2 class="font-display text-2xl font-semibold sm:text-3xl">Explore the neighborhood</h2>
+        <span class="hidden text-sm text-ink/40 sm:block">every spot is interactive</span>
+      </div>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div v-for="l in landmarks" :key="l.name" class="kk-card !p-5">
+          <div class="mb-2 flex items-center gap-2.5">
+            <span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-kasand/15 text-xl">{{ l.icon }}</span>
+            <span class="font-display text-base font-semibold leading-tight">{{ l.name }}</span>
+          </div>
+          <p class="text-[13px] leading-relaxed text-ink/55">{{ l.body }}</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ honest footer ============ -->
+    <section class="mx-auto max-w-5xl px-4 pb-14 sm:px-6">
+      <div class="rounded-3xl border border-golddark/20 bg-kasand/10 p-6 text-sm leading-relaxed text-ink/70">
+        <b class="text-ink">Demo economics:</b>
+        Lightning invoices are real Bitcoin (sats) paid from your own wallet. In this build they run
+        against a regtest-style simulator, so no real funds move. Simulated NGN is game currency and
+        is never convertible to Bitcoin. Player withdrawals, custody and cash-out are deliberately
+        out of scope pending security and legal review.
+      </div>
+      <div class="mt-10 text-center text-xs text-ink/35">
+        Kaduna Kulture · made for the city that moves
       </div>
     </section>
   </div>

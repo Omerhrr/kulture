@@ -1,7 +1,7 @@
 """Auditable simulated-economy ledger. Separation of asset classes is enforced
 by convention: ``asset_type`` is one of ngn_minor | reputation | item | sats_ref.
 
-Real Bitcoin settlements are never recorded as spendable NGN — they are
+Real Bitcoin settlements are never recorded as spendable NGN - they are
 references to verified Lightning payments (asset_type="sats_ref").
 """
 

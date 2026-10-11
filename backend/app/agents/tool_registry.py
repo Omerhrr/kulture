@@ -1,4 +1,4 @@
-"""Agent tool registry — the permission boundary for every DSH action.
+"""Agent tool registry - the permission boundary for every DSH action.
 
 Each tool has:
 - a Pydantic input schema (invalid inputs are rejected before execution)
@@ -6,7 +6,7 @@ Each tool has:
 - an async handler executed against authoritative services
 
 Prohibited capabilities from the spec (transfer_player_sats,
-withdraw_bitcoin, change_payment_status, ...) are NOT REGISTERED AT ALL —
+withdraw_bitcoin, change_payment_status, ...) are NOT REGISTERED AT ALL -
 and additionally the orchestrator double-checks every requested tool
 against the agent's allowlist before execution (defense in depth).
 """

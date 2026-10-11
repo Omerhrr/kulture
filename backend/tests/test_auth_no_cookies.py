@@ -1,4 +1,4 @@
-"""P1 hardening: CSRF strategy — the API is bearer-token-only.
+"""P1 hardening: CSRF strategy - the API is bearer-token-only.
 
 Cookies are never used for authentication, so there is no CSRF surface to
 defend: no cross-site request can carry a credential the browser attaches

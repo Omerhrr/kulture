@@ -17,7 +17,7 @@ Scope of particular interest:
 
 The MVP accepts Lightning invoices for in-game items via a regtest-style
 simulator and holds no user funds. Withdrawals, custody, and cash-out are out
-of scope — see docs/security.md for the financial compliance boundary.
+of scope - see docs/security.md for the financial compliance boundary.
 
 ## Hardening commitments before real-money volume
 

@@ -1,4 +1,4 @@
-// Kaduna Kulture gateway — the single externally-visible port (:3000).
+// Kaduna Kulture gateway - the single externally-visible port (:3000).
 //
 //   /api/*    -> FastAPI backend        (127.0.0.1:8000)
 //   /ws/*     -> FastAPI WebSocket      (127.0.0.1:8000, upgrade)
@@ -22,7 +22,7 @@ const ROOT = '/home/z/my-project'
 // The gateway is the sandbox entrypoint (`bun run dev`). It brings up the
 // full product stack as detached children so the whole system boots from
 // one command. On a real deployment, docker-compose owns these services
-// instead (see docker-compose.yml) — set KK_NO_BOOTSTRAP=1 to disable.
+// instead (see docker-compose.yml) - set KK_NO_BOOTSTRAP=1 to disable.
 function spawnDetached(name, cmd, args, cwd, log) {
   try {
     const child = spawn(cmd, args, {
@@ -91,7 +91,7 @@ proxy.on('error', (err, req, res) => {
         JSON.stringify({
           detail: {
             code: 'backend_booting',
-            message: 'Game backend is warming up — try again in a few seconds.',
+            message: 'Game backend is warming up - try again in a few seconds.',
             retryable: true
           }
         })
@@ -104,7 +104,7 @@ proxy.on('error', (err, req, res) => {
 })
 
 function bootPage() {
-  return `<!doctype html><html><head><title>Kaduna Kulture — booting</title>
+  return `<!doctype html><html><head><title>Kaduna Kulture - booting</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#0B3D2E;color:#F7F1E3;font-family:system-ui,sans-serif;text-align:center}
@@ -117,14 +117,14 @@ h1{font-size:2.2rem;margin:0 0 8px;color:#E8B84B}
 <body><div class="c"><div class="spin"></div>
 <h1>Kaduna Kulture</h1>
 <div class="sub">A living Kaduna. An economy powered by Bitcoin.</div>
-<div>World services are warming up — this page refreshes automatically…</div>
+<div>World services are warming up - this page refreshes automatically…</div>
 <script>setTimeout(()=>location.reload(),3000)<\/script>
 </div></body></html>`
 }
 
 const server = http.createServer((req, res) => {
   const path = req.url || ''
-  // changeOrigin: rewrite the Host header to the upstream — sandbox preview
+  // changeOrigin: rewrite the Host header to the upstream - sandbox preview
   // domains (*.fcapp.run etc.) must never leak through to the dev servers.
   if (path.startsWith('/api/') || path.startsWith('/healthz')) {
     proxy.web(req, res, { target: API, changeOrigin: true })

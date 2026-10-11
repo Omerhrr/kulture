@@ -5,15 +5,15 @@ architecture, and contribution workflow are part of the product.
 
 ## Ground rules
 
-1. **One vertical slice at a time** — complete a working slice before
+1. **One vertical slice at a time** - complete a working slice before
    expanding horizontally.
-2. **Payments are sacred** — any PR touching `app/payments/` must include
+2. **Payments are sacred** - any PR touching `app/payments/` must include
    tests for idempotency, duplicate settlement, and amount verification.
-3. **The adapter is the boundary** — no Lightning/node code outside
+3. **The adapter is the boundary** - no Lightning/node code outside
    `app/payments/`. No LLM calls outside `app/agents/`.
-4. **Agents are bounded** — new tools need: a Pydantic input schema, economic
+4. **Agents are bounded** - new tools need: a Pydantic input schema, economic
    bounds, allowlist registration, and tests proving rejection paths.
-5. **Asset classes never mix** — real sats, simulated NGN, and reputation are
+5. **Asset classes never mix** - real sats, simulated NGN, and reputation are
    separate; conversions are forbidden by design.
 6. **Document decisions** that affect payments, custody, or persistent state.
 

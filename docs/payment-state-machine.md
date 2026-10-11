@@ -8,7 +8,7 @@ created ──▶ awaiting_payment ──▶ settled
    │              ├──-> expired
    ├──▶ failed    ├──▶ cancelled      (player action, pre-settlement only)
    └─▶ expired    └─▶ reconciliation_required
-                       (paid but unfulfillable — e.g. stock gone; refund is a
+                       (paid but unfulfillable - e.g. stock gone; refund is a
                         separately designed, human-authorized process)
 ```
 
@@ -20,8 +20,8 @@ expired | failed`.
 | Step | Spec name | Where |
 |------|-----------|-------|
 | 1 | Initiate purchase | ShopPanel → `POST /api/v1/purchases` |
-| 2 | Validate purchase | `shop_service.create_purchase` — identity, listing, price (server-owned), stock, business status, quantity bounds |
-| 3 | Persist intent | `payment_intents` row + mandatory idempotency key (UNIQUE — replay returns the original intent untouched) |
+| 2 | Validate purchase | `shop_service.create_purchase` - identity, listing, price (server-owned), stock, business status, quantity bounds |
+| 3 | Persist intent | `payment_intents` row + mandatory idempotency key (UNIQUE - replay returns the original intent untouched) |
 | 4 | Create invoice | `lightning_service.create_invoice_for_intent` → adapter; exact authorized amount; pre-computed payment hash binds intent↔invoice |
 | 5 | Display invoice | BOLT11 string + expiry to the authenticated client; QR rendered client-side |
 | 6 | Await settlement | node events or `get_invoice_status` polling |

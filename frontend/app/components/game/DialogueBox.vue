@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// DialogueBox — NPC dialogue from the DSH runtime (or deterministic fallback).
+// DialogueBox - NPC dialogue from the DSH runtime (or deterministic fallback).
 const ui = useUiStore()
 </script>
 
@@ -15,14 +15,14 @@ const ui = useUiStore()
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="text-lg">🧑🏾‍🌾</span>
-            <span class="text-sm font-bold text-kasand">{{ ui.dialogue.npcName }}</span>
-            <span class="kk-chip" :class="ui.dialogue.engine === 'dsh_llm' ? 'text-emerald-300' : 'text-white/50'">
+            <span class="font-display text-sm font-semibold text-ink">{{ ui.dialogue.npcName }}</span>
+            <span class="kk-chip" :class="ui.dialogue.engine === 'dsh_llm' ? 'text-leaf' : 'text-ink/50'">
               {{ ui.dialogue.engine === 'dsh_llm' ? '🤖 DSH agent' : '⚙️ scripted fallback' }}
             </span>
           </div>
           <button class="kk-btn-ghost !px-2 !py-1" @click="ui.dialogue = null">✕</button>
         </div>
-        <p class="mt-2 text-sm leading-relaxed text-kacream/90">{{ ui.dialogue.text }}</p>
+        <p class="mt-2 text-sm leading-relaxed text-ink/85">{{ ui.dialogue.text }}</p>
       </div>
     </transition>
   </div>

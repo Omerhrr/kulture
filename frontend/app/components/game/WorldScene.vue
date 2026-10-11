@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// WorldScene — the compact Kaduna neighborhood, manually modeled from
-// primitives (approximate geometry; NOT survey data — see docs).
+// WorldScene - the compact Kaduna neighborhood, manually modeled from
+// primitives (approximate geometry; NOT survey data - see docs).
 // Entities come from the authoritative backend (world store), so positions
 // and interaction radii are server-owned.
 
@@ -29,7 +29,7 @@ const neonMusa = new THREE.MeshBasicMaterial({ map: makeSignTexture('MUSA PROVIS
 const neonPos = new THREE.MeshBasicMaterial({ map: makeSignTexture('AREWA QuickPOS', { bg: '#0b2f3a', sub: '⚡ LIGHTNING' }) })
 const neonMarket = new THREE.MeshBasicMaterial({ map: makeSignTexture('KADUNA CENTRAL MARKET', { bg: '#2f3a1b', sub: 'Kantin Kasuwa' }) })
 const neonArewa = new THREE.MeshBasicMaterial({ map: makeSignTexture('AREWA HOUSE', { bg: '#3a2b12', sub: 'Gidan Arewa' }) })
-const neonStone = new THREE.MeshBasicMaterial({ map: makeSignTexture('STONETECH SQUARE', { bg: '#23272e', sub: 'Build-Athon Ground' }) })
+const neonStone = new THREE.MeshBasicMaterial({ map: makeSignTexture('STONETECH SQUARE', { bg: '#23272e', sub: 'Community Plaza' }) })
 const neonKeke = new THREE.MeshBasicMaterial({ map: makeSignTexture('KEKE STOP', { bg: '#123528' }) })
 
 const stalls = [

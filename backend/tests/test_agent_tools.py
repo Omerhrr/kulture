@@ -1,6 +1,6 @@
 """DSH agent runtime tests (spec: agent tool authorization, KK-009, KK-011).
 
-The critical security property: NPCs can NEVER touch real Bitcoin —
+The critical security property: NPCs can NEVER touch real Bitcoin -
 prohibited tools are unregistered, allowlists are enforced, economic
 bounds cannot be bypassed, and every action is audited.
 """
@@ -26,7 +26,7 @@ async def _shopkeeper():
 
 
 async def test_prohibited_tools_do_not_exist():
-    """Spec prohibited_tools must be rejected — they are not even registered."""
+    """Spec prohibited_tools must be rejected - they are not even registered."""
     from app.agents.tool_registry import TOOL_REGISTRY, ToolRejected, validate_tool_request
 
     for banned in (
@@ -61,7 +61,7 @@ async def test_invalid_inputs_rejected():
         validate_tool_request(agent, "create_delivery_job", {
             "item_code": "suya_spice", "dropoff_entity_code": "stonetech_square",
             "reward_ngn_minor": 999_999_999_99, "title": "Too generous"})
-    # unknown dropoff — schema-valid but rejected at execution by the handler
+    # unknown dropoff - schema-valid but rejected at execution by the handler
     from app.agents.tool_registry import TOOL_REGISTRY
     from app.db.session import AsyncSessionLocal
 
@@ -78,7 +78,7 @@ async def test_price_corridor_bounds():
     from app.db.session import AsyncSessionLocal
 
     agent = await _shopkeeper()
-    # 10x price — schema-valid, rejected at execution by the ±25% corridor
+    # 10x price - schema-valid, rejected at execution by the ±25% corridor
     parsed = validate_tool_request(agent, "set_price_within_limits", {
         "listing_id": "whatever", "new_price_sats": 999999})
     with pytest.raises(ToolRejected):

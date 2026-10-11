@@ -40,7 +40,7 @@ export function useGameSocket() {
         const data = JSON.parse(ev.data) as ServerEvent
         handlers.forEach((h) => h(data))
       } catch {
-        /* ignore malformed frames — server is trusted to send JSON */
+        /* ignore malformed frames - server is trusted to send JSON */
       }
     }
 

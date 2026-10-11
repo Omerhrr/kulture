@@ -1,4 +1,4 @@
-"""Kaduna Kulture — FastAPI application assembly.
+"""Kaduna Kulture - FastAPI application assembly.
 
 Authoritative game server: REST under /api/v1, WebSocket at /ws/game.
 Lifespan bootstraps schema (dev convenience + Alembic for real migrations),

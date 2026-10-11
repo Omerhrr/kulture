@@ -1,4 +1,4 @@
-// DSH LLM bridge — OpenAI-compatible /v1/chat/completions endpoint backed by
+// DSH LLM bridge - OpenAI-compatible /v1/chat/completions endpoint backed by
 // z-ai-web-dev-sdk (server-side only). The Python agent runtime speaks
 // standard OpenAI chat protocol to this bridge; swap KK_LLM_BASE_URL to
 // https://api.deepseek.com for production DeepSeek access.

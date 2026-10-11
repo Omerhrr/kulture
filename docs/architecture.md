@@ -2,17 +2,17 @@
 
 ## Principles (from the product spec)
 
-1. **Authoritative server** — the backend owns player balances, inventory,
+1. **Authoritative server** - the backend owns player balances, inventory,
    jobs, prices, payment state, NPC permissions, and world persistence. The
    client renders and predicts; it never decides.
-2. **Bitcoin integrity** — a Lightning invoice is a payment request, not
+2. **Bitcoin integrity** - a Lightning invoice is a payment request, not
    proof of payment. Only the backend's independent verification against the
    node settles a payment.
-3. **Separation of economies** — real sats, simulated NGN, and reputation
+3. **Separation of economies** - real sats, simulated NGN, and reputation
    are distinct asset classes, never silently convertible.
-4. **Bounded AI** — DSH agents recommend and execute only permitted actions
+4. **Bounded AI** - DSH agents recommend and execute only permitted actions
    through validated tools. No LLM ever touches real money.
-5. **Failure is safe** — timeouts, restarts, duplicated events and service
+5. **Failure is safe** - timeouts, restarts, duplicated events and service
    failures never create unauthorized payments or duplicate rewards.
 
 ## Components
@@ -33,7 +33,7 @@
 2. FastAPI authenticates the JWT and validates the schema.
 3. The service loads authoritative state and checks the rules (e.g. server-
    side distance for interactions, listing price/stock for purchases).
-4. Durable state changes commit — or a pending operation is created
+4. Durable state changes commit - or a pending operation is created
    (payment intents).
 5. Payment-related communication goes through the Lightning adapter only.
 6. Verified settlement events are persisted (append-only `payment_events`).

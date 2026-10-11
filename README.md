@@ -5,7 +5,6 @@
 **A Living Kaduna. An Economy Powered by Bitcoin.**
 
 A 3D browser-based life simulator with a Bitcoin Lightning-native economy.
-Built for Bitcoin Build-Athon 2026 (Oct 29) and DevFest Kaduna City 2026 (Oct 31).
 
 </div>
 
@@ -16,7 +15,7 @@ Built for Bitcoin Build-Athon 2026 (Oct 29) and DevFest Kaduna City 2026 (Oct 31
 Kaduna Kulture is a playable, persistent Kaduna city simulation. Players walk a
 compact neighborhood inspired by Ali Akilu Road, take delivery jobs from an
 **AI shopkeeper** (DSH-powered, with a full audit trail), and buy goods with
-**real Bitcoin sats over Lightning** — where the backend independently verifies
+**real Bitcoin sats over Lightning** - where the backend independently verifies
 settlement before delivering items exactly once.
 
 This is a Bitcoin-native economy, not a conventional game with a crypto
@@ -32,13 +31,13 @@ password: kaduna-demo-2026
 
 ## The golden path (what to demo)
 
-1. **Enter the world** — register or use the demo account.
+1. **Enter the world** - register or use the demo account.
 2. **Walk** (WASD / arrows) to Musa's Provision Store and press **E**.
-3. **Talk to Mallam Musa** — the DSH agent answers in character (LLM when
-   available, deterministic fallback otherwise — both audited in the DB).
-4. **Accept a delivery job** — pick up the sealed package, deliver it to
+3. **Talk to Mallam Musa** - the DSH agent answers in character (LLM when
+   available, deterministic fallback otherwise - both audited in the DB).
+4. **Accept a delivery job** - pick up the sealed package, deliver it to
    Hajiya Amina at Stonetech Square → earn simulated NGN + reputation.
-5. **Buy with Lightning** — pick an item, scan/copy the BOLT11 invoice (a
+5. **Buy with Lightning** - pick an item, scan/copy the BOLT11 invoice (a
    real wallet would pay it on regtest), settle, and watch the backend
    verify settlement and deliver the item **exactly once**.
 6. Watch **NEPA Wahala** and **Market Rush** world events change shop
@@ -64,7 +63,7 @@ record, 18 tables)             │ verified settlement only
         ▲                    ▼
 Outbox → Workers (WS fanout, agent triggers, expiry, reconciliation)
         │
-DSH Agent Runtime — allowlisted tools, Pydantic-validated, bounded
+DSH Agent Runtime - allowlisted tools, Pydantic-validated, bounded
         via OpenAI-compatible LLM (z-ai bridge / DeepSeek) + deterministic fallback
 ```
 
@@ -100,7 +99,7 @@ pip install -r requirements.txt
 alembic upgrade head                 # or skip: dev mode auto-creates tables
 uvicorn app.main:app --port 8000     # world seeds itself on first boot
 
-# 2. LLM bridge (optional — agent falls back to deterministic mode without it)
+# 2. LLM bridge (optional - agent falls back to deterministic mode without it)
 cd ../services/llm-bridge && bun install && bun bridge.ts   # :8100
 
 # 3. Frontend
@@ -127,7 +126,7 @@ lifecycle, server-side distance validation, and agent tool authorization
 
 ```bash
 docker compose up --build
-# Caddy serves the world on :80 — API on /api, WS on /ws
+# Caddy serves the world on :80 - API on /api, WS on /ws
 ```
 
 ## Documentation
@@ -144,4 +143,4 @@ docker compose up --build
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

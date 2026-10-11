@@ -1,4 +1,4 @@
-# Kaduna Kulture — full-stack composition (local/staging).
+# Kaduna Kulture - full-stack composition (local/staging).
 # Production hardening (secrets, TLS, node isolation) is documented in
 # docs/security.md and must be reviewed before accepting real payments.
 
@@ -21,7 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    # Optional per spec: cache/rate limiting only — NEVER the ledger.
+    # Optional per spec: cache/rate limiting only - NEVER the ledger.
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

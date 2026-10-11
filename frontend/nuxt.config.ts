@@ -9,14 +9,22 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Kaduna Kulture — A Living Kaduna. An Economy Powered by Bitcoin.',
+      title: 'Kaduna Kulture - A Living Kaduna. An Economy Powered by Bitcoin.',
       htmlAttrs: { lang: 'en' },
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1' },
         {
           name: 'description',
           content:
-            'A 3D browser-based Kaduna life simulator with a Bitcoin Lightning-native economy. AI shopkeepers, real sats, real settlement.'
+            'A 3D browser life simulator of Kaduna with a Bitcoin Lightning economy. Walk the city, take delivery jobs, shop from AI shopkeepers, pay with real sats.'
+        }
+      ],
+      link: [
+        { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+        {
+          rel: 'stylesheet',
+          href: 'https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap'
         }
       ]
     }
@@ -32,7 +40,7 @@ export default defineNuxtConfig({
 
   // Dev-server host allowlist: the sandbox preview routes the app through
   // platform-specific domains (e.g. *.fcapp.run), so the Vite host check must
-  // not block them. Dev-only — production serves a nitro build (no check).
+  // not block them. Dev-only, production serves a nitro build (no check).
   vite: {
     server: {
       allowedHosts: true

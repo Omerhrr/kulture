@@ -1,4 +1,4 @@
-"""Alembic environment — derives the sync URL from the app's async URL."""
+"""Alembic environment - derives the sync URL from the app's async URL."""
 
 from __future__ import annotations
 

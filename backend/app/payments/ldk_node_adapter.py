@@ -1,7 +1,7 @@
-"""LDK Node adapter — integration point for a real Lightning node.
+"""LDK Node adapter - integration point for a real Lightning node.
 
 Implement this class against the current ``ldk-node`` Python bindings
-(verifying binding support is a spec-mandated prerequisite — see
+(verifying binding support is a spec-mandated prerequisite - see
 docs/lightning-integration.md for the verified integration checklist,
 lifecycle rules, and regtest bring-up guide). The adapter is intentionally
 kept node-specific: gameplay services only ever talk to LightningAdapter.

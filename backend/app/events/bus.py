@@ -1,4 +1,4 @@
-"""WebSocket connection manager — fanout of authoritative server events.
+"""WebSocket connection manager - fanout of authoritative server events.
 
 Connections are keyed by player id; a player may hold multiple sockets
 (multi-tab). The manager never trusts client messages; it only delivers

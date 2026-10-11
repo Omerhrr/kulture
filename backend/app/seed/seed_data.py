@@ -1,8 +1,8 @@
-"""World seed data — compact Kaduna city-center-inspired neighborhood.
+"""World seed data - compact Kaduna city-center-inspired neighborhood.
 
 Landmarks (spec game_design.world): AREWA House, Ali Akilu Road,
 Kaduna Central Market, Stonetech Square. Coordinates are a local Three.js
-coordinate system (not survey data) — approximate, manually authored.
+coordinate system (not survey data) - approximate, manually authored.
 """
 
 from __future__ import annotations
@@ -18,19 +18,19 @@ from app.models.player import User
 from app.models.world import WorldEntity, WorldRegion
 
 ITEMS = [
-    ("suya_spice", "Suya Spice", "food", "Yaji spice mix — the good one from the mallam.", "\U0001f9c2"),
+    ("suya_spice", "Suya Spice", "food", "Yaji spice mix - the good one from the mallam.", "\U0001f9c2"),
     ("fura_nono", "Fura da Nono", "food", "Millet and fermented milk, chilled. Kaduna classic.", "\U0001f95b"),
     ("zobo_concentrate", "Zobo Concentrate", "food", "Hibiscus concentrate. Add water, ice, ginger.", "\U0001f379"),
     ("kuli_kuli", "Kuli Kuli", "food", "Groundnut snack, crunchy, dangerously addictive.", "\U0001f95c"),
     ("ankara_fabric", "Ankara Fabric", "fashion", "Six yards of premium Ankara print.", "\U0001f455"),
-    ("power_bank", "Solar Power Bank", "electronics", "20,000mAh — NEPA wahala survival kit.", "\U0001f50b"),
+    ("power_bank", "Solar Power Bank", "electronics", "20,000mAh - NEPA wahala survival kit.", "\U0001f50b"),
     ("phone_charger", "Fast Charger", "electronics", "65W GaN charger. No time to waste.", "\U0001f50c"),
     ("quest_parcel", "Sealed Package", "quest", "A sealed package for delivery. Do not shake.", "\U0001f4e6"),
 ]
 
 ENTITIES = [
     # code, name, type, x, z, rotation, radius
-    ("spawn_roadside", "Ali Akilu Road — Roadside Spawn", "spawn", 0.0, 42.0, 0.0, 8.0),
+    ("spawn_roadside", "Ali Akilu Road - Roadside Spawn", "spawn", 0.0, 42.0, 0.0, 8.0),
     ("musa_shop", "Musa's Provision Store", "shop", -20.0, -12.0, 0.4, 7.0),
     ("arewa_pos", "Arewa QuickPOS Kiosk", "pos_kiosk", 0.0, -20.0, 0.0, 5.0),
     ("kaduna_central_market", "Kaduna Central Market", "market", 32.0, -24.0, -0.5, 11.0),
@@ -72,7 +72,7 @@ async def seed_if_empty(db: AsyncSession) -> bool:
         name="Ali Akilu Road & Kaduna Central Market",
         slug="ali-akilu-road",
         description="Compact city-center neighborhood inspired by Kaduna. "
-        "Manually modeled, approximate layout — not survey data.",
+        "Manually modeled, approximate layout - not survey data.",
         map_metadata={"attribution": "Layout inspired by OpenStreetMap data; "
                       "\u00a9 OpenStreetMap contributors (game geometry is approximate)"},
     )
@@ -130,7 +130,7 @@ async def seed_if_empty(db: AsyncSession) -> bool:
         "customer needs, delivery jobs, and local business conditions. Warm, "
         "witty, mixes Hausa-flavored Nigerian English. Business-minded but honest. "
         "He knows Bitcoin Lightning lets customers pay with real sats, but he "
-        "cannot touch anyone's wallet — the payment system handles settlement."
+        "cannot touch anyone's wallet - the payment system handles settlement."
     )
     db.add(
         NPCAgent(
@@ -197,7 +197,7 @@ async def seed_if_empty(db: AsyncSession) -> bool:
             amount_minor_units=25_000_00,
             transaction_reference=f"grant:demo:{int(datetime.now(timezone.utc).timestamp())}",
             entry_type="grant_initial",
-            description="Starting simulated NGN (game currency — not Bitcoin)",
+            description="Starting simulated NGN (game currency - not Bitcoin)",
         )
     )
     await db.commit()

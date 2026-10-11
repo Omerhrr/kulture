@@ -1,4 +1,4 @@
-"""Player service — identity, profiles, authoritative state, NGN ledger views."""
+"""Player service - identity, profiles, authoritative state, NGN ledger views."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from app.models.player import PlayerProfile, PlayerState, User
 from app.models.world import WorldEntity, WorldRegion
 from app.schemas.auth import PlayerOut, TokenOut
 
-STARTING_NGN_MINOR = 25_000_00  # ₦25,000.00 simulated — clearly a game currency
+STARTING_NGN_MINOR = 25_000_00  # ₦25,000.00 simulated - clearly a game currency
 STARTING_REPUTATION = 0
 
 
@@ -75,7 +75,7 @@ async def register_player(
             amount_minor_units=STARTING_NGN_MINOR,
             transaction_reference=f"grant:{user.id}:{datetime.now(timezone.utc).timestamp():.0f}",
             entry_type="grant_initial",
-            description="Starting simulated NGN (game currency — not Bitcoin)",
+            description="Starting simulated NGN (game currency - not Bitcoin)",
         )
     )
     await db.commit()

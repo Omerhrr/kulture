@@ -1,9 +1,9 @@
 # Gameplay
 
-## World — initial region
+## World - initial region
 
 A compact neighborhood inspired by Kaduna's city center (manually modeled,
-approximate — not survey data; layout inspiration credited to OpenStreetMap
+approximate - not survey data; layout inspiration credited to OpenStreetMap
 contributors).
 
 | Landmark | Purpose |
@@ -11,8 +11,8 @@ contributors).
 | Musa's Provision Store | DSH shopkeeper, goods, delivery-job issuer |
 | Arewa QuickPOS Kiosk | Lightning point-of-service reference + asset-class explainer |
 | Kaduna Central Market | Stalls, market events |
-| AREWA House | Recognizable landmark (DevFest connection) |
-| Stonetech Square | Build-Athon gathering point, delivery drop-off (Hajiya Amina) |
+| AREWA House | Recognizable city center landmark |
+| Stonetech Square | Community plaza, delivery drop-off (Hajiya Amina) |
 | Keke Napep Stop | Transport prototype |
 
 ## Player capabilities (MVP)
@@ -22,7 +22,7 @@ interact with nearby entities (server-validated distance), accept and
 complete jobs, purchase goods via Lightning, view inventory / job history /
 auditable ledger.
 
-## Economy — three asset classes, never mixed
+## Economy - three asset classes, never mixed
 
 | Asset | Source of truth | Usage |
 |-------|-----------------|-------|
@@ -35,18 +35,18 @@ advertise fictional balances as redeemable Bitcoin; integer satoshi amounts
 only; payment amounts and recipients displayed clearly; no wagering or cash
 redemption in the MVP; AI agents cannot create money.
 
-## Jobs — Market Delivery (vertical slice)
+## Jobs - Market Delivery (vertical slice)
 
-1. **Accept** — job must be `available`; becomes `assigned` to the player.
-2. **Pick up** — player must be within the pickup entity's radius (server
+1. **Accept** - job must be `available`; becomes `assigned` to the player.
+2. **Pick up** - player must be within the pickup entity's radius (server
    checks); grants the sealed `quest_parcel` item.
-3. **Complete** — player must be within the drop-off radius AND hold the
+3. **Complete** - player must be within the drop-off radius AND hold the
    parcel; consumes it, credits NGN + reputation through the ledger.
 
 Rewards: ₦8,000 sim + 5 reputation (seeded job). The DSH shopkeeper can post
 additional bounded delivery jobs (≤ 6 open, ≤ ₦50,000 each).
 
-## World events (simulated state only — never authorize transfers)
+## World events (simulated state only - never authorize transfers)
 
 - **NEPA Wahala** (power outage): Musa's store flips to `power_outage`
   (purchases 409) for ~100 s, then the restore worker reopens it.
@@ -63,4 +63,4 @@ players.
   interaction radius.
 - Known hardening item (P1): the REST interaction endpoint trusts the
   client-supplied position within the world bounds; full server-authoritative
-  movement reconciliation lands with multiplayer (post-hackathon roadmap).
+  movement reconciliation lands with multiplayer (roadmap).

@@ -3,7 +3,7 @@
 Transport authentication = bearer token + HMAC-SHA256("{ts}.{raw_body}") +
 timestamp tolerance window. The event then flows through the SAME idempotent
 settlement pipeline as any other source (independent adapter verification,
-unique provider_event_id, exactly-once fulfillment) — so even a validly
+unique provider_event_id, exactly-once fulfillment) - so even a validly
 signed replay can never deliver items twice.
 """
 
@@ -104,7 +104,7 @@ async def test_webhook_settles_exactly_once(client, auth_headers, world_ctx, mon
     inv = await _buy_and_invoice(client, auth_headers, world_ctx, listing_index=1, qty=1)
     payment_hash = await _hash_for(inv["invoice_bolt11"])
 
-    # the external wallet pays the REAL node first — the node's own state now
+    # the external wallet pays the REAL node first - the node's own state now
     # knows the invoice is settled (that's what makes independent verification
     # pass: the webhook alone is never the source of truth)
     adapter = get_adapter()
@@ -125,7 +125,7 @@ async def test_webhook_settles_exactly_once(client, auth_headers, world_ctx, mon
     items = {i["code"]: i for i in r3.json()["items"]}
     assert items[inv["item_code"]]["quantity"] >= 1
 
-    # a webhook for an unknown payment hash is acknowledged but rejected —
+    # a webhook for an unknown payment hash is acknowledged but rejected -
     # the reconciliation worker owns the follow-up, webhooks stay idempotent
     body4 = _event_body("f" * 64, 999)
     r4 = await client.post("/api/v1/payments/webhook", content=body4, headers=_sign(body4))

@@ -1,4 +1,4 @@
-// Runtime canvas-texture sign helper — zero extra dependencies.
+// Runtime canvas-texture sign helper - zero extra dependencies.
 // Generates crisp text signs for buildings (no font files needed).
 
 import * as THREE from 'three'

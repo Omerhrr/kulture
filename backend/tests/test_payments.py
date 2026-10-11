@@ -116,7 +116,7 @@ async def test_expired_invoice_cannot_settle(client, auth_headers, world_ctx):
 async def test_concurrent_purchases_of_last_item_never_oversell(client, auth_headers, world_ctx):
     """Two buyers race for the last unit: at most one fulfillment, stock never
     negative, the other lands in reconciliation_required (refund handled by
-    an authorized process — spec security rule)."""
+    an authorized process - spec security rule)."""
     from sqlalchemy import select, update
     from app.db.session import AsyncSessionLocal
     from app.models.business import ShopListing
@@ -124,7 +124,7 @@ async def test_concurrent_purchases_of_last_item_never_oversell(client, auth_hea
     from app.payments.lightning_service import process_settlement
     from app.payments.mock_adapter import get_adapter
 
-    listing = world_ctx["business"]["listings"][5]  # power bank — small stock
+    listing = world_ctx["business"]["listings"][5]  # power bank - small stock
     async with AsyncSessionLocal() as db:
         await db.execute(
             update(ShopListing).where(ShopListing.id == listing["id"]).values(quantity_available=1)
@@ -166,7 +166,7 @@ async def test_concurrent_purchases_of_last_item_never_oversell(client, auth_hea
 
 
 async def test_reconciliation_recovers_missed_settlement(client, auth_headers, world_ctx):
-    """Node settled but the app missed the webhook — reconcile_pending must
+    """Node settled but the app missed the webhook - reconcile_pending must
     discover and process the settlement (spec: reconciliation)."""
     from sqlalchemy import select
     from app.db.session import AsyncSessionLocal
@@ -198,7 +198,7 @@ async def test_reconciliation_recovers_missed_settlement(client, auth_headers, w
 
 
 async def test_client_cannot_confirm_payment(client, auth_headers, world_ctx):
-    """A fabricated 'I paid' message from the browser must do nothing —
+    """A fabricated 'I paid' message from the browser must do nothing -
     there is no such endpoint; verify the API has no client-confirm route."""
     r = await client.post("/api/v1/purchases/i-paid-m sincerely", headers=auth_headers)
     assert r.status_code in (404, 405)

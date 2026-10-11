@@ -1,4 +1,4 @@
-"""DSH agent orchestrator — bounded, auditable, event-triggered NPC decisions.
+"""DSH agent orchestrator - bounded, auditable, event-triggered NPC decisions.
 
 Execution policy (spec):
 - triggered by domain events (customer interaction, job event, market event),
@@ -99,7 +99,7 @@ class AgentOrchestrator:
                     usage = llm.usage or {}
                     await self._execute_actions(db, run, agent, plan.get("actions") or [])
                 else:
-                    dialogue = "Abeg, one moment — my head dey scatter small. (AI plan unparsable)"
+                    dialogue = "Abeg, one moment - my head dey scatter small. (AI plan unparsable)"
             else:
                 dialogue = self._deterministic_dialogue(agent, context)
 
@@ -135,7 +135,7 @@ class AgentOrchestrator:
             )
             await db.commit()
             return run
-        except Exception as exc:  # noqa: BLE001 — runs must never crash callers
+        except Exception as exc:  # noqa: BLE001 - runs must never crash callers
             run.status = "failed"
             run.error_code = type(exc).__name__
             run.completed_at = datetime.now(timezone.utc)
@@ -216,8 +216,8 @@ class AgentOrchestrator:
         if "job" in msg or "work" in msg or "deliver" in msg:
             return f"Ah, you wan work? I get delivery job wey I need help with, {name}. Check the job board, na NGN I dey pay, and reputation dey follow."
         if "bitcoin" in msg or "sats" in msg or "lightning" in msg:
-            return "Yes o! You fit pay with Lightning — scan the QR for the item you want. Na real sats, so na your wallet go approve am. I no fit touch your Bitcoin."
-        return f"Welcome {name}! Today we get stock — check the shop panel. Pay with Lightning (real sats) or just browse. How you dey?"
+            return "Yes o! You fit pay with Lightning - scan the QR for the item you want. Na real sats, so na your wallet go approve am. I no fit touch your Bitcoin."
+        return f"Welcome {name}! Today we get stock - check the shop panel. Pay with Lightning (real sats) or just browse. How you dey?"
 
     async def _deterministic_actions(
         self, db: AsyncSession, run: AgentRun, agent: NPCAgent, context: dict[str, Any]
@@ -259,7 +259,7 @@ class AgentOrchestrator:
                 took_action = True
             except (ToolRejected, JobError):
                 pass
-        return ("I don post delivery job — check the job board if you dey interested.", took_action)
+        return ("I don post delivery job - check the job board if you dey interested.", took_action)
 
 
 orchestrator = AgentOrchestrator()

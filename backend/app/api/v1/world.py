@@ -37,7 +37,7 @@ async def interact(
     db: AsyncSession = Depends(get_db),
 ) -> InteractionOut:
     # P1 hardening: the distance check uses the SERVER-STORED position, not
-    # the client-supplied one — a POST can no longer fabricate proximity.
+    # the client-supplied one - a POST can no longer fabricate proximity.
     # (body.position is accepted for protocol compatibility only; flip
     # settings.interactions_use_server_position off to restore legacy behavior.)
     if settings.interactions_use_server_position:

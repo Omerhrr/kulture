@@ -1,11 +1,11 @@
 """P1 hardening: server-authoritative movement reconciliation.
 
-- REST /interactions must use the SERVER-stored position — a POST can no
+- REST /interactions must use the SERVER-stored position - a POST can no
   longer fabricate proximity to an entity the player never walked to.
 - WS player.move is reconciled through a speed envelope: teleport attempts
   are clamped (and reported via player.position_corrected), never trusted.
 - The WS session position is seeded from the authoritative server state on
-  connect, and persists across reconnects — a fresh session cannot reset the
+  connect, and persists across reconnects - a fresh session cannot reset the
   server's idea of where the player is.
 """
 
@@ -39,7 +39,7 @@ async def test_rest_interaction_uses_server_position_after_real_movement(
     client, auth_headers, world_ctx
 ):
     """After a server-side move, interactions work even when the request body
-    lies about position — the server uses ITS stored position."""
+    lies about position - the server uses ITS stored position."""
     from app.db.session import AsyncSessionLocal
     from app.services import player_service
 
@@ -50,7 +50,7 @@ async def test_rest_interaction_uses_server_position_after_real_movement(
     async with AsyncSessionLocal() as db:
         await player_service.apply_movement(db, me["id"], ex + 1.0, 0.0, ez, 0.0)
 
-    # body.position deliberately lies (spawn area) — server position wins
+    # body.position deliberately lies (spawn area) - server position wins
     r = await client.post(
         "/api/v1/interactions",
         headers=auth_headers,
@@ -62,7 +62,7 @@ async def test_rest_interaction_uses_server_position_after_real_movement(
 
 # ------------------------------------------------------------------ WS tests
 # Sync tests driven through starlette TestClient; DB is only touched via the
-# app itself (HTTP/WS) — conftest enables NullPool so portal loops are safe.
+# app itself (HTTP/WS) - conftest enables NullPool so portal loops are safe.
 
 
 def _register(tc: TestClient) -> str:
@@ -96,7 +96,7 @@ def test_ws_teleport_is_clamped_with_correction_event():
         assert hello["type"] == "player.state"
         spawn = hello["payload"]["player"]["position"]
 
-        # teleport attempt — one message, far beyond the envelope
+        # teleport attempt - one message, far beyond the envelope
         ws.send_json(
             {"type": "player.move", "payload": {"position": [100.0, 0.0, 100.0], "facing": 0.0}}
         )

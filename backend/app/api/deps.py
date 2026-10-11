@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies — authN/authZ + uniform error envelope."""
+"""Shared FastAPI dependencies - authN/authZ + uniform error envelope."""
 
 from __future__ import annotations
 
