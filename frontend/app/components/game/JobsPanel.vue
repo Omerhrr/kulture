@@ -2,7 +2,7 @@
 // JobsPanel - available delivery jobs + my jobs with server-validated steps.
 const player = usePlayerStore()
 const ui = useUiStore()
-const pos = useState<[number, number, number]>('kk_player_pos', () => [0, 0, 42])
+const pos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const busy = ref('')
 
 async function refresh() {
@@ -63,7 +63,7 @@ function fmtNgn(minor: number) {
   <div class="pointer-events-auto absolute right-3 top-20 z-30 w-[min(400px,92vw)] kk-panel kk-scroll max-h-[76vh] overflow-y-auto p-4 sm:right-4">
     <div class="mb-3 flex items-center justify-between">
       <div class="font-display text-base font-semibold text-ink">🧾 Jobs</div>
-      <button class="kk-btn-ghost !px-2 !py-1" @click="ui.open('jobs')">✕</button>
+      <button class="kk-close" aria-label="Close" @click="ui.open('jobs')">✕</button>
     </div>
 
     <div class="text-[11px] font-bold uppercase tracking-widest text-ink/40">My jobs</div>

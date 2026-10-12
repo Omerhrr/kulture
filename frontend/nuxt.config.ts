@@ -19,14 +19,8 @@ export default defineNuxtConfig({
             'A 3D browser life simulator of Kaduna with a Bitcoin Lightning economy. Walk the city, take delivery jobs, shop from AI shopkeepers, pay with real sats.'
         }
       ],
-      link: [
-        { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
-        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-        {
-          rel: 'stylesheet',
-          href: 'https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap'
-        }
-      ]
+      // fonts: self-hosted via @fontsource (see assets/css/tailwind.css)
+      link: []
     }
   },
 

@@ -45,7 +45,16 @@ export const useUiStore = defineStore('ui', {
       }
       try {
         const result = await useGameApi().interact(proximity.entityId, pos!)
-        this.interaction = result
+        // talk / look-only spots: the dialogue arrives over the socket, so a
+        // sheet with a single non-action button is just an extra click
+        const actionable = result.options.filter((o: InteractionOption) => ['shop', 'job_board', 'pos_kiosk'].includes(o.kind))
+        if (actionable.length === 0) {
+          this.interaction = null
+          const first = result.options[0]
+          if (first && !/^talk to/i.test(first.label)) this.showToast(first.label, 'info')
+        } else {
+          this.interaction = { ...result, options: [...actionable, ...result.options.filter((o: InteractionOption) => !actionable.includes(o))] }
+        }
         // fire the WS event too so the DSH shopkeeper reacts (dialogue via WS)
         useGameSocketSend()('entity.interact', {
           entity_id: proximity.entityId,

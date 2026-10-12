@@ -5,7 +5,11 @@ to polylines (segment distance). Prints focused views for map design."""
 import json
 import math
 
-RAW = "/home/z/my-project/kaduna-osm-raw"
+import os as _os
+_REPO = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+# raw OSM extracts live outside the repo by default; override with KK_OSM_RAW
+_RAW_DEFAULT = _os.environ.get("KK_OSM_RAW", _os.path.join(_REPO, "..", "kaduna-osm-raw"))
+RAW = _RAW_DEFAULT
 data = json.load(open(f"{RAW}/layout_intermediate.json"))
 
 X0, X1, Z0, Z1 = -700, 700, -700, 1150

@@ -33,7 +33,7 @@ const kindLabel: Record<string, string> = {
       leave-to-class="translate-y-4 opacity-0"
     >
       <!-- board / exit a vehicle -->
-      <div v-if="ride.active" class="kk-panel px-5 py-3 text-center">
+      <div v-if="ride.active" class="kk-panel pointer-events-auto px-5 py-3 text-center">
         <div class="text-[11px] font-bold uppercase tracking-widest text-ink/40">{{ ride.name }}</div>
         <div class="font-display text-base font-semibold text-ink">{{ ride.speed }} km/h</div>
         <div class="mt-2 flex flex-wrap items-center justify-center gap-2">
@@ -46,14 +46,14 @@ const kindLabel: Record<string, string> = {
           </button>
         </div>
       </div>
-      <div v-else-if="ride.prompt && !ui.anyBlocking" class="kk-panel px-5 py-3.5 text-center">
+      <div v-else-if="ride.prompt && !ui.anyBlocking" class="kk-panel pointer-events-auto px-5 py-3.5 text-center">
         <div class="font-display text-base font-semibold text-ink">{{ ride.prompt }}</div>
         <button class="kk-btn-primary mt-2" @click="fireKkEvent('kk-ride-toggle')">
           Board <span class="ml-1 rounded-md bg-white/20 px-1.5 py-0.5 text-[10px]">E</span>
         </button>
       </div>
       <!-- enter / exit a house -->
-      <div v-else-if="doorPrompt && !ui.anyBlocking" class="kk-panel px-5 py-3.5 text-center">
+      <div v-else-if="doorPrompt && !ui.anyBlocking" class="kk-panel pointer-events-auto px-5 py-3.5 text-center">
         <div class="font-display text-base font-semibold text-ink">{{ doorPrompt.label }}</div>
         <button class="kk-btn-primary mt-2" @click="fireKkEvent('kk-door-use')">
           {{ doorPrompt.action === 'enter' ? 'Walk in' : 'Step out' }}
@@ -61,7 +61,7 @@ const kindLabel: Record<string, string> = {
         </button>
       </div>
       <!-- stop to chat with someone on the street -->
-      <div v-else-if="pedPrompt && !ui.anyBlocking" class="kk-panel px-5 py-3.5 text-center">
+      <div v-else-if="pedPrompt && !ui.anyBlocking" class="kk-panel pointer-events-auto px-5 py-3.5 text-center">
         <div class="text-[11px] font-bold uppercase tracking-widest text-ink/40">{{ kindLabel[pedPrompt.kind] || 'Local' }}</div>
         <div class="font-display text-base font-semibold text-ink">{{ pedPrompt.name }}</div>
         <button class="kk-btn-primary mt-2" @click="fireKkEvent('kk-ped-talk')">

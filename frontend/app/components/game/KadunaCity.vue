@@ -16,10 +16,18 @@
 
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { BAKE, BRIDGE_NAMES } from '~/utils/kaduna'
+import { BAKE, BRIDGE_NAMES, WORLD_SCALE, roadW, ws, SIDEWALK_W, PLAYABLE_POS } from '~/utils/kaduna'
+// keep storefronts / NPC spots / spawn readable: no trees or kiosks in front
+const KEEP_CLEAR = Object.values(PLAYABLE_POS)
+const inKeepClear = (x: number, z: number, r = 14) => KEEP_CLEAR.some(([px, pz]) => Math.abs(x - px) < r && Math.abs(z - pz) < r)
+import { buildHouseSystem, makeHouseMaterial, type HouseSystem } from '~/utils/housing'
+import { buildTowerMeshes } from '~/utils/towers'
+import { addWindSway } from '~/utils/weather'
+import { getQuality } from '~/utils/quality'
+import { buildCivic } from '~/utils/civic'
+import { addColliders, type Box } from '~/utils/collision'
 import { crosswalks, roadMedians } from '~/utils/kadunaLighting'
 import {
-  TOWERS,
   FARMS,
   DAM,
   ROMI,
@@ -80,11 +88,9 @@ const bucketColor: Record<string, string> = {
 // Nigerian wall palette (no red walls - that was the v2 complaint) and
 // roof palettes dominated by zinc silver, stone coated brown/green and
 // slate like the real city. Red is a deliberate rarity now, not a default.
-const WALLS = ['#e8dcc4', '#ece8dc', '#e9d78f', '#bcd8e0', '#a8b89a', '#c47a52', '#d8c8a0', '#e0b89a', '#c8c8c2', '#b8d4c0']
 // weighted pitch roof pick: zinc gray and silver first, then bronze,
 // stone green, brown, slate; brick red under 8 percent
 const ROOFS_PITCH = ['#6b7280', '#9aa0a6', '#8a6a4a', '#5d6e46', '#7d5a4a', '#4a5a6a', '#3f5a48', '#8a4a3a']
-const ROOFS_FLAT = ['#b8b4a8', '#9aa0a6', '#c8beb0', '#8a9298', '#a8a89e']
 const UMBRELLAS = ['#c94a3a', '#e8b84b', '#3f7d5b', '#3f6fae']
 
 function pickRoofPitch(h: number): string {
@@ -104,6 +110,7 @@ type Buckets = Record<string, THREE.BufferGeometry[]>
 
 interface TileMesh {
   geometry: THREE.BufferGeometry
+  bucket: string
   color: string
   cast: boolean
   cx: number
@@ -116,6 +123,11 @@ function buildCity(): {
   water: THREE.BufferGeometry[]
   waterTexture: THREE.CanvasTexture
   waterMaterial: THREE.MeshBasicMaterial
+  houses: HouseSystem
+  mats: Record<string, THREE.Material>
+  civic: THREE.Mesh | null
+  houseMaterial: THREE.Material
+  towers: ReturnType<typeof buildTowerMeshes>
 } {
   const buckets: Buckets = {}
   const waterGeos: THREE.BufferGeometry[] = []
@@ -145,6 +157,14 @@ function buildCity(): {
     g.translate(x, y, z)
     push(b, g, color)
   }
+  /** flat painted marking (2 triangles, faces up) */
+  const flat = (b: string, w: number, d: number, x: number, y: number, z: number, ry = 0) => {
+    const g = new THREE.PlaneGeometry(w, d)
+    g.rotateX(-Math.PI / 2)
+    if (ry) g.rotateY(ry)
+    g.translate(x, y, z)
+    push(b, g)
+  }
   const cyl = (b: string, rt: number, rb: number, h: number, seg: number, x: number, y: number, z: number, color?: string) => {
     const g = new THREE.CylinderGeometry(rt, rb, h, seg)
     g.translate(x, y, z)
@@ -157,7 +177,7 @@ function buildCity(): {
     push(b, g, color)
   }
   const sphere = (b: string, r: number, x: number, y: number, z: number, color?: string) => {
-    const g = new THREE.SphereGeometry(r, 12, 9)
+    const g = new THREE.SphereGeometry(r, 9, 7)
     g.translate(x, y, z)
     push(b, g, color)
   }
@@ -177,13 +197,15 @@ function buildCity(): {
       const len = Math.hypot(bx - ax, bz - az) || 1
       const nx = (-(bz - az) / len) * (width / 2)
       const nz = ((bx - ax) / len) * (width / 2)
+      // counter-clockwise seen from above so the faces point up (the old
+      // winding faced down and back-face culling hid every road)
       const quad = [
         [ax + nx, az + nz],
+        [bx - nx, bz - nz],
         [ax - nx, az - nz],
-        [bx - nx, bz - nz],
         [ax + nx, az + nz],
-        [bx - nx, bz - nz],
-        [bx + nx, bz + nz]
+        [bx + nx, bz + nz],
+        [bx - nx, bz - nz]
       ]
       for (const [x, z] of quad) pos.push(x, y, z)
     }
@@ -198,13 +220,15 @@ function buildCity(): {
   }
 
   const rng = mulberry32(0x7ee5)
+  // solid street furniture + tree trunks (handed to the collision grid)
+  const solids: Box[] = []
 
   // ---------------------------------------------------------------- ground
   // subdivided savanna: base greens, dry patches, lush band near water
   {
-    const g = new THREE.PlaneGeometry(3600, 3200, 72, 64)
+    const g = new THREE.PlaneGeometry(3600 * WORLD_SCALE, 3200 * WORLD_SCALE, 150, 130)
     g.rotateX(-Math.PI / 2)
-    g.translate(-350, -0.12, 200)
+    g.translate(ws(-350), -0.12, ws(200))
     const pos = g.attributes.position
     const colors = new Float32Array(pos.count * 3)
     const lush = new THREE.Color('#5d8a46')
@@ -215,12 +239,12 @@ function buildCity(): {
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i)
       const z = pos.getZ(i)
-      const n = hash01(x * 0.11, z * 0.11) * 0.6 + hash01(x * 0.031, z * 0.031, 3) * 0.4
+      const n = hash01(x * 0.037, z * 0.037) * 0.6 + hash01(x * 0.01, z * 0.01, 3) * 0.4
       c.copy(base1).lerp(base2, n)
-      const dryN = hash01(x * 0.021, z * 0.021, 7)
+      const dryN = hash01(x * 0.007, z * 0.007, 7)
       if (dryN > 0.72) c.lerp(dry, Math.min(1, (dryN - 0.72) * 3))
-      const wd = hashDist(waterHash(), x, z, 120)
-      if (wd < 46) c.lerp(lush, 1 - wd / 46)
+      const wd = hashDist(waterHash(), x, z, 200)
+      if (wd < 120) c.lerp(lush, 1 - wd / 120)
       colors[i * 3] = c.r
       colors[i * 3 + 1] = c.g
       colors[i * 3 + 2] = c.b
@@ -235,16 +259,16 @@ function buildCity(): {
 
   // ---------------------------------------------------------------- river
   const river = BAKE.river
-  ribbon('water_bank', river.main, river.width + 9, undefined, 0.02)
+  ribbon('water_bank', river.main, river.width + 22, undefined, 0.02)
   for (const s of river.side) {
-    ribbon('water_bank', s, river.width * 0.7 + 7, undefined, 0.02)
+    ribbon('water_bank', s, river.width * 0.7 + 16, undefined, 0.02)
     ribbon('water', s, river.width * 0.7, undefined, 0.06)
   }
   // animated water: main stem + reservoir + Romi stream
   waterGeos.push(ribbonGeo(river.main, river.width, 0.06))
   waterGeos.push(ribbonGeo(river.main.slice(0, DAM.idx + 1), river.width * 2.1, 0.12))
-  waterGeos.push(ribbonGeo(ROMI.pts, 4.6, 0.06))
-  ribbon('water_bank', ROMI.pts, 9.6, undefined, 0.02)
+  waterGeos.push(ribbonGeo(ROMI.pts, 12, 0.06))
+  ribbon('water_bank', ROMI.pts, 24, undefined, 0.02)
 
   function ribbonGeo(pts: [number, number][], width: number, y: number): THREE.BufferGeometry {
     const pos: number[] = []
@@ -254,13 +278,15 @@ function buildCity(): {
       const len = Math.hypot(bx - ax, bz - az) || 1
       const nx = (-(bz - az) / len) * (width / 2)
       const nz = ((bx - ax) / len) * (width / 2)
+      // counter-clockwise seen from above so the faces point up (the old
+      // winding faced down and back-face culling hid every road)
       const quad = [
         [ax + nx, az + nz],
+        [bx - nx, bz - nz],
         [ax - nx, az - nz],
-        [bx - nx, bz - nz],
         [ax + nx, az + nz],
-        [bx - nx, bz - nz],
-        [bx + nx, bz + nz]
+        [bx + nx, bz + nz],
+        [bx - nx, bz - nz]
       ]
       for (const [x, z] of quad) pos.push(x, y, z)
     }
@@ -274,23 +300,49 @@ function buildCity(): {
   // real street section: compacted shoulder + concrete sidewalks with a
   // curb line on both sides, asphalt on top, lane paint on main roads and
   // zebra crossings at the busy spots
-  const roadWidth = (cls: string) => (cls === 'trunk' ? 3.2 : cls === 'primary' ? 2.6 : 1.8)
+  // real-size streets: 13 m trunk roads, 9.5 m primaries, 6.5 m side
+  // streets, each with a 2.6 m sidewalk + curb on both sides
   for (const r of BAKE.roads) {
-    const rw = roadWidth(r.class)
+    const rw = roadW(r)
     // sidewalk slab under the whole street section (white vertex colors so
     // the bucket material color lands exactly, not squared)
-    ribbon('concrete', r.pts, rw + 3.6, '#ffffff', 0.028)
-    ribbon('curb', r.pts, rw + 3.2, '#ffffff', 0.05)
-    ribbon('asphalt', r.pts, rw, '#ffffff', 0.06)
-    if (r.class === 'trunk' || r.class === 'primary') {
+    ribbon('concrete', r.pts, rw + SIDEWALK_W * 2, '#ffffff', 0.04)
+    ribbon('curb', r.pts, rw + 0.6, '#ffffff', 0.08)
+    ribbon('asphalt', r.pts, rw, '#ffffff', 0.12)
+    if (r.class === 'trunk' || r.class === 'primary' || r.class === 'secondary') {
+      // painted lane lines: yellow centre on two-way roads, white dashes
+      // between lanes, solid white edge lines on the main roads
+      const main = r.class !== 'secondary'
       for (let i = 0; i < r.pts.length - 1; i++) {
         const [ax, az] = r.pts[i]
         const [bx, bz] = r.pts[i + 1]
         const len = Math.hypot(bx - ax, bz - az)
+        if (len < 0.5) continue
+        const fx = (bx - ax) / len
+        const fz = (bz - az) / len
         const n = Math.max(1, Math.floor(len / 9))
+        const a = Math.atan2(bz - az, bx - ax)
         for (let k = 0; k < n; k++) {
           const t = (k + 0.5) / n
-          box('gold', 0.28, 0.02, 1.6, ax + (bx - ax) * t, 0.1, az + (bz - az) * t, Math.atan2(bz - az, bx - ax))
+          const x = ax + (bx - ax) * t
+          const z = az + (bz - az) * t
+          if (!r.twin) flat('gold', 3.2, 0.16, x, 0.16, z, -a)
+          if (main) {
+            const lane = r.twin ? 0 : rw / 4
+            for (const sd of r.twin ? [0] : [-1, 1]) {
+              flat('line', 3.0, 0.14, x - fz * lane * sd, 0.16, z + fx * lane * sd, -a)
+            }
+          }
+        }
+        if (main) {
+          for (const sd of [-1, 1]) {
+            const o = rw / 2 - 0.35
+            const g = new THREE.PlaneGeometry(len, 0.14)
+            g.rotateX(-Math.PI / 2)
+            g.rotateY(-a)
+            g.translate((ax + bx) / 2 - fz * o * sd, 0.16, (az + bz) / 2 + fx * o * sd)
+            push('line', g)
+          }
         }
       }
     }
@@ -303,15 +355,15 @@ function buildCity(): {
       const off = (k - (stripes - 1) / 2) * 1.15
       const sx = cw.x + cw.nx * off
       const sz = cw.z + cw.nz * off
-      box('white', 2.3, 0.025, 0.55, sx, 0.085, sz, Math.atan2(cw.fx, cw.fz))
+      box('white', 2.3, 0.025, 0.55, sx, 0.165, sz, Math.atan2(cw.fx, cw.fz))
     }
     // stop line on the approach side
-    box('white', 0.35, 0.025, cw.rw + 2.2, cw.x + cw.fx * 2.6, 0.085, cw.z + cw.fz * 2.6, Math.atan2(cw.nx, cw.nz))
+    box('white', 0.35, 0.025, cw.rw + 2.2, cw.x + cw.fx * 2.6, 0.165, cw.z + cw.fz * 2.6, Math.atan2(cw.nx, cw.nz))
   }
 
   // boulevard medians between twin carriageways (raised concrete island)
   for (const md of roadMedians()) {
-    ribbon('median', md.pts, 2.0, '#ffffff', 0.09)
+    ribbon('median', md.pts, 2.0, '#ffffff', 0.22)
     // palms along the island
     for (let i = 2; i < md.pts.length - 2; i += 6) {
       const [mx, mz] = md.pts[i]
@@ -320,31 +372,33 @@ function buildCity(): {
   }
 
   // streetlights along the main roads
+  // modern 8 m LED street lights (matches kadunaLighting.streetlights)
   for (const r of BAKE.roads) {
     if (r.class !== 'primary' && r.class !== 'trunk') continue
-    const rw = roadWidth(r.class)
+    const rw = roadW(r)
     for (let i = 0; i < r.pts.length - 1; i++) {
       const [ax, az] = r.pts[i]
       const [bx, bz] = r.pts[i + 1]
       const segLen = Math.hypot(bx - ax, bz - az)
-      const n = Math.floor(segLen / 44)
+      const n = Math.floor(segLen / 34)
       for (let k = 0; k < n; k++) {
         const t = (k + 0.5) / n
         const x = ax + (bx - ax) * t
         const z = az + (bz - az) * t
         const fx = (bx - ax) / (segLen || 1)
         const fz = (bz - az) / (segLen || 1)
-        const ox = -fz * (rw / 2 + 0.9)
-        const oz = fx * (rw / 2 + 0.9)
-        cyl('metal', 0.07, 0.1, 4.6, 6, x + ox, 2.3, z + oz)
+        const ox = -fz * (rw / 2 + SIDEWALK_W * 0.6)
+        const oz = fx * (rw / 2 + SIDEWALK_W * 0.6)
+        cyl('metal', 0.09, 0.14, 8, 6, x + ox, 4, z + oz)
+        solids.push({ x: x + ox, z: z + oz, w: 0.3, d: 0.3 })
         const a = Math.atan2(-ox, -oz)
-        const armG = new THREE.BoxGeometry(0.09, 0.09, 1.5)
+        const armG = new THREE.BoxGeometry(0.1, 0.1, 2.4)
         armG.rotateY(a)
-        armG.translate(x + ox - Math.sin(a) * 0.7, 4.55, z + oz - Math.cos(a) * 0.7)
+        armG.translate(x + ox - Math.sin(a) * 1.1, 7.9, z + oz - Math.cos(a) * 1.1)
         push('metal', armG)
-        const headG = new THREE.BoxGeometry(0.5, 0.14, 0.26)
+        const headG = new THREE.BoxGeometry(0.7, 0.14, 0.34)
         headG.rotateY(a)
-        headG.translate(x + ox - Math.sin(a) * 1.4, 4.5, z + oz - Math.cos(a) * 1.4)
+        headG.translate(x + ox - Math.sin(a) * 2.2, 7.85, z + oz - Math.cos(a) * 2.2)
         push('dark', headG)
       }
     }
@@ -359,23 +413,26 @@ function buildCity(): {
   // ---------------------------------------------------------------- airport
   const ap = BAKE.airport
   if (ap.runway && ap.runway.length >= 2) {
-    ribbon('stone', ap.runway, 5.4, undefined, 0.04)
+    ribbon('stone', ap.runway, 45, undefined, 0.04)
     for (let i = 0; i < ap.runway.length - 1; i++) {
       const [ax, az] = ap.runway[i]
       const [bx, bz] = ap.runway[i + 1]
       const len = Math.hypot(bx - ax, bz - az)
-      const n = Math.max(1, Math.floor(len / 7))
+      const n = Math.max(1, Math.floor(len / 30))
       for (let k = 0; k < n; k++) {
         const t = (k + 0.5) / n
-        box('white', 0.3, 0.02, 2.2, ax + (bx - ax) * t, 0.09, az + (bz - az) * t, Math.atan2(bz - az, bx - ax))
+        box('white', 0.9, 0.02, 12, ax + (bx - ax) * t, 0.09, az + (bz - az) * t, Math.atan2(bz - az, bx - ax))
       }
     }
     const rx = ap.runway[0][0]
     const rz = ap.runway[0][1]
-    box('white', 26, 4.5, 10, rx - 12, 2.25, rz + 14)
-    box('metal', 27, 0.5, 11, rx - 12, 4.7, rz + 14)
-    cyl('white', 1.1, 1.5, 9, 8, rx + 8, 4.5, rz + 14)
-    cyl('dark', 2.2, 2.2, 1, 8, rx + 8, 9.3, rz + 14)
+    // modern terminal: glass front, cantilevered roof, control tower
+    box('white', 90, 12, 34, rx - 30, 6, rz + 70)
+    box('glass', 90.4, 9, 0.4, rx - 30, 5.5, rz + 52.9, 0, '#7fa6b6')
+    box('metal', 96, 1.2, 42, rx - 30, 12.6, rz + 68)
+    cyl('white', 3.2, 4.2, 34, 12, rx + 30, 17, rz + 70)
+    cyl('glass', 6, 6, 4.5, 12, rx + 30, 36, rz + 70, '#7fa6b6')
+    cyl('dark', 6.6, 6.6, 1, 12, rx + 30, 38.8, rz + 70)
     // parked jet (the rideable one lives in RideSystem)
     const fus = new THREE.CylinderGeometry(0.9, 1.2, 11, 10)
     fus.rotateZ(Math.PI / 2)
@@ -395,64 +452,12 @@ function buildCity(): {
     box('stone', ap.apron.w, 0.06, ap.apron.d, ap.apron.x, 0.03, ap.apron.z)
   }
 
-  // ---------------------------------------------------------------- houses
-  const nWalls = WALLS.length
-  for (const [x, z, w, d, rot, ci, ri] of BAKE.houses) {
-    const h1 = hash01(x, z)
-    const h2 = hash01(x, z, 11)
-    const h3 = hash01(x, z, 23)
-    const twoStory = h1 < 0.26
-    const hh = twoStory ? 6.0 : 3.4 + (ci % 3) * 0.35
-    const wall = WALLS[(ci + Math.floor(h2 * nWalls)) % nWalls]
-
-    box('wall', w, hh, d, x, hh / 2, z, rot, wall)
-
-    if (twoStory || h2 > 0.58) {
-      // flat concrete roof (the modern Kaduna look), water tank for some
-      box('roof', w + 0.5, 0.32, d + 0.5, x, hh + 0.16, z, rot, ROOFS_FLAT[Math.floor(h3 * ROOFS_FLAT.length)])
-      if (h3 > 0.68) cyl('dark', 0.55, 0.55, 0.9, 8, x + w * 0.22, hh + 0.75, z - d * 0.18)
-    } else {
-      cone('roof', Math.max(w, d) * 0.74, 1.9, 4, x, hh + 0.95, z, rot + Math.PI / 4, pickRoofPitch(hash01(x, z, 77)))
-    }
-
-    // door faces the nearest road
-    const [dnx, dnz] = doorSide(x, z)
-    if (dnx !== 0) {
-      box('door', 0.22, 2.3, 1.1, x + dnx * (w / 2 + 0.1), 1.15, z, rot)
-    } else {
-      box('door', 1.1, 2.3, 0.22, x, 1.15, z + dnz * (d / 2 + 0.1), rot)
-    }
-    // windows on both flanks
-    const winY = twoStory ? 4.6 : 1.9
-    box('window', 0.16, 1.1, 1.0, x - w / 2 - 0.08, winY, z + d / 6, rot)
-    box('window', 0.16, 1.1, 1.0, x + w / 2 + 0.08, winY, z - d / 6, rot)
-    if (twoStory && dnx === 0) {
-      box('window', 1.0, 1.1, 0.16, x + w / 5, winY, z + dnz * (d / 2 + 0.08), rot)
-    }
-    // front slab for every third house
-    if (h3 < 0.34) {
-      box('concrete', dnx !== 0 ? 1.4 : 2.6, 0.14, dnx !== 0 ? 2.6 : 1.4, x + dnx * (w / 2 + 0.8), 0.07, z + dnz * (d / 2 + 0.8), rot)
-    }
-  }
-
-  function doorSide(x: number, z: number): [number, number] {
-    const d = hashDist(roadHash(), x, z, 60)
-    if (d > 58) return [0, 1]
-    // probe the four cardinal directions: first with closer road coverage wins
-    let best: [number, number] = [0, 1]
-    let bestD = Infinity
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const dd = hashDist(roadHash(), x + dx * (6 + hash01(x, z, 5) * 2), z + dz * (6 + hash01(z, x, 5) * 2), 30)
-      if (dd < bestD) {
-        bestD = dd
-        best = [dx, dz]
-      }
-    }
-    return best
-  }
+  // houses are instanced prefabs now (utils/housing.ts)
 
   // ---------------------------------------------------------------- trees
   function tree(x: number, z: number, s: number, species: number) {
+    if (inKeepClear(x, z)) return
+    solids.push({ x, z, w: (species === 3 ? 2.2 : 0.55) * s, d: (species === 3 ? 2.2 : 0.55) * s })
     if (species === 0) {
       // neem: dense round canopy
       cyl('trunk', 0.18 * s, 0.32 * s, 3.4 * s, 6, x, 1.7 * s, z)
@@ -461,7 +466,7 @@ function buildCity(): {
     } else if (species === 1) {
       // mango: wide low crown
       cyl('trunk', 0.2 * s, 0.34 * s, 2.8 * s, 6, x, 1.4 * s, z)
-      const g = new THREE.SphereGeometry(2.7 * s, 12, 9)
+      const g = new THREE.SphereGeometry(2.7 * s, 9, 7)
       g.scale(1.15, 0.72, 1.15)
       g.translate(x, 3.9 * s, z)
       push('leaf2', g)
@@ -500,7 +505,7 @@ function buildCity(): {
   // riverbank planting
   {
     const pts = river.main
-    for (let i = 6; i < pts.length - 6; i += 7) {
+    for (let i = 6; i < pts.length - 6; i += 3) {
       const [ax, az] = pts[i]
       const [bx, bz] = pts[i + 1]
       const dx = bx - ax
@@ -508,48 +513,157 @@ function buildCity(): {
       const len = Math.hypot(dx, dz) || 1
       for (const side of [1, -1]) {
         if (rng() < 0.42) continue
-        const off = river.width / 2 + 2.2 + rng() * 4
+        const off = river.width / 2 + 5 + rng() * 9
         const x = ax + (-dz / len) * off * side
         const z = az + (dx / len) * off * side
-        if (hashDist(houseHash(), x, z) < 4.5) continue
+        if (hashDist(houseHash(), x, z) < 10) continue
         tree(x, z, 1.0 + rng() * 0.9, rng() < 0.45 ? 2 : Math.floor(rng() * 4))
       }
     }
   }
   // roadside planting on primary routes outside the dense center
   for (const r of BAKE.roads) {
-    if (r.class !== 'primary' && r.class !== 'trunk') continue
-    const rw = roadWidth(r.class)
-    for (let i = 0; i < r.pts.length - 1; i += 2) {
+    const rw = roadW(r)
+    const mainRoad = r.class === 'primary' || r.class === 'trunk'
+    for (let i = 0; i < r.pts.length - 1; i++) {
       const [ax, az] = r.pts[i]
       const [bx, bz] = r.pts[i + 1]
       const segLen = Math.hypot(bx - ax, bz - az)
-      const n = Math.floor(segLen / 30)
+      const n = Math.floor(segLen / (mainRoad ? 24 : 34))
       for (let k = 0; k < n; k++) {
-        if (rng() < 0.5) continue
+        if (rng() < (mainRoad ? 0.35 : 0.7)) continue
         const t = (k + 0.5) / n
         const fx = (bx - ax) / (segLen || 1)
         const fz = (bz - az) / (segLen || 1)
         for (const side of [1, -1]) {
           if (rng() < 0.5) continue
-          const off = rw / 2 + 1.8 + rng() * 2
+          const off = rw / 2 + SIDEWALK_W - 0.25
           const x = ax + (bx - ax) * t + -fz * off * side
           const z = az + (bz - az) * t + fx * off * side
-          if (hashDist(houseHash(), x, z) < 4) continue
-          if (hashDist(roadHash(), x, z) < 2.2) continue
-          tree(x, z, 1.0 + rng() * 0.8, rng() < 0.5 ? 0 : 1)
+          if (hashDist(houseHash(), x, z) < 9) continue
+          tree(x, z, 1.0 + rng() * 0.8, mainRoad && rng() < 0.35 ? 2 : rng() < 0.5 ? 0 : 1)
         }
       }
     }
   }
+  // ---------------------------------------------------------------- street life
+  // the things that make a Nigerian street: container kiosks with plastic
+  // chairs and umbrellas, generators, bus shelters, billboards, wheelbarrow
+  // water vendors, bins. Placed in the gaps between compounds.
+  {
+    const KIOSK = ['#2f6fae', '#d8262e', '#2f7d5b', '#e8b84b', '#f2f2ee']
+    const at = (x: number, z: number, a: number, lx: number, lz: number): [number, number] => [x + lx * Math.cos(a) + lz * Math.sin(a), z - lx * Math.sin(a) + lz * Math.cos(a)]
+    const chair = (x: number, z: number, a: number, col: string) => {
+      box('white', 0.45, 0.06, 0.45, x, 0.45, z, a, col)
+      const [bx2, bz2] = at(x, z, a, 0, -0.22)
+      box('white', 0.45, 0.45, 0.05, bx2, 0.7, bz2, a, col)
+      for (const [lx, lz] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]] as const) {
+        const [cx, cz] = at(x, z, a, lx, lz)
+        box('white', 0.04, 0.45, 0.04, cx, 0.22, cz, a, col)
+      }
+    }
+    const kiosk = (x: number, z: number, a: number, k: number) => {
+      const col = KIOSK[k % KIOSK.length]
+      solids.push({ x, z, w: 2.6, d: 2.6 })
+      box('metal', 2.4, 2.5, 2.4, x, 1.25, z, a, col)
+      const [fx, fz] = at(x, z, a, 0, 1.21)
+      box('dark', 1.6, 1.0, 0.05, fx, 1.5, fz, a, '#2a2620')
+      const [sgx, sgz] = at(x, z, a, 0, 1.24)
+      box('white', 2.6, 0.5, 0.06, sgx, 2.8, sgz, a, '#f4f1ea') // signboard
+      const [ax2, az2] = at(x, z, a, 0, 1.9)
+      box('white', 2.8, 0.08, 1.4, ax2, 2.35, az2, a, col)
+      const [tx, tz] = at(x, z, a, 1.6, 2.6)
+      cyl('white', 0.4, 0.4, 0.04, 10, tx, 0.72, tz, '#f2f2ee')
+      cyl('white', 0.05, 0.05, 0.72, 5, tx, 0.36, tz, '#f2f2ee')
+      cyl('trunk', 0.03, 0.03, 2.2, 5, tx, 1.1, tz)
+      cone('white', 1.2, 0.5, 8, tx, 2.3, tz, 0, UMBRELLAS[k % UMBRELLAS.length])
+      const [c1x, c1z] = at(x, z, a, 1.0, 2.6)
+      const [c2x, c2z] = at(x, z, a, 2.2, 2.6)
+      chair(c1x, c1z, a + Math.PI / 2, k % 2 ? '#f2f2ee' : '#d8262e')
+      chair(c2x, c2z, a - Math.PI / 2, k % 2 ? '#f2f2ee' : '#d8262e')
+      // generator humming beside it
+      const [gx, gz] = at(x, z, a, -1.7, 0.4)
+      box('gold', 0.8, 0.55, 0.55, gx, 0.3, gz, a, '#e0b020')
+      box('dark', 0.82, 0.12, 0.57, gx, 0.6, gz, a, '#2a2d33')
+    }
+    const billboard = (x: number, z: number, a: number, k: number) => {
+      const [p1x, p1z] = at(x, z, a, -2.4, 0)
+      const [p2x, p2z] = at(x, z, a, 2.4, 0)
+      solids.push({ x: p1x, z: p1z, w: 0.4, d: 0.4 }, { x: p2x, z: p2z, w: 0.4, d: 0.4 })
+      cyl('metal', 0.14, 0.18, 7, 6, p1x, 3.5, p1z)
+      cyl('metal', 0.14, 0.18, 7, 6, p2x, 3.5, p2z)
+      box('dark', 7, 3.4, 0.2, x, 7.8, z, a, '#2a2d33')
+      box('white', 6.7, 3.1, 0.24, x, 7.8, z, a, ['#e8b84b', '#2f6fae', '#d8262e', '#2f7d5b'][k % 4])
+      box('white', 4.2, 0.8, 0.26, x, 8.3, z, a, '#f4f1ea')
+    }
+    const shelter = (x: number, z: number, a: number) => {
+      for (const lx of [-1.8, 1.8]) {
+        const [px2, pz2] = at(x, z, a, lx, -0.5)
+        cyl('metal', 0.06, 0.06, 2.6, 6, px2, 1.3, pz2)
+      }
+      box('metal', 4.2, 0.1, 1.8, x, 2.65, z, a, '#3a6a4a')
+      const [glx, glz] = at(x, z, a, 0, -0.9)
+      box('glass', 3.8, 1.6, 0.05, glx, 1.5, glz, a, '#9fc0cc')
+      const [bx3, bz3] = at(x, z, a, 0, -0.5)
+      box('trunk', 3.2, 0.08, 0.45, bx3, 0.5, bz3, a)
+    }
+    const waterCart = (x: number, z: number, a: number) => {
+      solids.push({ x, z, w: 1.3, d: 1.3 })
+      box('metal', 0.9, 0.35, 1.3, x, 0.55, z, a, '#7a8088')
+      for (let j = 0; j < 4; j++) {
+        const [jx, jz] = at(x, z, a, (j % 2) * 0.4 - 0.2, Math.floor(j / 2) * 0.5 - 0.25)
+        box('white', 0.28, 0.4, 0.2, jx, 0.9, jz, a, j % 2 ? '#e8b84b' : '#2f6fae')
+      }
+      const [wx, wz] = at(x, z, a, 0, 0.75)
+      cyl('dark', 0.2, 0.2, 0.08, 10, wx, 0.2, wz)
+    }
+    const bin = (x: number, z: number) => {
+      solids.push({ x, z, w: 0.7, d: 0.7 })
+      cyl('white', 0.32, 0.28, 0.9, 10, x, 0.45, z, '#2f6e3a')
+      cyl('dark', 0.34, 0.34, 0.06, 10, x, 0.93, z)
+    }
+    let k = 0
+    for (const r of BAKE.roads) {
+      const rw = roadW(r)
+      const main = r.class === 'trunk' || r.class === 'primary'
+      const step = main ? 60 : r.class === 'secondary' ? 80 : 110
+      for (let i = 0; i < r.pts.length - 1; i++) {
+        const [ax, az] = r.pts[i]
+        const [bx, bz] = r.pts[i + 1]
+        const len = Math.hypot(bx - ax, bz - az)
+        if (len < 12) continue
+        const fx = (bx - ax) / len
+        const fz = (bz - az) / len
+        for (let t = rng() * step; t < len - 6; t += step * (0.7 + rng() * 0.6)) {
+          const side = rng() < 0.5 ? 1 : -1
+          const off = rw / 2 + SIDEWALK_W + 1.6
+          const x = ax + fx * t - fz * off * side
+          const z = az + fz * t + fx * off * side
+          if (hashDist(houseHash(), x, z, 30) < 8.5) continue
+          if (hashDist(waterHash(), x, z, 60) < 30) continue
+          if (inKeepClear(x, z)) continue
+          // face the road
+          const a = Math.atan2(fz * side, -fx * side)
+          const h = rng()
+          k++
+          if (main && r.class === 'trunk' && h < 0.18) billboard(x - fz * side * 1.5, z + fx * side * 1.5, a, k)
+          else if (main && h < 0.32) shelter(x, z, a)
+          else if (h < 0.7) kiosk(x, z, a, k)
+          else if (h < 0.85) waterCart(x, z, a)
+          else bin(x, z)
+        }
+      }
+    }
+  }
+
   // park + golf clusters
   for (const lm of BAKE.landmarks) {
     if (lm.kind !== 'golf' && lm.kind !== 'park' && lm.kind !== 'square') continue
     const n = lm.kind === 'golf' ? 26 : 14
     for (let i = 0; i < n; i++) {
-      const x = lm.x + (rng() - 0.5) * (lm.kw + 40)
-      const z = lm.z + (rng() - 0.5) * (lm.kd + 40)
-      if (hashDist(houseHash(), x, z) < 4) continue
+      const x = lm.x + (rng() - 0.5) * (lm.kw + 80)
+      const z = lm.z + (rng() - 0.5) * (lm.kd + 80)
+      if (hashDist(houseHash(), x, z) < 10) continue
       tree(x, z, 1.1 + rng() * 1.0, Math.floor(rng() * 4))
     }
   }
@@ -790,7 +904,7 @@ function buildCity(): {
         break
       }
     }
-    if (lm.lh > 0 && kind !== 'label') label(lm.name, x, lm.lh, z, Math.min(34, 12 + lm.name.length * 0.85))
+    if (lm.lh > 0 && kind !== 'label' && kind !== 'market') label(lm.name, x, lm.lh + 14, z, Math.min(48, 16 + lm.name.length * 1.1))
   }
 
   function garden(gx: number, gz: number) {
@@ -818,40 +932,27 @@ function buildCity(): {
     }
   }
 
-  // ---------------------------------------------------------------- towers
-  for (const t of TOWERS) {
-    const shaft = new THREE.BoxGeometry(t.w, t.h, t.d)
-    shaft.translate(t.x, t.h / 2, t.z)
-    push(t.glass ? 'glass' : 'concrete', shaft, t.glass ? '#8fb6c4' : '#c8c4b8')
-    for (let fy = 3.4; fy < t.h - 1; fy += 3.6) {
-      box('concrete', t.w + 0.3, 0.3, t.d + 0.3, t.x, fy, t.z)
-    }
-    box('concrete', t.w + 2.2, 2.8, t.d + 2.2, t.x, 1.4, t.z)
-    box('dark', t.w + 1.2, 0.5, t.d + 1.2, t.x, 3.1, t.z)
-    box('concrete', t.w + 0.8, 0.6, t.d + 0.8, t.x, t.h + 0.3, t.z)
-    cyl('metal', 0.09, 0.13, 3.4, 5, t.x, t.h + 2.2, t.z)
-    sphere('rust', 0.28, t.x, t.h + 4, t.z, '#e84a3a')
-  }
+  // towers have their own textured meshes (utils/towers.ts)
 
   // ---------------------------------------------------------------- farms
   for (const f of FARMS) {
-    const soil = new THREE.BoxGeometry(9.5, 0.16, 7.5)
+    const soil = new THREE.BoxGeometry(24, 0.16, 19)
     soil.rotateY(-f.ang)
     soil.translate(f.x, 0.08, f.z)
     push('soil', soil)
-    const rows = f.kind === 0 ? 4 : 5
+    const rows = f.kind === 0 ? 10 : 12
     const rowH = f.kind === 0 ? 1.2 : f.kind === 1 ? 0.5 : 0.8
     const rowD = f.kind === 2 ? 1.0 : 0.55
     for (let r = 0; r < rows; r++) {
       const off = (r - (rows - 1) / 2) * 1.55
-      const rowG = new THREE.BoxGeometry(8.2, rowH, rowD)
+      const rowG = new THREE.BoxGeometry(22, rowH, rowD)
       rowG.rotateY(-f.ang)
       // perpendicular offset: perp of (cos a, sin a) is (-sin a, cos a)
       rowG.translate(f.x - Math.sin(f.ang) * off, rowH / 2 + 0.08, f.z + Math.cos(f.ang) * off)
       push(f.kind === 0 ? 'crop1' : f.kind === 1 ? 'crop2' : 'crop3', rowG)
     }
     if (hash01(f.x, f.z, 31) < 0.12) {
-      tree(f.x + 5.4, f.z + 4.2, 1.1, 2)
+      tree(f.x + 13, f.z + 10, 1.2, 2)
     }
   }
 
@@ -888,11 +989,11 @@ function buildCity(): {
       box('metal', 3.4, 0.16, 0.16, pxx, 11.6, pzz, -ang)
       box('metal', 2.4, 0.16, 0.16, pxx, 9.8, pzz, -ang)
     }
-    label('River Kaduna Dam', x, 14, z, 22, '#ffe9a8')
+    label('River Kaduna Dam', x, 20, z, 30, '#ffe9a8')
   }
 
   // ---------------------------------------------------------------- Romi stream label
-  label('Romi Stream', ROMI.pts[3][0], 8, ROMI.pts[3][1], 14, '#bfe3ef')
+  label('Romi Stream', ROMI.pts[3][0], 12, ROMI.pts[3][1], 22, '#bfe3ef')
 
   // ---------------------------------------------------------------- construction sites
   for (const s of SITES) {
@@ -936,29 +1037,35 @@ function buildCity(): {
   // ---------------------------------------------------------------- bridges
   for (const b of BAKE.bridges) {
     const name = BRIDGE_NAMES[b.name] ?? b.name
-    box('stone', Math.abs(b.w) + 2.2, 1.1, 26, b.x, 0.75, b.z, b.rot, '#9a948a')
-    box('metal', 0.35, 1.0, 26, b.x, 1.8, b.z, b.rot)
+    const span = BAKE.river.width + 30
+    const deck = Math.max(Math.abs(b.w), 12) + 5
+    box('stone', deck, 1.4, span, b.x, 0.85, b.z, b.rot, '#9a948a')
+    for (const sd of [-1, 1]) {
+      const ox = Math.cos(b.rot) * (deck / 2 - 0.3) * sd
+      const oz = -Math.sin(b.rot) * (deck / 2 - 0.3) * sd
+      box('metal', 0.35, 1.1, span, b.x + ox, 2.1, b.z + oz, b.rot)
+    }
     if (name === 'Coronation Bridge') {
-      const arch = new THREE.TorusGeometry(11, 0.7, 8, 18, Math.PI)
+      const arch = new THREE.TorusGeometry(span / 2 - 6, 1.0, 8, 22, Math.PI)
       arch.rotateY(b.rot + Math.PI / 2)
       arch.translate(b.x, 1.2, b.z)
       push('stone', arch, '#9a948a')
     }
-    label(name, b.x, 9, b.z, 18, '#ffe9a8')
+    label(name, b.x, 16, b.z, 30, '#ffe9a8')
   }
 
   // ---------------------------------------------------------------- labels
   for (const p of BAKE.places) {
-    label(p.name, p.x, 13, p.z, 15, '#f5f2e8')
+    label(p.name, p.x, 36, p.z, 40, '#f5f2e8')
   }
-  label('River Kaduna', 350, 14, -30, 16, '#bfe3ef')
-  label('to Zaria 88km', 175, 8, -930, 13, '#e8e4d8')
-  label('to Jos 230km', 300, 8, -1000, 13, '#e8e4d8')
-  label('to Abuja 210km', -600, 8, 1420, 13, '#e8e4d8')
-  label('Kajuru Road - Kajuru Castle 42km', 250, 9.5, 1120, 15, '#e8e4d8')
+  label('River Kaduna', ws(350), 24, ws(-30), 34, '#bfe3ef')
+  label('to Zaria 88km', ws(175), 12, ws(-930), 22, '#e8e4d8')
+  label('to Jos 230km', ws(300), 12, ws(-1000), 22, '#e8e4d8')
+  label('to Abuja 210km', ws(-600), 12, ws(1420), 22, '#e8e4d8')
+  label('Kajuru Road - Kajuru Castle 42km', ws(250), 14, ws(1120), 26, '#e8e4d8')
 
   // ---------------------------------------------------------------- merge into tiles
-  const TILE = 512
+  const TILE = 768
   const meshes: TileMesh[] = []
   const castBuckets = new Set(['wall', 'roof', 'stone', 'white', 'metal', 'dark', 'green', 'green2', 'glass', 'concrete', 'trunk', 'leaf', 'leaf2'])
   const tiles = new Map<string, Buckets>()
@@ -983,6 +1090,7 @@ function buildCity(): {
         const bb = merged.boundingBox!
         meshes.push({
           geometry: merged,
+          bucket,
           color: bucketColor[bucket] ?? '#cccccc',
           cast: castBuckets.has(bucket),
           cx: (bb.min.x + bb.max.x) / 2,
@@ -1022,7 +1130,30 @@ function buildCity(): {
     opacity: 0.92
   })
 
-  return { meshes, sprites, water: waterGeos, waterTexture, waterMaterial }
+  // one material per bucket; foliage (and palm fronds) sway in the wind
+  const mats: Record<string, THREE.Material> = {}
+  for (const m of meshes) {
+    if (mats[m.bucket]) continue
+    const mat = new THREE.MeshLambertMaterial({ color: m.color, vertexColors: true })
+    if (m.bucket === 'leaf' || m.bucket === 'leaf2') addWindSway(mat as any, 1, 1.6)
+    else if (m.bucket === 'trunk') addWindSway(mat as any, 0.35, 2.5)
+    else if (m.bucket === 'crop1' || m.bucket === 'crop2' || m.bucket === 'crop3') addWindSway(mat as any, 2.2, 0.1)
+    mats[m.bucket] = mat
+  }
+
+  addColliders(solids)
+
+  // hospitals, schools, filling stations, mechanics
+  const civic = buildCivic()
+  if (civic) for (const l of civic.labels) label(l.text, l.x, l.y, l.z, l.w, l.color)
+
+  const houseMaterial = makeHouseMaterial()
+  const touch = typeof window !== 'undefined' && matchMedia('(pointer: coarse)').matches
+  const lowQ = getQuality() === 'low'
+  const houses = buildHouseSystem(houseMaterial, touch || lowQ ? 150 : 230, touch || lowQ ? 1300 : 1800)
+  const towers = buildTowerMeshes()
+
+  return { meshes, mats, civic: civic?.mesh ?? null, sprites, water: waterGeos, waterTexture, waterMaterial, houses, houseMaterial, towers }
 }
 
 // Built lazily on the client (label textures need the DOM; this component
@@ -1044,9 +1175,11 @@ onMounted(() => {
 })
 
 // tile distance culling: skip geometry far outside the fog range
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [ws(-98), 0, ws(40)])
 const meshRefs = ref<THREE.Mesh[]>([])
 let cullTimer = 0
+const nightFactor = useState<number>('kk_night', () => 0)
+const CULL = 2600
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta, elapsed }) => {
   cullTimer += delta || 0
@@ -1062,9 +1195,12 @@ onBeforeRender(({ delta, elapsed }) => {
       const cz = (bb.min.z + bb.max.z) / 2
       const dx = cx - px
       const dz = cz - pz
-      m.visible = dx * dx + dz * dz < 1650 * 1650
+      m.visible = dx * dx + dz * dz < CULL * CULL
     }
+    cityRef.value.houses.update(px, pz)
   }
+  // CBD windows light up after dusk
+  cityRef.value?.towers.setNight(nightFactor.value)
   // drift the water
   const wm = cityRef.value?.waterMaterial
   if (wm?.map) {
@@ -1081,11 +1217,13 @@ onBeforeRender(({ delta, elapsed }) => {
       :key="'km' + i"
       :ref="(el) => { if (el) meshRefs[i] = el as any }"
       :geometry="m.geometry"
+      :material="cityRef.mats[m.bucket]"
       cast-shadow
       receive-shadow
-    >
-      <TresMeshLambertMaterial :color="m.color" :vertex-colors="true" />
-    </TresMesh>
+    />
+    <primitive v-for="(h, i) in cityRef.houses.objects" :key="'kh' + i" :object="h" />
+    <primitive v-if="cityRef.civic" :object="cityRef.civic" />
+    <primitive v-for="(t, i) in cityRef.towers.meshes" :key="'kt' + i" :object="t" />
     <TresMesh v-for="(w, i) in cityRef.water" :key="'kw' + i" :geometry="w" :material="cityRef.waterMaterial" />
     <TresSprite v-for="(s, i) in cityRef.sprites" :key="'ks' + i" :position="[s.x, s.y, s.z]" :scale="[s.w, s.h, 1]">
       <TresSpriteMaterial :map="s.texture" :transparent="true" :depth-write="false" />

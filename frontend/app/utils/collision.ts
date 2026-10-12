@@ -3,7 +3,7 @@
 // the baked Kaduna layout: every house footprint, landmark keepout and the
 // playable structures rendered by WorldScene.
 
-import { BAKE, clampWorld } from './kaduna'
+import { BAKE, clampWorld, PLAYABLE_POS } from './kaduna'
 
 export interface Box {
   x: number
@@ -13,13 +13,17 @@ export interface Box {
 }
 
 // Playable structures (WorldScene renders these at the server positions).
+const at = (code: string) => {
+  const p = PLAYABLE_POS[code]
+  return { x: p[0], z: p[1] }
+}
 const PLAYABLE: Box[] = [
-  { x: -70, z: 75, w: 15, d: 11 }, // Musa's store
-  { x: -25, z: 8, w: 4.4, d: 4.4 }, // POS kiosk
-  { x: -80, z: 102, w: 54, d: 36 }, // Central Market shed block
-  { x: -20, z: -164, w: 17, d: 13 }, // Arewa House
-  { x: -55, z: 360, w: 5, d: 5 }, // Stonetech monument
-  { x: -245, z: 420, w: 11, d: 5 } // keke stop shelter
+  { ...at('musa_shop'), w: 15, d: 11 }, // Musa's store
+  { ...at('arewa_pos'), w: 4.4, d: 4.4 }, // POS kiosk
+  { ...at('kaduna_central_market'), w: 54, d: 36 }, // Central Market shed block
+  { ...at('arewa_house'), w: 17, d: 13 }, // Arewa House
+  { ...at('stonetech_square'), w: 5, d: 5 }, // Stonetech monument
+  { ...at('keke_stop'), w: 11, d: 5 } // keke stop shelter
 ]
 
 function buildColliders(): Box[] {
@@ -44,17 +48,90 @@ function buildColliders(): Box[] {
       boxes.push({ x: lm.x, z: lm.z, w: lm.kw, d: lm.kd })
     }
   }
+  // compounds: the footprint IS the compound wall, so it is solid all
+  // round. Use the AABB of the rotated rectangle (grid houses along N-S
+  // streets are turned 90 degrees, so w/d must swap).
   for (const h of BAKE.houses) {
-    boxes.push({ x: h[0], z: h[1], w: h[2], d: h[3] })
+    const c = Math.abs(Math.cos(h[4]))
+    const sn = Math.abs(Math.sin(h[4]))
+    boxes.push({ x: h[0], z: h[1], w: h[2] * c + h[3] * sn, d: h[2] * sn + h[3] * c })
   }
+  // CBD towers incl. their retail podium
+  for (const t of BAKE.towers ?? []) {
+    boxes.push({ x: t.x, z: t.z, w: t.w + 8, d: t.d + 8 })
+  }
+  // hospitals, schools, filling stations, workshops (solid parts only)
+  for (const b of BAKE.civicSolids ?? []) boxes.push(b)
   return boxes
 }
 
 export const BUILDINGS: Box[] = buildColliders()
 
+// Uniform grid over the building boxes: ~15k footprints across the city, so
+// a linear scan per query (player + every pedestrian, every frame) is far
+// too slow. Each box is filed in every cell it overlaps.
+const CELL = 32
+const grid = new Map<number, Box[]>()
+const key = (i: number, j: number) => (i + 4096) * 8192 + (j + 4096)
+for (const b of BUILDINGS) {
+  const i0 = Math.floor((b.x - b.w / 2 - 1) / CELL)
+  const i1 = Math.floor((b.x + b.w / 2 + 1) / CELL)
+  const j0 = Math.floor((b.z - b.d / 2 - 1) / CELL)
+  const j1 = Math.floor((b.z + b.d / 2 + 1) / CELL)
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const k = key(i, j)
+      let a = grid.get(k)
+      if (!a) grid.set(k, (a = []))
+      a.push(b)
+    }
+  }
+}
+const EMPTY: Box[] = []
+
+/** Register extra solid boxes at runtime (street props, tree trunks,
+ *  poles) built by the renderer. */
+export function addColliders(list: Box[]) {
+  for (const b of list) {
+    const i0 = Math.floor((b.x - b.w / 2 - 1) / CELL)
+    const i1 = Math.floor((b.x + b.w / 2 + 1) / CELL)
+    const j0 = Math.floor((b.z - b.d / 2 - 1) / CELL)
+    const j1 = Math.floor((b.z + b.d / 2 + 1) / CELL)
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const k = key(i, j)
+        let a = grid.get(k)
+        if (!a) grid.set(k, (a = []))
+        a.push(b)
+      }
+    }
+  }
+}
+/** True if a building box, grown by `pad`, contains (x, z). */
+export function hitsBuilding(x: number, z: number, pad: number): boolean {
+  const i0 = Math.floor((x - pad) / CELL)
+  const i1 = Math.floor((x + pad) / CELL)
+  const j0 = Math.floor((z - pad) / CELL)
+  const j1 = Math.floor((z + pad) / CELL)
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const a = grid.get(key(i, j))
+      if (!a) continue
+      for (const b of a) {
+        if (Math.abs(x - b.x) < b.w / 2 + pad && Math.abs(z - b.z) < b.d / 2 + pad) return true
+      }
+    }
+  }
+  return false
+}
+/** Buildings whose cell contains (x, z). Pad is small (< 1 cell). */
+export function buildingsNear(x: number, z: number): Box[] {
+  return grid.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? EMPTY
+}
+
 export const PLAYER_RADIUS = 0.6
 // Downtown fallback spawn (Ahmadu Bello Way roadside).
-export const SPAWN: [number, number] = [-98, 40]
+export const SPAWN: [number, number] = PLAYABLE_POS.spawn_roadside
 
 // While the player is inside a house interior the room's own walls replace
 // the city colliders (the room sits directly below the house footprint, so
@@ -81,7 +158,7 @@ export function collides(x: number, z: number): boolean {
     }
     return false
   }
-  for (const b of BUILDINGS) {
+  for (const b of buildingsNear(x, z)) {
     if (Math.abs(x - b.x) < b.w / 2 + PLAYER_RADIUS && Math.abs(z - b.z) < b.d / 2 + PLAYER_RADIUS) {
       return true
     }
@@ -102,15 +179,13 @@ export function collidesRadius(x: number, z: number, r: number): boolean {
     }
     return false
   }
-  for (const b of BUILDINGS) {
-    if (Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r) return true
-  }
+  if (hitsBuilding(x, z, r)) return true
   return false
 }
 
 /** True when the point is inside a footprint WITHOUT the player padding. */
 function insideCore(x: number, z: number): boolean {
-  for (const b of BUILDINGS) {
+  for (const b of buildingsNear(x, z)) {
     if (Math.abs(x - b.x) < b.w / 2 && Math.abs(z - b.z) < b.d / 2) return true
   }
   for (const b of vehicleBoxes) {

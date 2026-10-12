@@ -24,7 +24,7 @@ function fmtNgn(minor: number) {
           </span>
         </div>
       </div>
-      <button class="kk-btn-ghost !px-2 !py-1" @click="ui.open('shop')">✕</button>
+      <button class="kk-close" aria-label="Close" @click="ui.open('shop')">✕</button>
     </div>
 
     <div v-if="payments.paying" class="py-8 text-center text-sm text-ink/55">Creating invoice...</div>

@@ -24,6 +24,10 @@ const authError = ref('')
 const authBusy = ref(false)
 
 const ready = ref(false)
+// true until we know whether a saved session exists (avoids login flash)
+const booting = ref(true)
+const showHint = ref(true)
+let hintTimer: ReturnType<typeof setTimeout> | undefined
 
 // unified action key: exit vehicle > board vehicle > chat to a pedestrian >
 // door > entity interact
@@ -50,6 +54,12 @@ function tryInteract() {
 // keyboard shortcuts
 function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement) return
+  // number keys pick an option on the interaction sheet
+  if (ui.interaction && /^[1-9]$/.test(e.key)) {
+    const o = ui.interaction.options[+e.key - 1]
+    if (o) ui.chooseOption(o)
+    return
+  }
   if (e.key === 'e' || e.key === 'E') tryInteract()
   if (e.key === 'Escape') {
     if (mapOpen.value) mapOpen.value = false
@@ -61,6 +71,7 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'm' || e.key === 'M') mapOpen.value = !mapOpen.value
   if (e.key === 'v' || e.key === 'V') fireKkEvent('kk-ride-view')
   if (e.key === 'n' || e.key === 'N') fireKkEvent('kk-time-skip')
+  if (e.key === 'y' || e.key === 'Y') fireKkEvent('kk-weather')
   if (e.key === 'h' || e.key === 'H') fireKkEvent('kk-horn')
   if (e.key === 'p' || e.key === 'P') {
     const t = window as any
@@ -90,17 +101,12 @@ const socket = useGameSocket()
 
 onMounted(async () => {
   try {
-    // temporary debug: capture uncaught RAF errors (loop killer detection)
-    window.addEventListener('error', (e) => {
-      ;(window as any).__kk_win_err = (window as any).__kk_win_err || []
-      ;(window as any).__kk_win_err.push(
-        `${e.message} @ ${String(e.filename).split('/').slice(-2).join('/')}:${e.lineno}`
-      )
-    })
     window.addEventListener('keydown', onKey)
     window.addEventListener('kk-do-interact', tryInteract)
   player.token = localStorage.getItem('kk_token') || ''
   player.authenticated = !!player.token
+  booting.value = false
+  hintTimer = setTimeout(() => (showHint.value = false), 15000)
   if (!player.authenticated) return
 
   // socket event wiring (server events are the only source of truth)
@@ -198,14 +204,15 @@ function fmtNgn(minor: number) {
     <!-- 3D world -->
     <ClientOnly>
       <GameCanvas v-if="ready" />
+      <div v-else-if="booting || player.authenticated" class="absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-[#cfe3d8] via-paper to-[#f3e3c0] text-ink/60"><div class="h-10 w-10 animate-spin rounded-full border-4 border-kadeep/20 border-t-kadeep" /><div class="font-display text-sm font-semibold">Building Kaduna...</div></div>
       <template #fallback>
-        <div class="flex h-full items-center justify-center text-ink/50">Loading world...</div>
+        <div class="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-[#cfe3d8] via-paper to-[#f3e3c0] text-ink/60"><div class="h-10 w-10 animate-spin rounded-full border-4 border-kadeep/20 border-t-kadeep" /><div class="font-display text-sm font-semibold">Building Kaduna...</div></div>
       </template>
     </ClientOnly>
 
     <!-- auth gate: light, Lagos Life style -->
     <div
-      v-if="!player.authenticated"
+      v-if="!player.authenticated && !booting"
       class="absolute inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-[#cfe3d8] via-paper to-[#f3e3c0] p-4"
     >
       <div class="w-[min(440px,94vw)] rounded-[2rem] bg-white p-7 shadow-2xl shadow-ink/15 sm:p-9">
@@ -263,7 +270,8 @@ function fmtNgn(minor: number) {
     <!-- in-game UI -->
     <template v-if="ready && player.authenticated">
       <Hud @open="(p) => ui.open(p)" />
-      <Minimap />
+      <ObjectiveTracker />
+      <Minimap v-show="!ui.openPanel" />
       <MapOverlay />
       <MobileControls />
       <InteractionPrompt />
@@ -277,7 +285,7 @@ function fmtNgn(minor: number) {
       <div v-if="ui.openPanel === 'pos'" class="pointer-events-auto absolute right-3 top-20 z-30 w-[min(380px,92vw)] kk-panel p-4 sm:right-4">
         <div class="mb-3 flex items-center justify-between">
           <div class="text-base font-bold text-ink">⚡ Arewa QuickPOS</div>
-          <button class="kk-btn-ghost !px-2 !py-1" @click="ui.open('pos')">✕</button>
+          <button class="kk-close" aria-label="Close" @click="ui.open('pos')">✕</button>
         </div>
         <div class="space-y-2 text-sm text-ink/70">
           <p>This Lightning-powered kiosk is the reference point for real-sat payments in Kaduna Kulture.</p>
@@ -294,22 +302,29 @@ function fmtNgn(minor: number) {
         </div>
       </div>
 
-      <!-- interaction option sheet -->
+      <!-- interaction option sheet: primary action first, numbered for keyboard -->
       <div v-if="ui.interaction" class="pointer-events-auto absolute inset-x-0 bottom-28 z-30 flex justify-center px-3">
-        <div class="kk-panel w-[min(460px,94vw)] p-4">
-          <div class="mb-2 flex items-center justify-between">
-            <div class="text-sm font-bold text-ink">{{ ui.interaction.entity_name }}</div>
-            <button class="kk-btn-ghost !px-2 !py-0.5 text-xs" @click="ui.interaction = null">✕</button>
+        <div class="kk-panel w-[min(420px,94vw)] p-4" role="dialog" :aria-label="ui.interaction.entity_name">
+          <div class="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div class="text-[10px] font-extrabold uppercase tracking-[0.14em] text-kadeep/60">What would you like to do?</div>
+              <div class="font-display text-lg font-semibold leading-tight text-ink">{{ ui.interaction.entity_name }}</div>
+            </div>
+            <button class="kk-close" aria-label="Close" @click="ui.interaction = null">✕</button>
           </div>
           <div class="space-y-2">
             <button
               v-for="(o, i) in ui.interaction.options"
               :key="i"
-              class="kk-btn-ghost w-full !justify-start"
+              class="group flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-left text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-kadeep/60"
+              :class="i === 0 ? 'border-kadeep bg-kadeep text-white hover:bg-leaf' : 'border-ink/10 bg-white text-ink hover:border-ink/25'"
               @click="ui.chooseOption(o)"
             >
-              {{ o.kind === 'shop' ? '🛒' : o.kind === 'job_board' ? '🧾' : o.kind === 'pos_kiosk' ? '⚡' : '💬' }}
-              {{ o.label }}
+              <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base" :class="i === 0 ? 'bg-white/15' : 'bg-paper'">
+                {{ o.kind === 'shop' ? '🛒' : o.kind === 'job_board' ? '🧾' : o.kind === 'pos_kiosk' ? '⚡' : '💬' }}
+              </span>
+              <span class="flex-1">{{ o.label }}</span>
+              <kbd v-if="!isTouch" class="rounded-md border px-1.5 font-mono text-[10px]" :class="i === 0 ? 'border-white/30 text-white/70' : 'border-ink/15 text-ink/40'">{{ i + 1 }}</kbd>
             </button>
           </div>
         </div>
@@ -332,19 +347,23 @@ function fmtNgn(minor: number) {
 
       <!-- controls hint (sits directly on the 3D world) -->
       <div
-        v-if="!isTouch"
-        class="pointer-events-none absolute bottom-4 left-4 z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
+        v-if="!isTouch && !showHint"
+        class="pointer-events-auto absolute bottom-4 left-4 z-20"
+      ><button class="kk-btn-ghost !px-3 !py-1.5 text-xs" @click="showHint = true">? Controls</button></div>
+      <div
+        v-else-if="!isTouch"
+        class="pointer-events-auto absolute bottom-4 left-4 cursor-pointer z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
-        <div>WASD or arrows to walk · Shift to sprint · click the ground to go there</div>
+        <div>WASD or arrows to walk · Shift to sprint · click the ground to go there · Y weather</div>
         <div>E talk, board a keke, car, okada, bus, boat or plane, or enter homes · V inner view</div>
-        <div>M city map · N skip 2 hours · H horn · P sound on/off</div>
+        <div>M city map · N skip 2 hours · H horn · P sound on/off <button class="ml-2 underline" @click="showHint = false">hide</button></div>
       </div>
       <div
-        v-else
-        class="pointer-events-none absolute bottom-44 left-1/2 z-20 -translate-x-1/2 rounded-2xl bg-ink/45 px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
+        v-else-if="showHint"
+        class="pointer-events-auto absolute bottom-44 left-1/2 z-20 -translate-x-1/2 rounded-2xl bg-ink/45 px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
         <div>left stick to move (push fully to sprint) · drag to look · pinch to zoom</div>
-        <div>tap the ground to walk there · TALK to chat, board vehicles and enter homes</div>
+        <div @click="showHint = false">tap the ground to walk there · TALK to chat, board vehicles and enter homes · tap to hide</div>
       </div>
     </template>
   </div>

@@ -11,7 +11,8 @@
 <template>
   <TresCanvas shadows :clear-color="'#9ec7de'">
     <CinematicCam />
-    <TresFog :args="['#9ec7de', 500, 2400]" />
+    <TresFog :args="['#9ec7de', 700, 3200]" />
+    <EnvLight />
 
     <TresAmbientLight :intensity="0.72" color="#fff4e0" />
     <TresDirectionalLight

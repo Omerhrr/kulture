@@ -10,13 +10,16 @@
 
 import http from 'node:http'
 import { spawn } from 'node:child_process'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import httpProxy from 'http-proxy'
 
 const PORT = Number(process.env.GATEWAY_PORT || 3000)
 const NUXT = 'http://127.0.0.1:3001'
 const API = 'http://127.0.0.1:8000'
 
-const ROOT = '/home/z/my-project'
+// repo root (this file lives in <repo>/scripts); override with KK_ROOT
+const ROOT = process.env.KK_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 // ------------------------------------------------------- self-bootstrap
 // The gateway is the sandbox entrypoint (`bun run dev`). It brings up the

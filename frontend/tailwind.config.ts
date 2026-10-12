@@ -8,6 +8,7 @@ export default <Partial<Config>>{
         kadeep: '#0B3D2E', // deep kraft green (primary)
         leaf: '#1F7A4D', // action green (hover / accents)
         kasand: '#E8B84B', // sand gold (brand accent)
+        gold: '#E8B84B', // alias used by HUD accents
         golddark: '#A87B1F', // gold that reads on light backgrounds
         katerr: '#7C4A2D', // terracotta
         kakano: '#1A2E35', // legacy charcoal (world props)

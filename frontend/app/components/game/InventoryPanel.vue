@@ -8,7 +8,7 @@ const ui = useUiStore()
   <div class="pointer-events-auto absolute right-3 top-20 z-30 w-[min(360px,92vw)] kk-panel kk-scroll max-h-[70vh] overflow-y-auto p-4 sm:right-4">
     <div class="mb-3 flex items-center justify-between">
       <div class="font-display text-base font-semibold text-ink">🎒 Inventory</div>
-      <button class="kk-btn-ghost !px-2 !py-1" @click="ui.open('inventory')">✕</button>
+      <button class="kk-close" aria-label="Close" @click="ui.open('inventory')">✕</button>
     </div>
 
     <div v-if="player.inventory.length === 0" class="py-6 text-center text-sm text-ink/50">

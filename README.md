@@ -25,6 +25,44 @@ This is a Bitcoin-native economy, not a conventional game with a crypto
 balance bolted on: an invoice is a payment *request*, never proof of payment;
 the authoritative server owns every sat, stock count, job, and price.
 
+## What's new in v3 - a bigger, modern, real-size Kaduna
+
+- Everything at one real-world scale: characters, cars, houses and streets
+  are life-size and the city map is stretched 3x (~6.3 x 7.4 km).
+- A full residential street grid with ~32,000 modern compounds (duplexes,
+  flats, shop rows, compound walls + gates, water tanks, solar), drawn with
+  GPU instancing and level of detail.
+- A CBD skyline of ~50 towers (30-125 m) whose windows light up at night.
+- Realistic people: proper proportions, jointed limbs, kaftan/kufi and
+  gown/hijab outfits, and a close third-person camera.
+- Image-based lighting, soft shadows, real lane markings, 8 m LED street
+  lights, wider river and bridges.
+
+See [docs/gameplay.md](docs/gameplay.md#world-scale--the-modern-city-v3).
+
+### v3.1 - a living, physical city
+
+- **Weather + wind**: sunny, cloudy, rain, thunderstorms and harmattan dust,
+  changing on their own (press **Y** or tap the weather chip to switch).
+  Rain streaks, drifting clouds, lightning + thunder, trees and crops sway
+  in the wind, rain and wind sounds.
+- **Solid world**: compound walls, towers, kiosks, poles and tree trunks all
+  block you; vehicles crash (camera shake, bounce, crunch).
+- **Impacts**: step in front of a moving car and you are knocked down,
+  tumble, lie on the road and get back up; drive into people and they fall.
+- **Real-looking vehicles**: saloon cars, yellow danfo buses with roof racks,
+  keke NAPEP, Bajaj-style okadas, bicycles and lorries.
+- **Boarding**: walk to the door, it opens, you climb in and sit at the
+  wheel (or astride a bike); getting out is animated too.
+- **Public places**: ~17 hospitals, ~30 schools, ~19 filling stations and
+  ~70 mechanic workshops, shown on the map.
+- **Street life**: container kiosks with plastic chairs, generators, bus
+  shelters, billboards, water-vendor carts; people carry shopping bags,
+  briefcases, backpacks and basins on their heads, talk on phones, and open
+  umbrellas when it rains.
+- **Every house can be entered**: walk to any compound gate and press E for
+  a furnished interior (each home decorated differently).
+
 ## Demo account
 
 ```

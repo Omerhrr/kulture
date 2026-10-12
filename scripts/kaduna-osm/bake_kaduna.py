@@ -15,8 +15,12 @@ import json
 import math
 import random
 
-RAW = "/home/z/my-project/kaduna-osm-raw"
-OUT = "/home/z/my-project/kaduna-kulture/frontend/app/utils/kadunaBake.json"
+import os as _os
+_REPO = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+# raw OSM extracts live outside the repo by default; override with KK_OSM_RAW
+_RAW_DEFAULT = _os.environ.get("KK_OSM_RAW", _os.path.join(_REPO, "..", "kaduna-osm-raw"))
+RAW = _RAW_DEFAULT
+OUT = _os.path.join(_REPO, "frontend", "app", "utils", "kadunaBake.json")
 
 ORIGIN = (10.5332, 7.4413)
 M_PER_DEG_LAT = 110_900.0

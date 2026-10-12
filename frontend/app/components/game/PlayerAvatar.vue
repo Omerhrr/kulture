@@ -8,7 +8,8 @@
 // envelope (client is untrusted).
 
 import * as THREE from 'three'
-import { collides, clampBounds } from '~/utils/collision'
+import { collides, clampBounds, unstick } from '~/utils/collision'
+import { impact } from '~/utils/impact'
 import { INTERIOR_DROP } from '~/utils/kadunaExtras'
 import { hashDist, roadHash } from '~/utils/kadunaExtras'
 import { kkAudio } from '~/utils/audio'
@@ -17,7 +18,7 @@ const world = useWorldStore()
 const { isDown } = useKeyboard()
 const { onBeforeRender } = useLoop()
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const playerFacing = useState<number>('kk_player_facing', () => 0)
 const proximity = useState<{ entityId: string; name: string; code: string } | null>(
   'kk_proximity',
@@ -30,6 +31,8 @@ const ride = useRide()
 const interior = useInterior()
 
 const group = ref()
+const bodyRef = ref()
+const knocked = ref(false)
 const targetRing = ref()
 const walking = ref(false)
 const sprinting = ref(false)
@@ -51,10 +54,13 @@ if (import.meta.dev) {
   }
   ;(window as any).__kk_pos = () => [+playerPos.value[0].toFixed(2), +playerPos.value[2].toFixed(2)]
   ;(window as any).__kk_collides = (x: number, z: number) => collides(x, z)
+  ;(window as any).__kk_knock = () => ({ ...impact.knock, shake: impact.shake })
 }
 
-const WALK_SPEED = 16
-const SPRINT_SPEED = 30
+// real-world pace: a brisk walk and a proper sprint (m/s). The old 16 / 30
+// were 4x human speed, which shrank everything around the player.
+const WALK_SPEED = 5
+const SPRINT_SPEED = 9.5
 const ARRIVE_RADIUS = 0.6
 // give up on unreachable targets; the window scales with distance so
 // cross-city walks from the map view are not abandoned mid-way
@@ -83,6 +89,58 @@ onBeforeRender(({ delta }) => {
   }
   g.visible = true
   const floorY = interior.value.inside ? -INTERIOR_DROP : 0
+
+  // knocked down by a vehicle: fly, tumble, lie on the ground, get up.
+  // Input is ignored until the character is back on their feet.
+  const k = impact.knock
+  if (k.active) {
+    k.t += dt
+    knocked.value = true
+    walking.value = false
+    moveTarget.value = null
+    const air = k.y > 0 || k.vy > 0
+    if (air) {
+      k.vy -= 18 * dt
+      k.y = Math.max(0, k.y + k.vy * dt)
+      if (k.y === 0 && k.vy < 0) {
+        k.vy = 0
+        kkAudio.impact(0.35)
+      }
+    }
+    // skid along the ground (friction), never into walls
+    const fr = Math.exp(-(air ? 0.6 : 5) * dt)
+    k.vx *= fr
+    k.vz *= fr
+    const nx = playerPos.value[0] + k.vx * dt
+    const nz = playerPos.value[2] + k.vz * dt
+    if (!collides(nx, playerPos.value[2])) playerPos.value[0] = nx
+    else k.vx *= -0.3
+    if (!collides(playerPos.value[0], nz)) playerPos.value[2] = nz
+    else k.vz *= -0.3
+    const b = bodyRef.value
+    if (b) {
+      // fall flat over ~0.35 s, lie until 2.2 s, then stand back up
+      const lie = k.t < 2.2 ? Math.min(1, k.t / 0.35) : Math.max(0, 1 - (k.t - 2.2) / 0.6)
+      b.rotation.x = -lie * (Math.PI / 2) * 0.95
+      b.rotation.z = Math.sin(Math.min(k.t, 0.6) * 10) * 0.25 * k.spin * (1 - lie * 0.5)
+      b.position.y = k.y + lie * 0.18
+    }
+    if (k.t > 2.85) {
+      k.active = false
+      knocked.value = false
+      if (b) {
+        b.rotation.set(0, 0, 0)
+        b.position.y = 0
+      }
+    }
+    g.position.set(playerPos.value[0], floorY, playerPos.value[2])
+    g.rotation.y = playerFacing.value
+    if (performance.now() - lastSent > 110) {
+      lastSent = performance.now()
+      socketSend.value('player.move', { position: [playerPos.value[0], 0, playerPos.value[2]], facing: playerFacing.value })
+    }
+    return
+  }
 
   // camera basis: forward = away from camera, right = screen right
   const yaw = orbit.value.yaw
@@ -174,9 +232,11 @@ onBeforeRender(({ delta }) => {
     ;[nx, nz] = clampBounds(nx, nz)
 
     if (stuck) {
-      // Spawned or pushed inside a footprint: walking out beats being trapped.
-      playerPos.value[0] = nx
-      playerPos.value[2] = nz
+      // Spawned or pushed inside a footprint: pop out to the nearest free
+      // spot (never let the player walk on through walls)
+      const [ux, uz] = unstick(playerPos.value[0], playerPos.value[2])
+      playerPos.value[0] = ux
+      playerPos.value[2] = uz
     } else {
       // axis-separated collision resolution
       if (!collides(nx, playerPos.value[2])) playerPos.value[0] = nx
@@ -237,19 +297,23 @@ onBeforeRender(({ delta }) => {
 
 <template>
   <TresGroup ref="group" :position="[playerPos[0], 0, playerPos[2]]">
+    <TresGroup ref="bodyRef">
     <CharacterAvatar
       v-if="!ride.active"
       shirt="#2e7d5b"
       trouser="#2b3440"
       :kufi="true"
       hair-style="cap"
+      outfit="kaftan"
       :beard="true"
       :mode="walking ? 'walk' : 'idle'"
-      :gait-speed="sprinting ? 12.5 : 9.5"
+      :gait-speed="sprinting ? 15 : 10.5"
     />
+    </TresGroup>
     <!-- soft shadow blob -->
     <TresMesh :position="[0, 0.02, 0]" :rotation="[-Math.PI / 2, 0, 0]">
-      <TresCircleGeometry :args="[0.55, 20]" />
+      <TresCircleGeometry :args="[0.42, 20]" />
+      <TresMeshBasicMaterial color="#000000" transparent :opacity="0.22" :depth-write="false" />
     </TresMesh>
   </TresGroup>
 

@@ -10,7 +10,7 @@
 import * as THREE from 'three'
 import { collides, unstick } from '~/utils/collision'
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const moveTarget = useMoveTarget()
 const orbit = useCamOrbit()
 
@@ -74,7 +74,7 @@ onMounted(() => {
       const [a, b] = [...active.values()]
       const d = Math.hypot(a.x - b.x, a.y - b.y)
       if (pinchDist > 0) {
-        orbit.value.dist = Math.min(130, Math.max(8, orbit.value.dist + (pinchDist - d) * 0.08))
+        orbit.value.dist = Math.min(220, Math.max(3.5, orbit.value.dist + (pinchDist - d) * 0.08))
       }
       pinchDist = d
       return
@@ -135,7 +135,7 @@ onMounted(() => {
     'wheel',
     (e) => {
       e.preventDefault()
-      orbit.value.dist = Math.min(130, Math.max(8, orbit.value.dist + e.deltaY * 0.02))
+      orbit.value.dist = Math.min(220, Math.max(3.5, orbit.value.dist + e.deltaY * 0.02))
     },
     { passive: false }
   )

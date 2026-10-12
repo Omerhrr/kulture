@@ -6,8 +6,9 @@
 
 import * as THREE from 'three'
 import { useClock, sunState, skyPalette } from '~/composables/useTimeOfDay'
+import { weather } from '~/utils/weather'
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const hour = useClock()
 
 const light = ref()
@@ -28,10 +29,12 @@ onBeforeRender(({ delta }) => {
   targetObj.position.set(px, 0, pz)
   // day: the sun rides its arc; night: a high dim moon keeps soft shadows
   if (s.sy > 0.02) {
-    l.position.set(px + s.sx * 130, 30 + s.sy * 90, pz + s.sz * 130)
+    l.position.set(px + s.sx * 160, 40 + s.sy * 140, pz + s.sz * 160)
     sunColor.set(pal.sun)
     l.color.copy(sunColor)
-    l.intensity = 0.25 + s.daylight * 1.45
+    // clouds and rain dim the sun; harmattan dust softens it
+    const w = weather.cur
+    l.intensity = (0.25 + s.daylight * 1.45) * (1 - Math.min(0.75, w.cloud * 0.6 + w.rain * 0.25)) * (1 - w.haze * 0.35)
   } else {
     // moon opposite the sun, fixed elevation
     l.position.set(px - s.sx * 130 + 40, 95, pz - s.sz * 130 - 25)
@@ -55,11 +58,12 @@ onBeforeRender(({ delta }) => {
       cast-shadow
       :shadow-mapSize-width="2048"
       :shadow-mapSize-height="2048"
-      :shadow-camera-left="-70"
-      :shadow-camera-right="70"
-      :shadow-camera-top="70"
-      :shadow-camera-bottom="-70"
-      :shadow-camera-far="320"
+      :shadow-camera-left="-80"
+      :shadow-camera-right="80"
+      :shadow-camera-top="80"
+      :shadow-camera-bottom="-80"
+      :shadow-camera-far="420"
+      :shadow-normal-bias="0.04"
       :shadow-bias="-0.0004"
     />
   </TresGroup>

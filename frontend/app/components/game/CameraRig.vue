@@ -7,8 +7,10 @@
 import * as THREE from 'three'
 import { ridePose } from '~/utils/rideState'
 import { INTERIOR_DROP } from '~/utils/kadunaExtras'
+import { impact } from '~/utils/impact'
+import { hitsBuilding } from '~/utils/collision'
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const orbit = useCamOrbit()
 const ride = useRide()
 const interior = useInterior()
@@ -16,9 +18,14 @@ const interior = useInterior()
 const camera = ref()
 const followTarget = new THREE.Vector3()
 const desired = new THREE.Vector3()
+// occlusion: shortened boom length when a building sits between player and camera
+let occl = 99
+if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_cam = () => ({ occl, smooth: { ...smooth }, hit: (x: number, z: number) => hitsBuilding(x, z, 0.35) })
 
 // smoothed orbit values so the view glides instead of jumping
-const smooth = { yaw: 0, pitch: 0.58, dist: 20 }
+// close third-person framing: the character fills a good share of the
+// screen (the old 20 m / steep pitch made people look like ants)
+const smooth = { yaw: 0, pitch: 0.32, dist: 8.5 }
 
 const { onBeforeRender } = useLoop()
 const ctxAny = useTresContext() as any
@@ -76,11 +83,11 @@ onBeforeRender(({ delta }) => {
   if (!cam) return
   const k = 1 - Math.pow(0.0015, Math.min(delta || 0.016, 0.1)) // frame-rate safe damping
 
-  // inside a house the camera must stay INSIDE the room: clamp the orbit
-  // radius and pitch so we never pull through a wall or the ceiling
+  // inside a home: elevated doll's-house view (Interiors cuts away the
+  // walls facing the camera), so keep the camera high and comfortably far
   if (interior.value.inside) {
-    orbit.value.dist = Math.min(orbit.value.dist, 3.6)
-    orbit.value.pitch = Math.max(0.12, Math.min(orbit.value.pitch, 0.62))
+    orbit.value.dist = Math.max(6.5, Math.min(orbit.value.dist, 15))
+    orbit.value.pitch = Math.max(0.72, Math.min(orbit.value.pitch, 1.3))
   }
   if (snapNext) {
     // instant framing (entering a house / leaving it) - no slow damping
@@ -109,10 +116,52 @@ onBeforeRender(({ delta }) => {
   const pz = ride.value.active ? ridePose.z : playerPos.value[2]
   // chase view tracks the vehicle body (boats bob, planes climb)
   const vy = ride.value.active ? ridePose.y : interior.value.inside ? -INTERIOR_DROP : 0
-  const horiz = Math.cos(smooth.pitch) * smooth.dist
+  let dist = smooth.dist
+  if (!ride.value.active && !interior.value.inside && smooth.pitch < 1.15) {
+    // march the boom outwards; stop just before the first wall
+    const sy = Math.sin(smooth.yaw)
+    const cy = Math.cos(smooth.yaw)
+    const cp = Math.cos(smooth.pitch)
+    let free = smooth.dist
+    for (let t = 0.5; t <= smooth.dist; t += 0.4) {
+      if (hitsBuilding(px + sy * cp * t, pz + cy * cp * t, 0.45)) {
+        free = Math.max(0.35, t - 0.5)
+        break
+      }
+    }
+    // snap in fast, ease back out slowly so it doesn't pump
+    occl = free < occl ? free : occl + (free - occl) * Math.min(1, (delta || 0.016) * 2)
+    dist = Math.min(dist, occl)
+    // pinned against a wall: swing the boom toward the most open side
+    if (free < 2.5) {
+      let bestYaw = smooth.yaw
+      let bestFree = free
+      for (let i = 1; i <= 6; i++) {
+        for (const sgn of [1, -1]) {
+          const y = smooth.yaw + sgn * i * (Math.PI / 6)
+          let f = 0
+          for (let t = 0.5; t <= 6; t += 0.5) {
+            if (hitsBuilding(px + Math.sin(y) * cp * t, pz + Math.cos(y) * cp * t, 0.45)) break
+            f = t
+          }
+          if (f > bestFree + 0.5) {
+            bestFree = f
+            bestYaw = y
+          }
+        }
+        if (bestFree >= 5) break
+      }
+      const step = Math.min(1, (delta || 0.016) * 2.5)
+      orbit.value.yaw += (bestYaw - orbit.value.yaw) * step
+    }
+  } else occl = 99
+  const horiz = Math.cos(smooth.pitch) * dist
+  // squeezed against a wall: rise up over the shoulder and look down so
+  // the street stays readable instead of filling the screen with wall
+  const lift = dist < smooth.dist ? Math.max(0, 2.5 - dist) * 0.35 : 0
   desired.set(
     px + Math.sin(smooth.yaw) * horiz,
-    vy + 1.4 + Math.sin(smooth.pitch) * smooth.dist,
+    vy + 1.55 + Math.sin(smooth.pitch) * dist + lift,
     pz + Math.cos(smooth.yaw) * horiz
   )
   if (snapNext) {
@@ -121,7 +170,16 @@ onBeforeRender(({ delta }) => {
   } else {
     cam.position.lerp(desired, k)
   }
-  followTarget.set(px, vy + 1.6, pz)
+  followTarget.set(px, vy + 1.45, pz)
+  // impact shake: a quick decaying jitter on the look target
+  if (impact.shake > 0.01) {
+    const t = performance.now() / 1000
+    const a = impact.shake * 0.35
+    followTarget.x += Math.sin(t * 61) * a
+    followTarget.y += Math.sin(t * 47 + 1.3) * a * 0.7
+    followTarget.z += Math.cos(t * 53) * a
+    impact.shake *= Math.exp(-(delta || 0.016) * 4.5)
+  }
   cam.lookAt(followTarget)
 })
 
@@ -131,11 +189,11 @@ watch(
   () => interior.value.inside,
   (inside) => {
     if (inside) {
-      orbit.value.dist = 3.6
-      orbit.value.pitch = 0.3
+      orbit.value.dist = 10.5
+      orbit.value.pitch = 0.95
     } else {
-      orbit.value.dist = 20
-      orbit.value.pitch = 0.58
+      orbit.value.dist = 8.5
+      orbit.value.pitch = 0.32
     }
     snapNext = true
   }
@@ -145,9 +203,9 @@ watch(
 <template>
   <TresPerspectiveCamera
     ref="camera"
-    :position="[-98, 13, 104]"
+    :position="[-294, 13, 184]"
     :fov="55"
-    :near="0.5"
-    :far="4200"
+    :near="0.25"
+    :far="9000"
   />
 </template>

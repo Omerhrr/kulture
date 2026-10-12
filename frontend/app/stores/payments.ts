@@ -49,6 +49,11 @@ export const usePaymentsStore = defineStore('payments', {
         this.settling = false
       }
     },
+    /** close without cancelling (used after a verified settlement) */
+    close() {
+      this.dialogOpen = false
+      this.current = null
+    },
     async cancelCurrent() {
       if (!this.current) return
       const api = useGameApi()
@@ -67,7 +72,7 @@ export const usePaymentsStore = defineStore('payments', {
           setTimeout(() => {
             this.dialogOpen = false
             this.current = null
-          }, 1600)
+          }, 4500)
         }
       }
     }

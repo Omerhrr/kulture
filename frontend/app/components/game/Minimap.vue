@@ -3,7 +3,7 @@
 // player, with entity pins and a rotating player arrow. North is up.
 import { getMapCanvas, mapTransform, worldToMap } from '~/utils/kadunaMap'
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const playerFacing = useState<number>('kk_player_facing', () => 0)
 const world = useWorldStore()
 const ride = useRide()
@@ -23,10 +23,10 @@ onMounted(() => {
     if (!cv) return
     const g = cv.getContext('2d')
     if (!g) return
-    const src = getMapCanvas()
+    const src = getMapCanvas(false)
     const tf = mapTransform()
-    // show ~300 world units across
-    const spanUnits = 300
+    // show ~420 m across
+    const spanUnits = 420
     const srcSpan = (spanUnits * tf.pxPerUnit * src.width) / tf.pxW
     const [cx, cy] = worldToMap(playerPos.value[0], playerPos.value[2])
     const scale = cv.width / srcSpan

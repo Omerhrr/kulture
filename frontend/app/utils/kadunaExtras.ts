@@ -4,7 +4,7 @@
 // Everything here is derived from the baked OSM layout with a fixed seed,
 // so the render, the map and gameplay code all agree without a bake step.
 
-import { BAKE } from './kaduna'
+import { BAKE, WORLD_SCALE, ws, wp } from './kaduna'
 
 export function mulberry32(seed: number) {
   let a = seed
@@ -62,7 +62,19 @@ let _roadHash: SpatialHash | null = null
 export function roadHash(): SpatialHash {
   if (!_roadHash) {
     const pts: Array<[number, number]> = []
-    for (const r of BAKE.roads) for (const p of r.pts) pts.push(p)
+    // densify long segments: after WORLD_SCALE a polyline vertex can be
+    // 100+ units from its neighbour, and a vertex-only hash would report
+    // open ground in the middle of a straight road
+    for (const r of BAKE.roads) {
+      for (let i = 0; i < r.pts.length; i++) {
+        const [ax, az] = r.pts[i]
+        pts.push([ax, az])
+        const b = r.pts[i + 1]
+        if (!b) continue
+        const n = Math.floor(Math.hypot(b[0] - ax, b[1] - az) / 8)
+        for (let k = 1; k < n; k++) pts.push([ax + ((b[0] - ax) * k) / n, az + ((b[1] - az) * k) / n])
+      }
+    }
     _roadHash = buildHash(pts, 64)
   }
   return _roadHash
@@ -109,7 +121,7 @@ function makeDam(): DamInfo {
   let best = -Infinity
   for (let i = 0; i < river.length; i++) {
     const [x, z] = river[i]
-    if (x > 900 || x < -1600) continue
+    if (x > ws(900) || x < ws(-1600)) continue
     const score = x - z * 0.35
     if (score > best) {
       best = score
@@ -129,19 +141,19 @@ function makeRomi(): { pts: Array<[number, number]> } {
   let ci = 0
   let best = Infinity
   for (let i = 0; i < river.length; i++) {
-    const d = Math.hypot(river[i][0] + 360, river[i][1] - 320)
+    const d = Math.hypot(river[i][0] - ws(-360), river[i][1] - ws(320))
     if (d < best) {
       best = d
       ci = i
     }
   }
   const raw: Array<[number, number]> = [
-    [-880, 1040],
-    [-760, 900],
-    [-640, 760],
-    [-540, 620],
-    [-470, 480],
-    [-420, 380],
+    wp([-880, 1040]),
+    wp([-760, 900]),
+    wp([-640, 760]),
+    wp([-540, 620]),
+    wp([-470, 480]),
+    wp([-420, 380]),
     river[ci]
   ]
   // round the bends a little
@@ -150,7 +162,7 @@ function makeRomi(): { pts: Array<[number, number]> } {
     const [ax, az] = raw[i]
     const [bx, bz] = raw[i + 1]
     pts.push([ax, az])
-    pts.push([(ax + bx) / 2 + (hash01(ax, az) - 0.5) * 14, (az + bz) / 2 + (hash01(az, ax) - 0.5) * 14])
+    pts.push([(ax + bx) / 2 + (hash01(ax, az) - 0.5) * 14 * WORLD_SCALE, (az + bz) / 2 + (hash01(az, ax) - 0.5) * 14 * WORLD_SCALE])
   }
   pts.push(raw[raw.length - 1])
   return { pts }
@@ -168,22 +180,8 @@ export interface Tower {
 }
 
 function makeTowers(): Tower[] {
-  const out: Tower[] = []
-  const rnd = mulberry32(0x70ad)
-  // the CBD band between Murtala Square, Ahmadu Bello Way and the river
-  for (let gx = -168; gx <= 40; gx += 34) {
-    for (let gz = -70; gz <= 130; gz += 34) {
-      if (out.length >= 16) break
-      const x = gx + (rnd() - 0.5) * 8
-      const z = gz + (rnd() - 0.5) * 8
-      if (hashDist(roadHash(), x, z) < 11) continue
-      if (hashDist(houseHash(), x, z) < 11) continue
-      if (waterDist(x, z) < 26) continue
-      const h = 13 + Math.floor(rnd() * 15)
-      out.push({ x, z, w: 7.5 + rnd() * 2.5, d: 7.5 + rnd() * 2.5, h, glass: rnd() < 0.55 })
-    }
-  }
-  return out
+  // placed with the street grid in kaduna.ts (they claim whole CBD blocks)
+  return BAKE.towers ?? []
 }
 export const TOWERS: Tower[] = makeTowers()
 
@@ -218,13 +216,13 @@ function makeFarms(): Farm[] {
   }
   // outskirt field blocks
   const blocks: Array<[number, number, number, number]> = [
-    [600, 560, 200, 320],
-    [-1000, 1060, 180, 280],
-    [140, -950, 280, 180]
+    [ws(600), ws(560), ws(200), ws(320)],
+    [ws(-1000), ws(1060), ws(180), ws(280)],
+    [ws(140), ws(-950), ws(280), ws(180)]
   ]
   for (const [bx0, bz0, bw, bd] of blocks) {
-    for (let x = bx0; x < bx0 + bw; x += 24) {
-      for (let z = bz0; z < bz0 + bd; z += 22) {
+    for (let x = bx0; x < bx0 + bw; x += 30) {
+      for (let z = bz0; z < bz0 + bd; z += 26) {
         const fx = x + (rnd() - 0.5) * 4
         const fz = z + (rnd() - 0.5) * 4
         if (hashDist(houseHash(), fx, fz) < 7) continue
@@ -249,9 +247,9 @@ function makeSites(): Site[] {
   const out: Site[] = []
   const rnd = mulberry32(0x51e5)
   const anchors: Array<[number, number]> = [
-    [150, 46], // CBD edge
-    [640, 8], // by the Millennium estate
-    [-320, 250] // Kadpoly side
+    wp([150, 46]), // CBD edge
+    wp([640, 8]), // by the Millennium estate
+    wp([-320, 250]) // Kadpoly side
   ]
   for (const [ax, az] of anchors) {
     for (let t = 0; t < 24; t++) {
@@ -308,13 +306,15 @@ function doorSideOf(x: number, z: number): [number, number] {
 
 function makeOpenHouses(): OpenHouse[] {
   const out: OpenHouse[] = []
-  const areas: Array<[number, number, string]> = [
-    [-98, 40, 'Home'], // the player's own street
-    [-80, 102, 'Market Quarter Flat'],
-    [-55, 360, 'Barnawa Guest House'],
-    [114, 151, 'KASU Staff Quarters'],
-    [76, -580, 'Kawo Bungalow']
-  ]
+  const areas: Array<[number, number, string]> = (
+    [
+      [-60.667, 85.483, 'Home'], // the player's own street (by the spawn)
+      [-80, 102, 'Market Quarter Flat'],
+      [-55, 360, 'Barnawa Guest House'],
+      [114, 151, 'KASU Staff Quarters'],
+      [76, -580, 'Kawo Bungalow']
+    ] as Array<[number, number, string]>
+  ).map(([x, z, n]) => [ws(x), ws(z), n])
   const used = new Set<string>()
   for (const [ax, az, name] of areas) {
     let bestH: (typeof BAKE.houses)[number] | null = null
@@ -322,7 +322,7 @@ function makeOpenHouses(): OpenHouse[] {
     for (const h of BAKE.houses) {
       if (used.has(`${h[0]}:${h[1]}`)) continue
       const d = Math.hypot(h[0] - ax, h[1] - az)
-      if (d > 260) continue
+      if (d > ws(260)) continue
       if (h[2] < 9 || h[3] < 8) continue // roomy footprints only
       // houses sit deep inside residential blocks, so accept anything the
       // road network reaches and score by how close the street runs

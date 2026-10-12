@@ -9,16 +9,19 @@
 // brows, nose, mouth), hair, hijabs and wrappers, so the crowd reads human
 // at street distance while costing a couple of dozen draw calls.
 import * as THREE from 'three'
-import { BAKE } from '~/utils/kaduna'
+import { BAKE, roadW } from '~/utils/kaduna'
 import { SITES, hash01 } from '~/utils/kadunaExtras'
 import { crosswalks, type Crosswalk } from '~/utils/kadunaLighting'
 import { collidesRadius } from '~/utils/collision'
 import { laneBlocked, threatNear, trafficProbe } from '~/utils/trafficProbe'
 import { pedRegistry, pedRegistryPush, pedRegistryReset, pedName, pedLine, pedClock, type PedKind } from '~/utils/peds'
 import { useIsTouch } from '~/composables/useControlsState'
+import { registerCrash } from '~/utils/impact'
+import { weather } from '~/utils/weather'
+import { kkAudio } from '~/utils/audio'
 
 const isTouch = useIsTouch()
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const clockHour = useState<number>('kk_hour', () => 8.4)
 const pedPrompt = useState<{ id: number; name: string; kind: PedKind } | null>('kk_ped_prompt', () => null)
 const ui = useUiStore()
@@ -45,7 +48,7 @@ for (const r of BAKE.roads) {
     cum[i] = total
   }
   const mid = r.pts[Math.floor(r.pts.length / 2)]
-  routes.push({ pts: flat, cum, total, mid: [mid[0], mid[1]], rw: r.class === 'trunk' ? 3.2 : r.class === 'primary' ? 2.6 : 1.8 })
+  routes.push({ pts: flat, cum, total, mid: [mid[0], mid[1]], rw: roadW(r) })
 }
 routes.sort((a, b) => a.total - b.total)
 const walkable = routes.filter((r) => r.total > 30)
@@ -118,6 +121,14 @@ interface Ped {
   crossTimer: number
   flee: number
   id: number
+  /** knocked down by a vehicle: seconds since the hit (-1 = standing) */
+  knock?: number
+  /** what they carry: 0 none, 1 shopping bag, 2 phone, 3 basin on the head, 4 backpack, 5 briefcase */
+  item?: number
+  /** opens an umbrella when it rains */
+  umbrella?: boolean
+  kvx?: number
+  kvz?: number
 }
 
 const N_WALK = isTouch.value ? 20 : 36
@@ -129,7 +140,7 @@ const N_SHOP = isTouch.value ? 6 : 10
 const TOTAL = N_WALK + N_HAWK + N_VEND + N_WORK + N_KID + N_SHOP
 
 const CROSSWALKS = crosswalks()
-const SIDEWALK = 1.35 // walk line out from the asphalt edge
+const SIDEWALK = 1.4 // walk line out from the asphalt edge (sidewalk is 2.6 m)
 
 const peds: Ped[] = []
 const tmp = { x: 0, z: 0, fx: 0, fz: 0 }
@@ -255,6 +266,13 @@ let mouthM: THREE.InstancedMesh | null = null
 let hairM: THREE.InstancedMesh | null = null
 let hijabM: THREE.InstancedMesh | null = null
 let skirtM: THREE.InstancedMesh | null = null
+// carried items (one instance slot per ped, hidden with a zero matrix)
+let bagM: THREE.InstancedMesh | null = null
+let phoneM: THREE.InstancedMesh | null = null
+let basinM: THREE.InstancedMesh | null = null
+let packM: THREE.InstancedMesh | null = null
+let caseM: THREE.InstancedMesh | null = null
+let umbM: THREE.InstancedMesh | null = null
 const ball = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 1), new THREE.MeshStandardMaterial({ color: '#e8e4d8', roughness: 0.6 }))
 
 function mergeGeos(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
@@ -266,14 +284,18 @@ function mergeGeos(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
   let total = 0
   for (const g of geos) total += g.attributes.position.count
   const pos = new Float32Array(total * 3)
+  const nrm = new Float32Array(total * 3)
   let off = 0
   for (const g of geos) {
     pos.set(g.attributes.position.array as Float32Array, off)
+    // keep the smooth normals of the source shapes (no faceted heads)
+    if (g.attributes.normal) nrm.set(g.attributes.normal.array as Float32Array, off)
     off += g.attributes.position.count * 3
   }
   const out = new THREE.BufferGeometry()
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-  out.computeVertexNormals()
+  out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
+  for (const g of geos) g.dispose()
   return out
 }
 
@@ -281,18 +303,38 @@ onMounted(() => {
   const g = groupRef.value
   if (!g) return
 
-  const torsoGeo = new THREE.CylinderGeometry(0.2, 0.24, 0.72, 8)
-  torsoGeo.translate(0, 1.12, 0)
-  const headGeo = new THREE.SphereGeometry(0.24, 10, 8)
-  headGeo.translate(0, 1.78, 0)
-  const legGeo = new THREE.BoxGeometry(0.17, 0.78, 0.19)
-  legGeo.translate(0, -0.39, 0)
-  const armGeo = new THREE.BoxGeometry(0.13, 0.6, 0.15)
+  // realistic adult proportions, matching CharacterAvatar (1.78 m, head
+  // = 1/7.5 of the body). Parts are authored in the ped's local frame.
+  const torsoCyl = new THREE.CylinderGeometry(0.19, 0.165, 0.55, 12)
+  torsoCyl.scale(1, 1, 0.66)
+  torsoCyl.translate(0, 1.24, 0)
+  const shoulders = new THREE.SphereGeometry(0.19, 12, 8)
+  shoulders.scale(1.05, 0.42, 0.68)
+  shoulders.translate(0, 1.45, 0)
+  const pelvis = new THREE.SphereGeometry(0.17, 12, 8)
+  pelvis.scale(1, 0.62, 0.72)
+  pelvis.translate(0, 0.96, 0)
+  const torsoGeo = mergeGeos([torsoCyl, shoulders, pelvis])
+  const skull = new THREE.SphereGeometry(0.112, 14, 10)
+  skull.scale(0.9, 1.08, 1)
+  skull.translate(0, 1.68, 0)
+  const jaw = new THREE.SphereGeometry(0.08, 10, 8)
+  jaw.scale(0.95, 0.75, 1)
+  jaw.translate(0, 1.625, 0.03)
+  const neck = new THREE.CylinderGeometry(0.052, 0.058, 0.12, 8)
+  neck.translate(0, 1.56, 0.005)
+  const headGeo = mergeGeos([skull, jaw, neck])
+  const legGeo = new THREE.CapsuleGeometry(0.07, 0.72, 3, 8)
+  legGeo.translate(0, -0.44, 0)
+  const foot = new THREE.BoxGeometry(0.1, 0.08, 0.25)
+  foot.translate(0, -0.86, 0.05)
+  const legFull = mergeGeos([legGeo, foot])
+  const armGeo = new THREE.CapsuleGeometry(0.05, 0.5, 3, 8)
   armGeo.translate(0, -0.3, 0)
-  const trayGeo = new THREE.BoxGeometry(0.55, 0.09, 0.55)
-  trayGeo.translate(0, 2.18, 0)
-  const goodsGeo = new THREE.BoxGeometry(0.34, 0.18, 0.34)
-  goodsGeo.translate(0, 2.31, 0)
+  const trayGeo = new THREE.BoxGeometry(0.55, 0.06, 0.55)
+  trayGeo.translate(0, 1.86, 0)
+  const goodsGeo = new THREE.BoxGeometry(0.34, 0.16, 0.34)
+  goodsGeo.translate(0, 1.97, 0)
   const trayFull = mergeTray(trayGeo, goodsGeo)
 
   function mergeTray(a: THREE.BufferGeometry, b: THREE.BufferGeometry) {
@@ -313,42 +355,51 @@ onMounted(() => {
   }
 
   // ---- face geometries (front = +z, matching the heading convention)
-  const eyeL = new THREE.SphereGeometry(0.052, 7, 6)
-  eyeL.translate(-0.088, 1.845, 0.195)
-  const eyeR = new THREE.SphereGeometry(0.052, 7, 6)
-  eyeR.translate(0.088, 1.845, 0.195)
+  const eyeL = new THREE.SphereGeometry(0.018, 8, 6)
+  eyeL.scale(1.2, 0.8, 0.6)
+  eyeL.translate(-0.038, 1.692, 0.094)
+  const eyeR = new THREE.SphereGeometry(0.018, 8, 6)
+  eyeR.scale(1.2, 0.8, 0.6)
+  eyeR.translate(0.038, 1.692, 0.094)
   const eyesGeo = mergeGeos([eyeL, eyeR])
-  const pupL = new THREE.SphereGeometry(0.026, 6, 5)
-  pupL.translate(-0.088, 1.845, 0.238)
-  const pupR = new THREE.SphereGeometry(0.026, 6, 5)
-  pupR.translate(0.088, 1.845, 0.238)
+  const pupL = new THREE.SphereGeometry(0.0095, 6, 5)
+  pupL.translate(-0.038, 1.692, 0.103)
+  const pupR = new THREE.SphereGeometry(0.0095, 6, 5)
+  pupR.translate(0.038, 1.692, 0.103)
   const pupilsGeo = mergeGeos([pupL, pupR])
-  const browL = new THREE.BoxGeometry(0.1, 0.022, 0.03)
-  browL.translate(-0.088, 1.905, 0.205)
-  const browR = new THREE.BoxGeometry(0.1, 0.022, 0.03)
-  browR.translate(0.088, 1.905, 0.205)
+  const browL = new THREE.BoxGeometry(0.042, 0.009, 0.012)
+  browL.translate(-0.038, 1.721, 0.097)
+  const browR = new THREE.BoxGeometry(0.042, 0.009, 0.012)
+  browR.translate(0.038, 1.721, 0.097)
   const browGeo = mergeGeos([browL, browR])
-  const noseGeo = new THREE.ConeGeometry(0.038, 0.09, 5)
-  noseGeo.rotateX(Math.PI / 2)
-  noseGeo.translate(0, 1.785, 0.235)
-  const mouthGeo = new THREE.BoxGeometry(0.11, 0.026, 0.03)
-  mouthGeo.translate(0, 1.7, 0.212)
+  const noseGeo = new THREE.ConeGeometry(0.02, 0.045, 6)
+  noseGeo.rotateX(Math.PI / 2.4)
+  noseGeo.translate(0, 1.668, 0.108)
+  const mouthGeo = new THREE.BoxGeometry(0.052, 0.012, 0.014)
+  mouthGeo.translate(0, 1.618, 0.094)
   // hair: cap shell + back volume (hidden for hijab wearers)
-  const hairCap = new THREE.SphereGeometry(0.255, 10, 8, 0, Math.PI * 2, 0, 1.35)
-  hairCap.translate(0, 1.86, -0.015)
-  const hairBack = new THREE.SphereGeometry(0.19, 8, 6)
-  hairBack.scale(1, 1.15, 0.75)
-  hairBack.translate(0, 1.74, -0.12)
+  const hairCap = new THREE.SphereGeometry(0.116, 12, 8, 0, Math.PI * 2, 0, 1.45)
+  hairCap.scale(0.93, 0.98, 1)
+  hairCap.translate(0, 1.7, -0.008)
+  const hairBack = new THREE.SphereGeometry(0.09, 8, 6)
+  hairBack.scale(1, 1.1, 0.7)
+  hairBack.translate(0, 1.66, -0.06)
   const hairGeo = mergeGeos([hairCap, hairBack])
-  const hijabGeo = new THREE.SphereGeometry(0.3, 11, 9)
-  hijabGeo.translate(0, 1.8, 0)
-  const skirtGeo = new THREE.ConeGeometry(0.34, 0.85, 9, 1, true)
-  skirtGeo.translate(0, 0.62, 0)
+  const hijabHead = new THREE.SphereGeometry(0.13, 12, 9)
+  hijabHead.scale(0.95, 1.08, 1.02)
+  hijabHead.translate(0, 1.69, -0.012)
+  const hijabDrape = new THREE.CylinderGeometry(0.11, 0.26, 0.3, 12, 1, true)
+  hijabDrape.scale(1, 1, 0.85)
+  hijabDrape.translate(0, 1.52, -0.01)
+  const hijabGeo = mergeGeos([hijabHead, hijabDrape])
+  const skirtGeo = new THREE.CylinderGeometry(0.19, 0.36, 0.98, 12, 1, true)
+  skirtGeo.scale(1, 1, 0.8)
+  skirtGeo.translate(0, 0.58, 0)
 
   const plain = (color: string) => new THREE.MeshLambertMaterial({ color })
   torsoM = new THREE.InstancedMesh(torsoGeo, new THREE.MeshLambertMaterial(), TOTAL)
   headM = new THREE.InstancedMesh(headGeo, new THREE.MeshLambertMaterial(), TOTAL)
-  legM = new THREE.InstancedMesh(legGeo, new THREE.MeshLambertMaterial(), TOTAL * 2)
+  legM = new THREE.InstancedMesh(legFull, new THREE.MeshLambertMaterial(), TOTAL * 2)
   armM = new THREE.InstancedMesh(armGeo, new THREE.MeshLambertMaterial(), TOTAL * 2)
   trayM = new THREE.InstancedMesh(trayFull, new THREE.MeshLambertMaterial(), TOTAL)
   eyesM = new THREE.InstancedMesh(eyesGeo, plain('#f2f0ea'), TOTAL)
@@ -357,11 +408,52 @@ onMounted(() => {
   noseM = new THREE.InstancedMesh(noseGeo, new THREE.MeshLambertMaterial(), TOTAL)
   mouthM = new THREE.InstancedMesh(mouthGeo, plain('#5a3028'), TOTAL)
   hairM = new THREE.InstancedMesh(hairGeo, new THREE.MeshLambertMaterial(), TOTAL)
-  hijabM = new THREE.InstancedMesh(hijabGeo, new THREE.MeshLambertMaterial(), TOTAL)
+  hijabM = new THREE.InstancedMesh(hijabGeo, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), TOTAL)
   skirtM = new THREE.InstancedMesh(skirtGeo, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), TOTAL)
 
   torsoM.castShadow = headM.castShadow = legM.castShadow = true
   const all = [torsoM, headM, legM, armM, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]
+  // ---- things people carry
+  const bagGeo = mergeGeos([
+    new THREE.BoxGeometry(0.3, 0.32, 0.12).translate(0, -0.2, 0),
+    new THREE.TorusGeometry(0.07, 0.012, 4, 10, Math.PI).translate(0, -0.04, 0)
+  ])
+  const phoneGeo = new THREE.BoxGeometry(0.07, 0.14, 0.012)
+  const basinGeo = mergeGeos([new THREE.CylinderGeometry(0.3, 0.2, 0.14, 14).translate(0, 0.07, 0), new THREE.SphereGeometry(0.2, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.2, 0.5, 1.2).translate(0, 0.13, 0)])
+  const packGeo = new THREE.BoxGeometry(0.3, 0.4, 0.16)
+  const caseGeo = mergeGeos([new THREE.BoxGeometry(0.4, 0.3, 0.09).translate(0, -0.18, 0), new THREE.BoxGeometry(0.1, 0.03, 0.03).translate(0, -0.02, 0)])
+  const umbGeo = mergeGeos([
+    new THREE.ConeGeometry(0.62, 0.3, 10, 1, true).translate(0, 0.55, 0),
+    new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4).translate(0, 0.12, 0)
+  ])
+  bagM = new THREE.InstancedMesh(bagGeo, new THREE.MeshLambertMaterial(), TOTAL)
+  phoneM = new THREE.InstancedMesh(phoneGeo, plain('#15181c'), TOTAL)
+  basinM = new THREE.InstancedMesh(basinGeo, new THREE.MeshLambertMaterial(), TOTAL)
+  packM = new THREE.InstancedMesh(packGeo, new THREE.MeshLambertMaterial(), TOTAL)
+  caseM = new THREE.InstancedMesh(caseGeo, plain('#2a1d14'), TOTAL)
+  umbM = new THREE.InstancedMesh(umbGeo, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), TOTAL)
+  const itemMeshes = [bagM, phoneM, basinM, packM, caseM, umbM]
+  const BAGS = ['#2f6fae', '#d8262e', '#f2f2ee', '#2f7d5b', '#e8b84b', '#6b4a8a']
+  const UMB = ['#d8262e', '#1f4fa0', '#2f7d5b', '#e8b84b', '#1d1d20', '#c84a8a']
+  const ic = new THREE.Color()
+  for (let i = 0; i < TOTAL; i++) {
+    const p = peds[i]
+    const r = hash01(i * 13.1, 7.7)
+    if (p.kind === 'kid') p.item = 4
+    else if (p.kind === 'walker' || p.kind === 'shopper') {
+      p.item = r < 0.22 ? 1 : r < 0.42 ? 2 : r < 0.56 && p.female ? 3 : r < 0.66 ? 5 : r < 0.74 ? 4 : 0
+    } else p.item = 0
+    p.umbrella = (p.kind === 'walker' || p.kind === 'shopper' || p.kind === 'kid') && hash01(i, 3.3) < 0.7
+    bagM.setColorAt(i, ic.set(BAGS[i % BAGS.length]))
+    basinM.setColorAt(i, ic.set(i % 2 ? '#c0c4ca' : '#d8a23c'))
+    packM.setColorAt(i, ic.set(BAGS[(i + 2) % BAGS.length]))
+    umbM.setColorAt(i, ic.set(UMB[i % UMB.length]))
+  }
+  for (const m of itemMeshes) {
+    if (m.instanceColor) m.instanceColor.needsUpdate = true
+    all.push(m)
+  }
+
   for (const m of all) {
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     g.add(m)
@@ -404,6 +496,8 @@ onBeforeUnmount(() => {
 
 // ---------------------------------------------------------------- update
 const rootM = new THREE.Matrix4()
+const itemM = new THREE.Matrix4()
+const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0)
 const localM = new THREE.Matrix4()
 const partM = new THREE.Matrix4()
 const posV = new THREE.Vector3()
@@ -513,7 +607,39 @@ onBeforeRender(({ delta, elapsed }) => {
   }
 
   // ------------------------------------------------- behavior per ped
+  const pv = trafficProbe.player
   for (const p of peds) {
+    // run over by the player's vehicle: thrown, fall, lie, get up
+    if (pv && trafficProbe.playerSpeed > 3 && (p.knock ?? -1) < 0) {
+      const dx = p.x - pv.x
+      const dz = p.z - pv.z
+      const d = Math.hypot(dx, dz)
+      if (d < pv.r + 0.35) {
+        const sp = trafficProbe.playerSpeed
+        const fx = Math.sin(pv.h)
+        const fz = Math.cos(pv.h)
+        p.knock = 0
+        p.kvx = (fx * 0.8 + (dx / (d || 1)) * 0.6) * (2 + sp * 0.5)
+        p.kvz = (fz * 0.8 + (dz / (d || 1)) * 0.6) * (2 + sp * 0.5)
+        p.heading = Math.atan2(-fx, -fz)
+        p.talking = 0
+        registerCrash(Math.min(0.6, sp / 25))
+        kkAudio.impact(Math.min(1, sp / 16))
+      }
+    }
+    if ((p.knock ?? -1) >= 0) {
+      p.knock! += dt
+      const fr = Math.exp(-4 * dt)
+      p.kvx! *= fr
+      p.kvz! *= fr
+      slideMove(p, p.kvx! * dt, p.kvz! * dt)
+      p.swing = 0
+      if (p.knock! > 3.2) {
+        p.knock = -1
+        p.flee = 1.2 // get up and hurry away
+      }
+      continue
+    }
     // talking people stand still and face you
     if (p.talking > 0) {
       p.talking -= dt
@@ -679,6 +805,7 @@ onBeforeRender(({ delta, elapsed }) => {
   }
 
   // ------------------------------------------------- draw
+  const rainNow = weather.cur.rain
   for (let i = 0; i < peds.length; i++) {
     const p = peds[i]
     const walking =
@@ -686,14 +813,25 @@ onBeforeRender(({ delta, elapsed }) => {
     const sw = walking ? Math.sin(p.swing) : 0
     const s = p.height
 
-    rootM.compose(posV.set(p.x, 0, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
+    const kt = p.knock ?? -1
+    if (kt >= 0) {
+      const lie = kt < 2.5 ? Math.min(1, kt / 0.3) : Math.max(0, 1 - (kt - 2.5) / 0.6)
+      rootM.compose(
+        posV.set(p.x, lie * 0.16 * s, p.z),
+        q.setFromEuler(eul.set(-lie * Math.PI * 0.47, p.heading, 0, 'YXZ')),
+        scaleV.set(s, s, s)
+      )
+      eul.order = 'XYZ'
+    } else {
+      rootM.compose(posV.set(p.x, 0, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
+    }
     torsoM.setMatrixAt(i, rootM)
     headM.setMatrixAt(i, rootM)
-    setPart(legM, i * 2, rootM, -0.16, 0.85, 0, sw * 0.6)
-    setPart(legM, i * 2 + 1, rootM, 0.16, 0.85, 0, -sw * 0.6)
+    setPart(legM, i * 2, rootM, -0.1, 0.94, 0, sw * 0.5)
+    setPart(legM, i * 2 + 1, rootM, 0.1, 0.94, 0, -sw * 0.5)
     const armBase = p.kind === 'worker' ? -0.9 + Math.sin(elapsed * 6 + p.phase) * 0.55 : 0
-    setPart(armM, i * 2, rootM, -0.33, 1.42, 0, p.kind === 'worker' ? armBase : -sw * 0.45)
-    setPart(armM, i * 2 + 1, rootM, 0.33, 1.42, 0, p.kind === 'worker' ? armBase : sw * 0.45)
+    setPart(armM, i * 2, rootM, -0.225, 1.43, 0, p.kind === 'worker' ? armBase : -sw * 0.42)
+    setPart(armM, i * 2 + 1, rootM, 0.225, 1.43, 0, p.kind === 'worker' ? armBase : sw * 0.42)
     // face follows the head; hide per kind
     eyesM.setMatrixAt(i, rootM)
     pupilsM.setMatrixAt(i, rootM)
@@ -704,8 +842,8 @@ onBeforeRender(({ delta, elapsed }) => {
       hairM.setMatrixAt(i, partM.makeScale(0, 0, 0))
       hijabM.setMatrixAt(i, rootM)
       skirtM.setMatrixAt(i, rootM)
-      setPart(legM, i * 2, rootM, -0.16, 0.85, 0, sw * 0.3)
-      setPart(legM, i * 2 + 1, rootM, 0.16, 0.85, 0, -sw * 0.3)
+      setPart(legM, i * 2, rootM, -0.1, 0.94, 0, sw * 0.3)
+      setPart(legM, i * 2 + 1, rootM, 0.1, 0.94, 0, -sw * 0.3)
     } else {
       hairM.setMatrixAt(i, rootM)
       hijabM.setMatrixAt(i, partM.makeScale(0, 0, 0))
@@ -716,9 +854,37 @@ onBeforeRender(({ delta, elapsed }) => {
     } else {
       trayM.setMatrixAt(i, partM.makeScale(0, 0, 0))
     }
+
+    // carried items + umbrellas (rain)
+    if (bagM && phoneM && basinM && packM && caseM && umbM) {
+      const down = (kt >= 0)
+      const it = down ? 0 : p.item ?? 0
+      const umb = !down && p.umbrella && rainNow > 0.25
+      const swingR = p.kind === 'worker' ? 0 : sw * 0.42
+      // right hand position at the end of the swinging arm
+      const handY = 1.43 - 0.6 * Math.cos(swingR)
+      const handZ = 0.6 * Math.sin(-swingR) * -1
+      const ZM = ZERO_M
+      bagM.setMatrixAt(i, it === 1 ? (localM.makeTranslation(0.25, handY, handZ), itemM.multiplyMatrices(rootM, localM)) : ZM)
+      caseM.setMatrixAt(i, it === 5 ? (localM.makeTranslation(0.25, handY, handZ), itemM.multiplyMatrices(rootM, localM)) : ZM)
+      basinM.setMatrixAt(i, it === 3 && !umb ? (localM.makeTranslation(0, 1.81, 0), itemM.multiplyMatrices(rootM, localM)) : ZM)
+      packM.setMatrixAt(i, it === 4 ? (localM.makeTranslation(0, 1.25, -0.18), itemM.multiplyMatrices(rootM, localM)) : ZM)
+      if (it === 2 && !umb) {
+        // phone held up to the ear / face: left arm raised
+        setPart(armM, i * 2, rootM, -0.225, 1.43, 0, -2.25)
+        localM.compose(posV.set(-0.13, 1.66, 0.09), q.setFromEuler(eul.set(0, 0.4, 0)), oneV)
+        phoneM.setMatrixAt(i, itemM.multiplyMatrices(rootM, localM))
+      } else phoneM.setMatrixAt(i, ZM)
+      if (umb) {
+        // umbrella held up in the right hand, canopy over the head
+        setPart(armM, i * 2 + 1, rootM, 0.225, 1.43, 0, -2.0)
+        localM.compose(posV.set(0.16, 1.62, 0.18), q.setFromEuler(eul.set(-0.15, 0, -0.12)), oneV)
+        umbM.setMatrixAt(i, itemM.multiplyMatrices(rootM, localM))
+      } else umbM.setMatrixAt(i, ZM)
+    }
   }
-  for (const m of [torsoM, headM, legM, armM, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]) {
-    m.instanceMatrix.needsUpdate = true
+  for (const m of [torsoM, headM, legM, armM, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM, bagM, phoneM, basinM, packM, caseM, umbM]) {
+    if (m) m.instanceMatrix.needsUpdate = true
   }
 
   // ------------------------------------------------- registry + prompt

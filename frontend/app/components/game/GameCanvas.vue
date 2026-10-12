@@ -3,7 +3,9 @@
 // NOTE: anything using useLoop must be a CHILD of TresCanvas
 // (see CameraRig / SunLight / PlayerAvatar / NpcAvatar).
 
+import { getQuality } from '~/utils/quality'
 const world = useWorldStore()
+const low = getQuality() === 'low'
 
 const musa = computed(() => world.npcEntities.find((e) => e.code === 'npc_musa'))
 const amina = computed(() => world.npcEntities.find((e) => e.code === 'npc_amina'))
@@ -20,10 +22,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <TresCanvas shadows :clear-color="'#9ec7de'">
+  <TresCanvas :shadows="!low" :shadow-map-type="2" :tone-mapping-exposure="1.05" :dpr="low ? 1 : [1, 1.5]" :clear-color="'#9ec7de'">
     <CameraRig />
     <PointerControls />
-    <TresFog :args="['#9ec7de', 420, 2500]" />
+    <TresFog :args="['#9ec7de', 550, 2600]" />
+    <EnvLight />
+    <Weather />
 
     <DayNight />
     <TresAmbientLight :intensity="0.72" color="#fff4e0" />
@@ -42,7 +46,7 @@ onUnmounted(() => {
       :x="musa.position[0]"
       :z="musa.position[2]"
       name="Mallam Musa"
-      shirt="#b8433a"
+      shirt="#efe8d6"
       hair-style="cap"
       :beard="true"
     />

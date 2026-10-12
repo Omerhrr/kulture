@@ -9,13 +9,14 @@
 // speeds stay under the server envelope (48 u/s), so no reconciliation
 // snaps occur while driving.
 import * as THREE from 'three'
-import { BUILDINGS, clampBounds, unstick, setVehicleObstacles } from '~/utils/collision'
+import { hitsBuilding, clampBounds, unstick, setVehicleObstacles } from '~/utils/collision'
 import { waterDist } from '~/utils/kadunaExtras'
 import { ridePose } from '~/utils/rideState'
 import { trafficProbe } from '~/utils/trafficProbe'
 import { kkAudio } from '~/utils/audio'
-import { vehicleSpec, buildInterior, buildDriverFigure, type VehicleKind } from '~/utils/vehicles'
-import { BAKE } from '~/utils/kaduna'
+import { registerCrash } from '~/utils/impact'
+import { vehicleSpec, buildInterior, type VehicleKind } from '~/utils/vehicles'
+import { BAKE, ws, PLAYABLE_POS } from '~/utils/kaduna'
 import { useKeyboard } from '~/composables/useKeyboard'
 import { useRide } from '~/composables/useControlsState'
 
@@ -23,7 +24,7 @@ const ride = useRide()
 const { isDown } = useKeyboard()
 const { onBeforeRender } = useLoop()
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const playerFacing = useState<number>('kk_player_facing', () => 0)
 const socketSend = useState<(type: string, payload: Record<string, unknown>) => boolean>(
   'kk_socket_send',
@@ -36,9 +37,51 @@ interface Parked {
   x: number
   z: number
   heading: number
-  mesh: THREE.Mesh | null
+  mesh: THREE.Group | null
   interior: THREE.Mesh | null
   driver: THREE.Group | null
+  /** hinged / sliding door pivot (cars, danfo, lorry) */
+  door: THREE.Group | null
+}
+
+// ---------------------------------------------------------------- boarding
+// Getting in and out is animated: walk to the door, the door opens, you
+// climb in and sit, the door shuts (and the reverse on the way out).
+// Controls only engage once you are seated.
+type Phase = 'none' | 'walk' | 'open' | 'climb' | 'close' | 'riding' | 'xopen' | 'xclimb' | 'xclose'
+const phase = ref<Phase>('none')
+let phaseT = 0
+let walkFrom: [number, number] = [0, 0]
+let walkDur = 1
+const avatarMode = ref<'walk' | 'sit' | 'ride' | 'idle'>('idle')
+const avatarRef = ref<THREE.Group | null>(null)
+const avatarVisible = ref(false)
+const fig = { x: 0, y: 0, z: 0, h: 0 }
+const DOOR_T = 0.38
+const CLIMB_T = 0.62
+
+/** world point beside the driver's door (local +X side) */
+function doorStand(p: Parked): [number, number] {
+  const spec = vehicleSpec(p.kind)
+  const lat = spec.straddle ? 0.75 : spec.door ? spec.door.hinge[0] + 0.75 : 1.2
+  const fwd = spec.seat[2] + (spec.straddle ? 0.1 : 0.3)
+  return [p.x + Math.cos(p.heading) * lat + Math.sin(p.heading) * fwd, p.z - Math.sin(p.heading) * lat + Math.cos(p.heading) * fwd]
+}
+/** seated hip point in world space */
+function seatWorld(p: Parked): [number, number, number] {
+  const st = vehicleSpec(p.kind).seat
+  return [
+    p.x + Math.cos(p.heading) * st[0] + Math.sin(p.heading) * st[2],
+    ridePose.y + st[1],
+    p.z - Math.sin(p.heading) * st[0] + Math.cos(p.heading) * st[2]
+  ]
+}
+function setDoor(p: Parked, open: number) {
+  const d = p.door
+  const spec = vehicleSpec(p.kind)
+  if (!d || !spec.door) return
+  if (spec.door.type === 'swing') d.rotation.y = open * 1.15
+  else d.position.z = spec.door.hinge[2] - open * 1.1
 }
 
 const fleet: Parked[] = []
@@ -46,11 +89,11 @@ const root = new THREE.Group()
 
 function boatSpot(): [number, number] {
   // moor at the river bank stretch closest to downtown
-  let best: [number, number] = [330, -20]
+  let best: [number, number] = [ws(330), ws(-20)]
   let bestD = Infinity
   for (let i = 0; i < BAKE.river.main.length; i += 3) {
     const [x, z] = BAKE.river.main[i]
-    const d = Math.hypot(x + 60, z + 10)
+    const d = Math.hypot(x - ws(-60), z - ws(-10))
     if (d < bestD) {
       bestD = d
       best = [x, z]
@@ -74,6 +117,7 @@ onMounted(() => {
     window.addEventListener('kk-ride-toggle', onToggle)
     window.addEventListener('kk-ride-view', toggleView)
     window.addEventListener('kk-horn', onHorn)
+    window.addEventListener('kk-crash', onCrash)
   } catch (e) {
     ;(window as any).__kk_ride_err = String((e as Error)?.stack || e)
     throw e
@@ -82,32 +126,36 @@ onMounted(() => {
 
 function mountFleet() {
   const g = root
+  // parked next to the places you start from (world positions)
+  const sp = PLAYABLE_POS.spawn_roadside
+  const ks = PLAYABLE_POS.keke_stop
+  const st = PLAYABLE_POS.stonetech_square
   const defs: Array<[VehicleKind, number, number, number]> = [
-    ['keke', -249, 428, -0.4],
-    ['keke', -236, 427, 2.9],
-    ['car', -90, 49, 0.2],
-    ['car', -80, 60, 1.35],
-    ['okada', -62, 84, 0.4],
-    ['okada', -46, 354, 2.6],
-    ['bus', 56, -571, 0.9],
-    ['bus', -253, 412, 1.8],
-    ['bicycle', -95, 44, 0.5]
+    ['keke', ks[0] + 6, ks[1] + 2, Math.PI / 2],
+    ['keke', ks[0] + 11, ks[1] + 2, Math.PI / 2],
+    // spawn is on the south sidewalk: park along the kerb just north of it
+    ['car', sp[0] + 9, sp[1] - 2.9, Math.PI / 2],
+    ['car', sp[0] + 16, sp[1] - 2.9, Math.PI / 2],
+    ['keke', sp[0] - 8, sp[1] - 2.7, -Math.PI / 2],
+    ['okada', sp[0] + 4, sp[1] + 0.8, 0.4],
+    ['okada', st[0] + 14, st[1] - 3, 2.6],
+    ['bus', ws(56), ws(-571), 0.9],
+    ['bus', ks[0] - 12, ks[1] + 2.5, Math.PI / 2],
+    ['bicycle', sp[0] - 3, sp[1] + 0.8, 0.5]
   ]
   for (const [kind, x, z, heading] of defs) {
     const r = vehicleSpec(kind).radius
     const [fx, fz] = freeSpotNear(x, z, r)
-    fleet.push({ kind, x: fx, z: fz, heading, mesh: null, interior: null, driver: null })
+    fleet.push({ kind, x: fx, z: fz, heading, mesh: null, interior: null, driver: null, door: null })
   }
   const [bx, bz] = boatSpot()
-  fleet.push({ kind: 'boat', x: bx, z: bz, heading: 1.2, mesh: null, interior: null, driver: null })
+  fleet.push({ kind: 'boat', x: bx, z: bz, heading: 1.2, mesh: null, interior: null, driver: null, door: null })
   const ap = BAKE.airport
   if (ap.apron) {
-    fleet.push({ kind: 'plane', x: ap.apron.x + 10, z: ap.apron.z + 9, heading: 0.4, mesh: null, interior: null, driver: null })
+    fleet.push({ kind: 'plane', x: ap.apron.x + 10, z: ap.apron.z + 9, heading: 0.4, mesh: null, interior: null, driver: null, door: null })
   }
 
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true })
-  const driverMat = new THREE.MeshLambertMaterial({ vertexColors: true })
-  const driverGeo = buildDriverFigure()
   const tint: Partial<Record<VehicleKind, string>> = {
     car: '#3f6fae',
     bicycle: '#3a7d5b'
@@ -128,8 +176,32 @@ function mountFleet() {
       }
       geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
     }
-    const mesh = new THREE.Mesh(geo, mat)
-    mesh.castShadow = true
+    const body = new THREE.Mesh(geo, mat)
+    body.castShadow = true
+    const mesh = new THREE.Group()
+    mesh.add(body)
+    if (spec.door) {
+      // the door is its own part so it can swing / slide open
+      const dg = spec.door.geo.clone()
+      if (p.kind === 'car') {
+        const c = new THREE.Color(tint.car!)
+        const a = dg.attributes.color.array as Float32Array
+        for (let i = 0; i < a.length; i += 3) {
+          if (a[i] > 0.9 && a[i + 1] > 0.9 && a[i + 2] > 0.9) {
+            a[i] *= c.r
+            a[i + 1] *= c.g
+            a[i + 2] *= c.b
+          }
+        }
+      }
+      const pivot = new THREE.Group()
+      pivot.position.set(...spec.door.hinge)
+      const dm = new THREE.Mesh(dg, mat)
+      dm.castShadow = true
+      pivot.add(dm)
+      mesh.add(pivot)
+      p.door = pivot
+    }
     mesh.position.set(p.x, 0, p.z)
     mesh.rotation.y = p.heading
     p.mesh = mesh
@@ -145,16 +217,7 @@ function mountFleet() {
       g.add(im)
     }
 
-    // seated driver, shown in chase view
-    const driver = new THREE.Group()
-    const figure = new THREE.Mesh(driverGeo, driverMat)
-    figure.castShadow = true
-    driver.add(figure)
-    const seat = spec.seat
-    driver.userData.seat = seat
-    driver.visible = false
-    p.driver = driver
-    g.add(driver)
+    p.driver = null // the seated person is the shared animated avatar
   }
 }
 
@@ -162,6 +225,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('kk-ride-toggle', onToggle)
   window.removeEventListener('kk-ride-view', toggleView)
   window.removeEventListener('kk-horn', onHorn)
+  window.removeEventListener('kk-crash', onCrash)
 })
 
 function onHorn() {
@@ -175,13 +239,24 @@ let speed = 0
 let alt = 0 // plane only
 let lastSent = 0
 let scanTimer = 0
+// body jolt after a crash (pitch kick that springs back)
+let jolt = 0
+let steerSmoothed = 0
+let joltV = 0
+function crashJolt(strength: number) {
+  joltV -= strength * 3.2
+}
+function hitWall(sp: number, max: number) {
+  const strength = Math.min(1, Math.abs(sp) / Math.max(8, max * 0.7))
+  if (Math.abs(sp) < 2.5) return
+  registerCrash(strength)
+  kkAudio.impact(strength)
+  crashJolt(strength)
+}
 const tmpV = { x: 0, z: 0 }
 
 function collidesAt(x: number, z: number, r: number): boolean {
-  for (const b of BUILDINGS) {
-    if (Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r) return true
-  }
-  return false
+  return hitsBuilding(x, z, r)
 }
 
 /** Find a free parking spot near the anchor (houses crowd the city). */
@@ -196,6 +271,23 @@ function freeSpotNear(ax: number, az: number, r: number): [number, number] {
     }
   }
   return [ax, az]
+}
+
+// another vehicle hit us: bounce away from it and kill most of the speed
+function onCrash(e: Event) {
+  const d = (e as CustomEvent).detail as { strength: number; dx: number; dz: number; push: number }
+  const p = current
+  if (!p || !ride.value.active) return
+  const shove = 0.6 + d.strength * 2.2 + d.push * 0.08
+  const nx = p.x + d.dx * shove
+  const nz = p.z + d.dz * shove
+  if (!collidesAt(nx, nz, vehicleSpec(p.kind).radius)) {
+    p.x = nx
+    p.z = nz
+  }
+  speed *= -0.3
+  p.heading += (Math.random() - 0.5) * d.strength * 0.6
+  crashJolt(d.strength)
 }
 
 function onToggle() {
@@ -214,7 +306,7 @@ function toggleView() {
 
 function board() {
   const nearest = nearestParked()
-  if (!nearest) return
+  if (!nearest || phase.value !== 'none') return
   current = nearest
   ride.value.active = true
   ride.value.kind = nearest.kind
@@ -225,37 +317,152 @@ function board() {
   ridePose.cabin = spec.cockpit[1]
   ridePose.cockpitFwd = spec.cockpit[0]
   ridePose.active = true
+  ridePose.x = nearest.x
+  ridePose.z = nearest.z
+  ridePose.heading = nearest.heading
+  ridePose.y = 0
   speed = 0
   if (nearest.kind === 'plane') alt = 0
+  // start the walk-to-the-door animation from where the player stands
+  walkFrom = [playerPos.value[0], playerPos.value[2]]
+  const [sx, sz] = doorStand(nearest)
+  walkDur = Math.max(0.35, Math.min(1.6, Math.hypot(sx - walkFrom[0], sz - walkFrom[1]) / 3))
+  fig.x = walkFrom[0]
+  fig.z = walkFrom[1]
+  fig.y = 0
+  phase.value = 'walk'
+  phaseT = 0
+  avatarVisible.value = true
+  avatarMode.value = 'walk'
   // keep camera distance comfortable for vehicles
-  orbit.value.dist = Math.max(orbit.value.dist, nearest.kind === 'plane' ? 26 : 14)
+  orbit.value.dist = Math.max(orbit.value.dist, nearest.kind === 'plane' ? 26 : nearest.kind === 'bus' || nearest.kind === 'truck' ? 13 : 9)
 }
 
 function exitVehicle() {
   const p = current
-  if (!p) return
-  // no jumping out of an aircraft in flight
+  if (!p || phase.value !== 'riding') return
+  // no jumping out of an aircraft in flight (or a moving vehicle)
   if (p.kind === 'plane' && alt > 1) {
     ride.value.prompt = 'Land first, then exit'
     return
   }
-  // step out on the left side, nudged out of any footprint
-  const leftX = p.x + Math.cos(p.heading) * 2.4
-  const leftZ = p.z - Math.sin(p.heading) * 2.4
-  const [ex, ez] = unstick(...clampBounds(leftX, leftZ))
+  if (Math.abs(speed) > 2.5) {
+    ride.value.prompt = 'Slow down to get out'
+    return
+  }
+  speed = 0
+  kkAudio.setEngine(false, 0, '')
+  phase.value = 'xopen'
+  phaseT = 0
+}
+
+/** Boarding / exiting animation, called every frame while it runs. */
+function animatePhase(dt: number) {
+  const p = current
+  if (!p) return
+  const spec = vehicleSpec(p.kind)
+  const [sx, sz] = doorStand(p)
+  const [seatX, seatY, seatZ] = seatWorld(p)
+  const sitMode = spec.straddle || p.kind === 'keke' ? (spec.straddle ? 'ride' : 'sit') : 'sit'
+  const hasDoor = !!spec.door
+  phaseT += dt
+  const ph = phase.value
+  if (ph === 'walk') {
+    const k = Math.min(1, phaseT / walkDur)
+    fig.x = walkFrom[0] + (sx - walkFrom[0]) * k
+    fig.z = walkFrom[1] + (sz - walkFrom[1]) * k
+    fig.y = 0
+    fig.h = Math.atan2(sx - walkFrom[0], sz - walkFrom[1])
+    avatarMode.value = k < 1 ? 'walk' : 'idle'
+    if (k >= 1) {
+      phase.value = hasDoor ? 'open' : 'climb'
+      phaseT = 0
+      if (hasDoor) kkAudio.impact(0.08)
+    }
+  } else if (ph === 'open') {
+    setDoor(p, Math.min(1, phaseT / DOOR_T))
+    fig.h = p.heading - Math.PI / 2 // face the car
+    if (phaseT >= DOOR_T) {
+      phase.value = 'climb'
+      phaseT = 0
+    }
+  } else if (ph === 'climb') {
+    const k = Math.min(1, phaseT / CLIMB_T)
+    const e = k * k * (3 - 2 * k)
+    fig.x = sx + (seatX - sx) * e
+    fig.z = sz + (seatZ - sz) * e
+    // step up: hips rise into the seat (sitting puts them at seatY)
+    fig.y = (seatY - 0.94) * e + Math.sin(e * Math.PI) * 0.15
+    fig.h = p.heading - (Math.PI / 2) * (1 - e)
+    avatarMode.value = e > 0.45 ? (sitMode as 'sit' | 'ride') : 'walk'
+    if (k >= 1) {
+      phase.value = hasDoor ? 'close' : 'riding'
+      phaseT = 0
+    }
+  } else if (ph === 'close') {
+    setDoor(p, 1 - Math.min(1, phaseT / DOOR_T))
+    if (phaseT >= DOOR_T) {
+      kkAudio.impact(0.18)
+      phase.value = 'riding'
+      phaseT = 0
+    }
+  } else if (ph === 'xopen') {
+    if (!hasDoor) {
+      phase.value = 'xclimb'
+      phaseT = 0
+      return
+    }
+    setDoor(p, Math.min(1, phaseT / DOOR_T))
+    if (phaseT >= DOOR_T) {
+      phase.value = 'xclimb'
+      phaseT = 0
+    }
+  } else if (ph === 'xclimb') {
+    const k = Math.min(1, phaseT / CLIMB_T)
+    const e = k * k * (3 - 2 * k)
+    fig.x = seatX + (sx - seatX) * e
+    fig.z = seatZ + (sz - seatZ) * e
+    fig.y = (seatY - 0.94) * (1 - e) + Math.sin(e * Math.PI) * 0.15
+    fig.h = p.heading - (Math.PI / 2) * e
+    avatarMode.value = e < 0.55 ? (sitMode as 'sit' | 'ride') : 'walk'
+    if (k >= 1) {
+      phase.value = hasDoor ? 'xclose' : 'none'
+      phaseT = 0
+      if (!hasDoor) finishExit()
+    }
+  } else if (ph === 'xclose') {
+    avatarMode.value = 'idle'
+    setDoor(p, 1 - Math.min(1, phaseT / DOOR_T))
+    if (phaseT >= DOOR_T) {
+      kkAudio.impact(0.18)
+      phase.value = 'none'
+      finishExit()
+    }
+  }
+  // the camera frames the vehicle (or the walking figure while boarding)
+  ridePose.x = p.x
+  ridePose.z = p.z
+  ridePose.heading = p.heading
+}
+
+function finishExit() {
+  const p = current
+  if (!p) return
+  const [sx, sz] = doorStand(p)
+  const [ex, ez] = unstick(...clampBounds(sx, sz))
   playerPos.value = [ex, 0, ez]
-  playerFacing.value = p.heading
+  playerFacing.value = p.heading - Math.PI / 2
   socketSend.value('player.move', { position: [ex, 0, ez], facing: p.heading })
   ride.value.active = false
   ride.value.kind = null
   ride.value.name = ''
   ride.value.speed = 0
+  ride.value.inner = false
   ridePose.active = false
   trafficProbe.player = null
   trafficProbe.playerSpeed = 0
-  kkAudio.setEngine(false, 0, '')
-  if (p.driver) p.driver.visible = false
   if (p.interior) p.interior.visible = false
+  avatarVisible.value = false
   current = null
 }
 
@@ -293,6 +500,11 @@ onBeforeRender(({ delta }) => {
   }
 
   if (!ride.value.active || !current) return
+  if (phase.value !== 'riding') {
+    animatePhase(dt)
+    placeAvatar()
+    return
+  }
   const p = current
   const spec = vehicleSpec(p.kind)
 
@@ -310,6 +522,7 @@ onBeforeRender(({ delta }) => {
   }
   throttle = Math.max(-1, Math.min(1, throttle))
   steer = Math.max(-1, Math.min(1, steer))
+  steerSmoothed += (steer - steerSmoothed) * Math.min(1, dt * 6)
 
   if (p.kind === 'plane') {
     // ---- aircraft: roll, lift off, climb, bank, descend
@@ -383,6 +596,7 @@ onBeforeRender(({ delta }) => {
       const sz = p.z
       const sx2 = p.x
       const sz2 = p.z + Math.cos(p.heading) * speed * dt
+      if (Math.abs(speed) > 6) hitWall(speed * 0.45, spec.maxSpeed)
       if (!collidesAt(sx, sz, spec.radius)) {
         p.x = sx
         speed *= 0.82
@@ -390,31 +604,46 @@ onBeforeRender(({ delta }) => {
         p.z = sz2
         speed *= 0.82
       } else {
+        // head-on into a wall: a real crash, the vehicle bounces back
+        hitWall(speed, spec.maxSpeed)
         speed *= -0.25
       }
     }
     ridePose.y = 0
   }
 
+  // crash jolt spring (pitch) + lean into turns for two-wheelers
+  joltV += (-jolt * 60 - joltV * 9) * dt
+  jolt += joltV * dt
   // visual transforms
   if (p.mesh) {
     p.mesh.position.set(p.x, ridePose.y, p.z)
     p.mesh.rotation.y = p.heading
+    if (p.kind !== 'plane') {
+      p.mesh.rotation.x = jolt * 0.12
+      const twoWheel = p.kind === 'okada' || p.kind === 'bicycle'
+      p.mesh.rotation.z = twoWheel ? -steerSmoothed * Math.min(1, Math.abs(speed) / 8) * 0.35 : jolt * 0.04
+    }
   }
   if (p.interior) {
     p.interior.position.set(p.x, ridePose.y, p.z)
     p.interior.rotation.y = p.heading
     p.interior.visible = ride.value.inner
   }
-  if (p.driver) {
-    const seat = (p.driver.userData.seat as [number, number, number]) ?? [0, 1, 0]
-    p.driver.position.set(
-      p.x + Math.sin(p.heading) * seat[2] + Math.cos(p.heading) * seat[0],
-      ridePose.y + seat[1] - 0.62,
-      p.z + Math.cos(p.heading) * seat[2] - Math.sin(p.heading) * seat[0]
-    )
-    p.driver.rotation.y = p.heading
-    p.driver.visible = !ride.value.inner
+  // the seated player rides along (hidden in cockpit view)
+  {
+    const [hx, hy, hz] = seatWorld(p)
+    fig.x = hx
+    fig.y = hy - 0.94
+    fig.z = hz
+    fig.h = p.heading
+    avatarMode.value = spec.straddle ? 'ride' : 'sit'
+    placeAvatar()
+    const a = avatarRef.value
+    if (a) {
+      a.visible = !ride.value.inner
+      a.rotation.z = p.mesh ? p.mesh.rotation.z : 0
+    }
   }
 
   // shared pose: camera + HUD read the cockpit anchor from here
@@ -441,6 +670,14 @@ onBeforeRender(({ delta }) => {
   }
 })
 
+function placeAvatar() {
+  const a = avatarRef.value
+  if (!a) return
+  a.visible = avatarVisible.value
+  a.position.set(fig.x, fig.y, fig.z)
+  a.rotation.y = fig.h
+}
+
 // expose for headless verification
 if (import.meta.dev) {
   ;(window as any).__kk_ride = () => ({
@@ -454,5 +691,17 @@ if (import.meta.dev) {
 <template>
   <TresGroup>
     <primitive :object="root" />
+    <TresGroup ref="avatarRef" :visible="false">
+      <CharacterAvatar
+        shirt="#2e7d5b"
+        trouser="#2b3440"
+        :kufi="true"
+        hair-style="cap"
+        outfit="kaftan"
+        :beard="true"
+        :mode="avatarMode"
+        :gait-speed="10.5"
+      />
+    </TresGroup>
   </TresGroup>
 </template>

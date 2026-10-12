@@ -49,11 +49,26 @@ onUnmounted(() => {
 const expiryLeft = computed(() => {
   const exp = payments.current?.invoice_expires_at
   if (!exp) return ''
-  const ms = new Date(exp).getTime() - now.value
+  // tolerate a server timestamp without a zone: it is UTC
+  const iso = /[zZ]|[+-]\d\d:?\d\d$/.test(exp) ? exp : exp + 'Z'
+  const ms = new Date(iso).getTime() - now.value
   if (ms <= 0) return 'expired'
   const s = Math.floor(ms / 1000)
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 })
+
+// the four beats of a verified Lightning purchase, shown as a stepper
+const STEPS = ['Invoice', 'Pay', 'Verified', 'Delivered']
+const stepIdx = computed(() => {
+  const st = payments.current?.status ?? ''
+  if (st === 'fulfilled') return 4
+  if (st === 'settled') return 3
+  if (payments.settling) return 2
+  if (st === 'awaiting_payment') return 1
+  return 0
+})
+const done = computed(() => stepIdx.value >= 3)
+const showWhy = ref(false)
 
 function copyInvoice() {
   if (payments.current?.invoice_bolt11) {
@@ -67,33 +82,47 @@ function copyInvoice() {
   <div
     v-if="payments.dialogOpen"
     class="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-ink/50 p-3 backdrop-blur-sm"
+    @keydown.esc="done ? payments.close() : payments.cancelCurrent()"
   >
-    <div class="kk-panel w-[min(480px,96vw)] p-5">
-      <div class="flex items-start justify-between">
+    <div class="kk-panel max-h-[94dvh] w-[min(440px,96vw)] overflow-y-auto p-5" role="dialog" aria-modal="true" aria-labelledby="ln-title">
+      <!-- header -->
+      <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-xs font-bold uppercase tracking-widest text-ink/40">Lightning Payment</div>
-          <div class="font-display text-lg font-semibold text-ink">
+          <div class="text-[10px] font-extrabold uppercase tracking-[0.14em] text-golddark">⚡ Lightning payment</div>
+          <div id="ln-title" class="font-display text-lg font-semibold leading-tight text-ink">
             {{ payments.current?.item_name || 'Invoice' }}
-            <span v-if="payments.current && payments.current.quantity > 1">×{{ payments.current.quantity }}</span>
+            <span v-if="payments.current && payments.current.quantity > 1" class="text-ink/50">×{{ payments.current.quantity }}</span>
           </div>
         </div>
-        <button class="kk-btn-ghost !px-2 !py-1" @click="payments.cancelCurrent()">✕</button>
+        <button class="kk-close" aria-label="Close" @click="done ? payments.close() : payments.cancelCurrent()">✕</button>
       </div>
 
+      <!-- stepper -->
+      <ol class="mt-4 flex items-center gap-1.5" aria-label="Payment progress">
+        <li v-for="(st, i) in STEPS" :key="st" class="flex flex-1 flex-col gap-1">
+          <div class="h-1.5 rounded-full transition-colors duration-500" :class="i < stepIdx ? 'bg-leaf' : i === stepIdx ? 'bg-kasand' : 'bg-ink/10'" />
+          <span class="text-[10px] font-bold" :class="i <= stepIdx ? 'text-ink/70' : 'text-ink/30'">{{ st }}</span>
+        </li>
+      </ol>
+
       <!-- invoice view -->
-      <template v-if="payments.current?.invoice_bolt11 && payments.current.status !== 'settled'">
-        <div class="mt-4 flex flex-col items-center gap-3">
-          <div class="rounded-3xl border border-ink/10 bg-white p-2.5 shadow-md">
-            <img v-if="qrDataUrl" :src="qrDataUrl" alt="BOLT11 invoice QR code" class="h-56 w-56" />
+      <template v-if="payments.current?.invoice_bolt11 && !done">
+        <div class="mt-4 text-center">
+          <div class="font-display text-4xl font-semibold tracking-tight text-ink">
+            {{ payments.current.amount_sats.toLocaleString() }}<span class="ml-1.5 text-lg text-ink/45">sats</span>
           </div>
-          <div class="flex flex-wrap items-center justify-center gap-2">
-            <span class="kk-chip border-golddark/25 bg-kasand/15 text-golddark">⚡ {{ payments.current.amount_sats.toLocaleString() }} sats</span>
-            <span class="kk-chip">⏳ {{ expiryLeft }}</span>
-            <span class="kk-chip" :class="payments.current.status === 'awaiting_payment' ? 'text-sky-600' : 'text-ink/55'">
-              {{ payments.current.status.replace('_', ' ') }}
-            </span>
+          <div class="mt-1 text-xs font-semibold" :class="expiryLeft === 'expired' ? 'text-red-600' : 'text-ink/45'">
+            {{ expiryLeft === 'expired' ? 'Invoice expired - close and try again' : `Expires in ${expiryLeft}` }}
           </div>
-          <button class="kk-btn-ghost text-xs" @click="copyInvoice">📋 Copy invoice (BOLT11)</button>
+        </div>
+        <div class="mt-3 flex flex-col items-center gap-3">
+          <a :href="`lightning:${payments.current.invoice_bolt11}`" class="rounded-3xl border border-ink/10 bg-white p-2.5 shadow-md" title="Open in your Lightning wallet">
+            <img v-if="qrDataUrl" :src="qrDataUrl" alt="Lightning invoice QR code - scan with your wallet" class="h-48 w-48 [@media(max-height:500px)]:h-32 [@media(max-height:500px)]:w-32" />
+          </a>
+          <div class="flex w-full gap-2">
+            <a :href="`lightning:${payments.current.invoice_bolt11}`" class="kk-btn-ghost flex-1 text-xs">Open wallet</a>
+            <button class="kk-btn-ghost flex-1 text-xs" @click="copyInvoice">Copy invoice</button>
+          </div>
 
           <!-- dev-only wallet simulator (stands in for an external wallet) -->
           <button
@@ -101,33 +130,35 @@ function copyInvoice() {
             :disabled="payments.settling || payments.current.status !== 'awaiting_payment'"
             @click="payments.simulateWalletPayment()"
           >
-            {{ payments.settling ? 'Paying from wallet...' : '🪙 Simulate external wallet payment (dev)' }}
+            {{ payments.settling ? 'Waiting for the node to confirm...' : 'Pay with demo wallet' }}
           </button>
-          <p class="text-center text-[11px] leading-relaxed text-ink/45">
-            In production this button disappears: scan the QR with Phoenix/Zeus/BlueWallet and the
-            backend verifies settlement against the Lightning node before delivering the item.
-          </p>
+          <span class="kk-chip">Demo build · regtest simulator, no real funds move</span>
         </div>
       </template>
 
       <!-- settled view -->
-      <template v-else-if="payments.current?.status === 'settled'">
-        <div class="mt-6 flex flex-col items-center gap-2 py-6 text-center">
-          <div class="text-5xl">✅</div>
-          <div class="font-display text-lg font-semibold text-leaf">Settlement verified!</div>
+      <template v-else-if="done">
+        <div class="mt-5 flex flex-col items-center gap-2 py-3 text-center">
+          <div class="flex h-16 w-16 items-center justify-center rounded-full bg-leaf/10 text-3xl text-leaf">✓</div>
+          <div class="font-display text-xl font-semibold text-ink">Paid. It's in your bag.</div>
           <div class="text-sm text-ink/60">
-            Item delivered to your inventory - exactly once, after the backend confirmed the
-            Lightning payment.
+            {{ payments.current?.amount_sats?.toLocaleString() }} sats settled and verified on the Lightning node, then delivered exactly once.
           </div>
+          <button class="kk-btn-primary mt-3 w-full" @click="payments.close()">Done</button>
         </div>
       </template>
 
-      <p v-if="payments.error" class="mt-3 rounded-2xl bg-red-50 p-2 text-xs font-semibold text-red-600">{{ payments.error }}</p>
+      <p v-if="payments.error" class="mt-3 rounded-2xl bg-red-50 p-2.5 text-xs font-semibold text-red-600" role="alert">{{ payments.error }}</p>
 
-      <div class="mt-4 border-t border-ink/10 pt-3 text-[11px] leading-relaxed text-ink/45">
-        Amount is fixed by the server at purchase time. A browser message is never proof of payment -
-        settlement is verified against the Lightning node (idempotent, exactly-once fulfillment).
-      </div>
+      <!-- trust model, one tap away instead of two paragraphs up front -->
+      <button class="mt-4 w-full border-t border-ink/10 pt-3 text-left text-[11px] font-bold text-ink/50 hover:text-ink" :aria-expanded="showWhy" @click="showWhy = !showWhy">
+        {{ showWhy ? '▾' : '▸' }} How is this payment verified?
+      </button>
+      <p v-if="showWhy" class="mt-1.5 text-[11px] leading-relaxed text-ink/55">
+        The server fixes the price when the invoice is created. Your browser can never mark a payment as paid: the backend checks
+        settlement with the Lightning node, then fulfils the order once (idempotent). In production you scan the QR with
+        Phoenix, Zeus or BlueWallet instead of the demo wallet button.
+      </p>
     </div>
   </div>
 </template>

@@ -15,7 +15,11 @@ Data: (c) OpenStreetMap contributors, ODbL - stylized/approximate in-game.
 import json
 import math
 
-RAW = "/home/z/my-project/kaduna-osm-raw"
+import os as _os
+_REPO = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+# raw OSM extracts live outside the repo by default; override with KK_OSM_RAW
+_RAW_DEFAULT = _os.environ.get("KK_OSM_RAW", _os.path.join(_REPO, "..", "kaduna-osm-raw"))
+RAW = _RAW_DEFAULT
 
 # --- projection: origin = Murtala Square, 1 unit = 10 m, north = -Z ---
 ORIGIN = (10.5332, 7.4413)
@@ -339,5 +343,5 @@ json.dump({
     "landmarks": {nm: list(proj(*ll)) for nm, ll in LM.items()},
     "places": {nm: list(proj(*ll)) for nm, ll in places.items()},
     "bridges_on_river": [{"name": b["name"], "at": list(proj(*b["mid"]))} for b in on_river],
-}, open("/home/z/my-project/kaduna-osm-raw/layout_intermediate.json", "w"))
+}, open(_os.path.join(_RAW_DEFAULT, "layout_intermediate.json"), "w"))
 print("\nsaved layout_intermediate.json")

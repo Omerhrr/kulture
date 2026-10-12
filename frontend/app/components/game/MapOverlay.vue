@@ -8,7 +8,7 @@ import { clampBounds } from '~/utils/collision'
 import { unstick } from '~/utils/collision'
 
 const open = useMapOpen()
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const world = useWorldStore()
 const moveTarget = useMoveTarget()
 
@@ -67,27 +67,44 @@ function draw() {
   g.strokeText('YOU', px * scale, py * scale - 11)
   g.fillText('YOU', px * scale, py * scale - 11)
 
-  // legend inside the canvas bottom-left
-  g.fillStyle = 'rgba(20,24,20,0.72)'
+  // legend inside the canvas bottom-left (white text, one row per symbol)
+  const rows: Array<[string, string, 'sq' | 'dot', string?]> = [
+    ['#e8c84b', 'Landmarks / shops', 'sq'],
+    ['#8a96a6', 'Tall towers', 'sq'],
+    ['#d8b13c', 'Open houses (walk in)', 'dot'],
+    ['#d8262e', 'Hospital', 'dot', 'H'],
+    ['#2f7d5b', 'School', 'dot', 'S'],
+    ['#e0a020', 'Filling station', 'dot', 'F'],
+    ['#6b6f75', 'Mechanic', 'dot']
+  ]
   const lx = 10
-  const ly = cv.height - 78
+  const lh = 10 + rows.length * 18
+  const ly = cv.height - lh - 10
+  g.fillStyle = 'rgba(20,24,20,0.82)'
   g.beginPath()
-  g.roundRect(lx, ly, 190, 68, 8)
+  g.roundRect(lx, ly, 178, lh, 8)
   g.fill()
-  g.fillStyle = '#e8c84b'
-  g.fillRect(lx + 10, ly + 10, 8, 8)
-  g.fillStyle = '#fff'
-  g.font = '11px "Nunito", sans-serif'
-  g.textAlign = 'left'
-  g.fillText('Landmarks / shops', lx + 24, ly + 18)
-  g.fillStyle = '#3a4450'
-  g.fillRect(lx + 10, ly + 30, 8, 8)
-  g.fillText('Tall towers', lx + 24, ly + 38)
-  g.fillStyle = '#d8b13c'
-  g.beginPath()
-  g.arc(lx + 14, ly + 54, 4.4, 0, Math.PI * 2)
-  g.fill()
-  g.fillText('Open houses (walk in)', lx + 24, ly + 58)
+  g.font = '600 11px "Nunito", sans-serif'
+  rows.forEach(([col, label, shape, ch], i) => {
+    const cy = ly + 14 + i * 18
+    g.fillStyle = col
+    if (shape === 'sq') g.fillRect(lx + 10, cy - 4, 9, 9)
+    else {
+      g.beginPath()
+      g.arc(lx + 14.5, cy + 0.5, 5, 0, Math.PI * 2)
+      g.fill()
+    }
+    if (ch) {
+      g.fillStyle = '#fff'
+      g.font = '800 8px "Nunito", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(ch, lx + 14.5, cy + 3.5)
+      g.font = '600 11px "Nunito", sans-serif'
+    }
+    g.fillStyle = '#ffffff'
+    g.textAlign = 'left'
+    g.fillText(label, lx + 26, cy + 4)
+  })
 }
 
 function onClick(e: MouseEvent) {

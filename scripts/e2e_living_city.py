@@ -18,7 +18,7 @@ def ok(name, passed, detail=""):
 with sync_playwright() as pw:
     browser = pw.chromium.launch(
         headless=True,
-        args=["--use-gl=swiftshader", "--autoplay-policy=no-user-gesture-required"],
+        executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome" if __import__("os").path.exists("/opt/pw-browsers/chromium-1194/chrome-linux/chrome") else None, args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"],
     )
     page = browser.new_page(viewport={"width": 1280, "height": 760})
     errors = []
@@ -38,7 +38,7 @@ with sync_playwright() as pw:
 
     # ---------- movement still works (open road first: persisted spawn can
     # sit wedged against a market shed, which would block the probe)
-    page.evaluate("window.__kk_teleport && window.__kk_teleport(-98, 40)")
+    page.evaluate("window.__kk_teleport && window.__kk_teleport(-182, 256.45)")
     page.wait_for_timeout(600)
     p0 = page.evaluate("window.__kk_pos && window.__kk_pos()")
     page.keyboard.down("ArrowUp")
@@ -105,7 +105,7 @@ with sync_playwright() as pw:
 
     # ---------- street chat: stand next to a stationary market vendor
     chat = False
-    page.evaluate("window.__kk_teleport && window.__kk_teleport(-80, 100)")
+    page.evaluate("window.__kk_teleport && window.__kk_teleport(-210, 330)")
     page.wait_for_timeout(1200)
     for _ in range(6):
         page.evaluate(
@@ -136,7 +136,7 @@ with sync_playwright() as pw:
     prompt_visible = page.evaluate("document.body.innerText.includes('Enter')")
     ok("door prompt visible at the entrance", prompt_visible)
     page.evaluate("window.dispatchEvent(new CustomEvent('kk-door-use'))")
-    page.wait_for_timeout(3600)
+    page.wait_for_timeout(8000)  # software GL in CI is slow to settle
     interior = page.evaluate("window.__kk_interior && window.__kk_interior()")
     ok("interior entered", bool(interior and interior.get("inside")), interior)
     cam = page.evaluate(
@@ -172,7 +172,7 @@ with sync_playwright() as pw:
     ok("interior exit works", bool(interior2 and not interior2.get("inside")), interior2)
 
     # ---------- vehicles + probe
-    page.evaluate("window.__kk_teleport && window.__kk_teleport(-90, 49)")
+    page.evaluate("window.__kk_teleport && window.__kk_teleport(-174, 256.45)")
     page.wait_for_timeout(1600)
     fleet = page.evaluate("window.__kk_fleet && window.__kk_fleet()")
     ok("boardable fleet exists", isinstance(fleet, list) and len(fleet) >= 9, len(fleet) if fleet else None)

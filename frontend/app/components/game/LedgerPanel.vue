@@ -28,7 +28,7 @@ function fmt(entry: any) {
   <div class="pointer-events-auto absolute right-3 top-20 z-30 w-[min(420px,92vw)] kk-panel kk-scroll max-h-[76vh] overflow-y-auto p-4 sm:right-4">
     <div class="mb-3 flex items-center justify-between">
       <div class="font-display text-base font-semibold text-ink">📜 Ledger</div>
-      <button class="kk-btn-ghost !px-2 !py-1" @click="ui.open('ledger')">✕</button>
+      <button class="kk-close" aria-label="Close" @click="ui.open('ledger')">✕</button>
     </div>
 
     <div v-if="player.transactions.length === 0" class="py-6 text-center text-sm text-ink/50">No entries yet.</div>

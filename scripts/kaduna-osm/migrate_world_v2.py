@@ -12,7 +12,11 @@ Idempotent: safe to run again. Uses the backend app settings for the DB URL.
 import asyncio
 import sys
 
-sys.path.insert(0, "/home/z/my-project/kaduna-kulture/backend")
+import os as _os
+_REPO = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+# raw OSM extracts live outside the repo by default; override with KK_OSM_RAW
+_RAW_DEFAULT = _os.environ.get("KK_OSM_RAW", _os.path.join(_REPO, "..", "kaduna-osm-raw"))
+sys.path.insert(0, _os.path.join(_REPO, "backend"))
 
 from sqlalchemy import select, update  # noqa: E402
 
@@ -20,7 +24,8 @@ from app.db.session import AsyncSession, engine  # noqa: E402
 from app.models.player import PlayerState  # noqa: E402
 from app.models.world import WorldEntity, WorldRegion  # noqa: E402
 
-# code -> (x, z, name or None to keep)
+# code -> (x, z, name or None to keep). These are RAW bake units; since the
+# WORLD_SCALE change the backend rescales them on boot (reconcile_world_scale).
 ENTITIES = {
     "spawn_roadside": (-98.0, 40.0, "Ahmadu Bello Way - Roadside Spawn"),
     "musa_shop": (-70.0, 75.0, None),

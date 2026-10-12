@@ -4,20 +4,27 @@
 // landscape prompt, and a best-effort fullscreen + orientation lock when
 // the player enters the world on a phone.
 
-import { fireKkEvent, useMapOpen } from '~/composables/useControlsState'
+import { fireKkEvent, useMapOpen, useDoorPrompt } from '~/composables/useControlsState'
 
 const isTouch = useIsTouch()
 const proximity = useState<{ entityId: string; name: string; code: string } | null>('kk_proximity', () => null)
 const pedPrompt = useState<{ id: number; name: string } | null>('kk_ped_prompt', () => null)
 const ride = useRide()
 const mapOpen = useMapOpen()
+const doorPrompt = useDoorPrompt()
 
 const portraitDismissed = ref(true)
 let landscapeTried = false
 
 onMounted(() => {
   if (!isTouch.value) return
-  portraitDismissed.value = localStorage.getItem('kk_portrait_dismiss') === '1'
+  const check = () => {
+    const portrait = window.innerHeight > window.innerWidth
+    portraitDismissed.value = !portrait || localStorage.getItem('kk_portrait_dismiss') === '1'
+  }
+  check()
+  window.addEventListener('resize', check)
+  window.addEventListener('orientationchange', check)
 })
 
 function fireInteract() {
@@ -83,7 +90,7 @@ function tryLandscape() {
         @pointerdown.stop="fireInteract"
       >
         <span class="block text-2xl leading-none">{{ ride.active ? '🛴' : ride.prompt ? '🔑' : pedPrompt ? '💬' : '✋' }}</span>
-        <span class="mt-0.5 block">{{ ride.active ? 'EXIT' : ride.prompt ? 'BOARD' : 'TALK' }}</span>
+        <span class="mt-0.5 block">{{ ride.active ? 'EXIT' : ride.prompt ? 'BOARD' : doorPrompt ? (doorPrompt.action === 'exit' ? 'EXIT' : 'ENTER') : 'TALK' }}</span>
       </button>
     </div>
 

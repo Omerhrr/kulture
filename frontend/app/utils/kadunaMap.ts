@@ -1,7 +1,8 @@
 // Shared 2D city map, prerendered once to an offscreen canvas and reused by
 // the minimap (crop) and the full map overlay (scaled). North is up (-Z).
 import { BAKE, BRIDGE_NAMES } from './kaduna'
-import { ROMI, TOWERS, FARMS, OPEN_HOUSES } from './kadunaExtras'
+import { ROMI, TOWERS, FARMS, OPEN_HOUSES, mulberry32 } from './kadunaExtras'
+import { ws } from './kaduna'
 
 export const MAP_MARGIN = 90
 
@@ -23,8 +24,10 @@ export function mapTransform(): MapTransform {
   return _t!
 }
 
-export function getMapCanvas(): HTMLCanvasElement {
-  if (_canvas) return _canvas
+let _bare: HTMLCanvasElement | null = null
+/** labels=false returns the same map without text (for the zoomed-in minimap). */
+export function getMapCanvas(labels = true): HTMLCanvasElement {
+  if (_canvas) return labels ? _canvas : _bare!
   const b = BAKE.meta.bounds
   const wUnits = b.xmax - b.xmin + MAP_MARGIN * 2
   const hUnits = b.zmax - b.zmin + MAP_MARGIN * 2
@@ -53,19 +56,21 @@ export function getMapCanvas(): HTMLCanvasElement {
   g.fillStyle = '#87a55f'
   g.fillRect(0, 0, pxW, pxH)
   // subtle district tint variation
+  // seeded so the map looks the same on every load (was Math.random)
+  const rnd = mulberry32(0x6d4150)
   g.fillStyle = 'rgba(160,170,110,0.35)'
   for (let i = 0; i < 90; i++) {
-    const x = Math.random() * pxW
-    const y = Math.random() * pxH
+    const x = rnd() * pxW
+    const y = rnd() * pxH
     g.beginPath()
-    g.ellipse(x, y, 60 + Math.random() * 120, 40 + Math.random() * 80, 0, 0, Math.PI * 2)
+    g.ellipse(x, y, 60 + rnd() * 120, 40 + rnd() * 80, 0, 0, Math.PI * 2)
     g.fill()
   }
 
   // farms
   g.fillStyle = '#a9bf72'
   for (const f of FARMS) {
-    g.fillRect(X(f.x) - 5 * S, Y(f.z) - 3.5 * S, 10 * S, 7 * S)
+    g.fillRect(X(f.x) - 12 * S, Y(f.z) - 9.5 * S, 24 * S, 19 * S)
   }
 
   // water
@@ -105,7 +110,8 @@ export function getMapCanvas(): HTMLCanvasElement {
   // houses
   g.fillStyle = '#cfc0a0'
   for (const h of BAKE.houses) {
-    g.fillRect(X(h[0]) - 1.1, Y(h[1]) - 1.1, 2.2, 2.2)
+    const hw = Math.max(1, h[2] * S * 0.5)
+    g.fillRect(X(h[0]) - hw, Y(h[1]) - hw, hw * 2, hw * 2)
   }
 
   // roads
@@ -114,7 +120,9 @@ export function getMapCanvas(): HTMLCanvasElement {
       ? ['#e8dcc0', 3.6]
       : cls === 'primary'
         ? ['#e8dcc0', 2.6]
-        : ['#d4ccb8', 1.3]
+        : cls === 'residential'
+          ? ['#cdc4ae', 1.0]
+          : ['#d4ccb8', 1.3]
   for (const r of BAKE.roads) {
     const [color, wpx] = roadStyle(r.class)
     g.strokeStyle = color
@@ -130,10 +138,26 @@ export function getMapCanvas(): HTMLCanvasElement {
   // towers (tall buildings) on top of everything
   for (const tw of TOWERS) {
     g.fillStyle = '#3a4450'
-    const s = Math.max(5, 7.5 * S)
+    const s = Math.max(4, Math.max(tw.w, tw.d) * S)
     g.fillRect(X(tw.x) - s / 2, Y(tw.z) - s / 2, s, s)
     g.fillStyle = '#e8c84b'
     g.fillRect(X(tw.x) - 1.4, Y(tw.z) - 1.4, 2.8, 2.8)
+  }
+
+  // public buildings
+  const CIV: Record<string, [string, string]> = { hospital: ['#d8262e', 'H'], school: ['#2f7d5b', 'S'], fuel: ['#e0a020', 'F'], mechanic: ['#6b6f75', 'M'] }
+  g.font = '800 9px "Nunito", sans-serif'
+  g.textAlign = 'center'
+  for (const c of BAKE.civic ?? []) {
+    const [col, ch] = CIV[c.kind]
+    g.fillStyle = col
+    g.beginPath()
+    g.arc(X(c.x), Y(c.z), c.kind === 'mechanic' ? 3.2 : 5, 0, Math.PI * 2)
+    g.fill()
+    if (c.kind !== 'mechanic') {
+      g.fillStyle = '#ffffff'
+      g.fillText(ch, X(c.x), Y(c.z) + 3.2)
+    }
   }
 
   // bridges
@@ -149,6 +173,12 @@ export function getMapCanvas(): HTMLCanvasElement {
     g.arc(X(oh.x), Y(oh.z), 4, 0, Math.PI * 2)
     g.fill()
   }
+
+  // text-free copy for the minimap, where big labels clip and clutter
+  _bare = document.createElement('canvas')
+  _bare.width = cv.width
+  _bare.height = cv.height
+  _bare.getContext('2d')!.drawImage(cv, 0, 0)
 
   // landmark markers + names
   g.font = '600 15px "Nunito", sans-serif'
@@ -174,11 +204,11 @@ export function getMapCanvas(): HTMLCanvasElement {
   // river + dam labels
   g.fillStyle = '#dceef5'
   g.font = '600 14px "Nunito", sans-serif'
-  g.fillText('River Kaduna', X(320), Y(-24))
+  g.fillText('River Kaduna', X(ws(320)), Y(ws(-24)))
   g.fillText('Romi Stream', X(ROMI.pts[3][0]), Y(ROMI.pts[3][1]))
 
   _canvas = cv
-  return cv
+  return labels ? cv : _bare
 }
 
 /** World -> map pixel coordinates. */

@@ -33,7 +33,7 @@ node scripts/ws-smoke.mjs                            # WS + agent E2E (should pr
 
 ### 3. Walk + talk to the AI shopkeeper (90 s)
 
-- Walk (WASD or the touch joystick) up Ahmadu Bello Way to **Musa's Provision Store**, press **E** (or the TALK button on mobile).
+- You spawn on the sidewalk facing **Musa's Provision Store** across the street (about 35 m away). Walk over (WASD or the touch joystick), press **E** (or the TALK button on mobile).
 - **Talk to Mallam Musa** - the dialogue box shows the 🤖 **DSH agent** badge.
   He answers in character, referencing live stock and Lightning prices.
 - Mention: every tool call he makes is validated (allowlist + schema +
@@ -45,7 +45,9 @@ node scripts/ws-smoke.mjs                            # WS + agent E2E (should pr
 - Interact again → **Ask about delivery work** → accept
   **"Deliver Suya Spice to Stonetech Square"**.
 - Walk to the store → **📦 Pick up** (server validates you're actually there).
-- Walk to **Stonetech Square** → **✅ Deliver** → NGN + reputation paid
+- Stonetech Square is ~800 m south in Barnawa: hop on the **keke or car
+  parked by the spawn** (press **E**) and drive there - it shows off the
+  life-size city - then → **✅ Deliver** → NGN + reputation paid
   through the ledger. Open **📜 Ledger** - simulated NGN entries are clearly
   labeled; real sats never mix with them.
 

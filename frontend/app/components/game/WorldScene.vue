@@ -75,7 +75,7 @@ const labels = computed(() => {
     const e = entityByCode(code)
     const p: [number, number] = e ? [e.position[0], e.position[2]] : (PLAYABLE_POS[code] as [number, number]) ?? [0, 0]
     out.push({
-      pos: [p[0], 26, p[1]],
+      pos: [p[0], 30, p[1]],
       text: name,
       tex: makeLabelTexture(name, '#ffe9a8'),
       w
@@ -88,7 +88,7 @@ const labels = computed(() => {
 <template>
   <TresGroup>
     <!-- Musa's Provision Store -->
-    <TresGroup :position="pos3('musa_shop', [-70, 75])">
+    <TresGroup :position="pos3('musa_shop', PLAYABLE_POS.musa_shop)">
       <TresMesh :position="[0, 2.2, 0]" cast-shadow :material="wallMusa">
         <TresBoxGeometry :args="[14, 4.4, 10]" />
       </TresMesh>
@@ -123,7 +123,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Kaduna Central Market: open shed grid -->
-    <TresGroup :position="pos3('kaduna_central_market', [-80, 102])">
+    <TresGroup :position="pos3('kaduna_central_market', PLAYABLE_POS.kaduna_central_market)">
       <TresMesh :position="[0, 0.04, 0]" receive-shadow :material="padMat">
         <TresBoxGeometry :args="[48, 0.08, 36]" />
       </TresMesh>
@@ -144,7 +144,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Arewa House landmark -->
-    <TresGroup :position="pos3('arewa_house', [-20, -164])">
+    <TresGroup :position="pos3('arewa_house', PLAYABLE_POS.arewa_house)">
       <TresMesh :position="[0, 7, 0]" cast-shadow :material="wallArewa">
         <TresBoxGeometry :args="[16, 14, 12]" />
       </TresMesh>
@@ -163,7 +163,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Stonetech Square: gathering plaza -->
-    <TresGroup :position="pos3('stonetech_square', [-55, 360])">
+    <TresGroup :position="pos3('stonetech_square', PLAYABLE_POS.stonetech_square)">
       <TresMesh :position="[0, 0.08, 0]" receive-shadow :material="stoneMat">
         <TresCylinderGeometry :args="[11, 11, 0.16, 28]" />
       </TresMesh>
@@ -179,7 +179,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Keke stop + keke prop -->
-    <TresGroup :position="pos3('keke_stop', [-245, 420])">
+    <TresGroup :position="pos3('keke_stop', PLAYABLE_POS.keke_stop)">
       <TresMesh :position="[-3.5, 3.4, 0]" :material="neonKeke">
         <TresPlaneGeometry :args="[5, 1.1]" />
       </TresMesh>

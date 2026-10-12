@@ -5,7 +5,7 @@
 // you are and what time it is. Mute state persists in localStorage.
 import { kkAudio, zoneLevels } from '~/utils/audio'
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const nightFactor = useState<number>('kk_night', () => 0)
 
 const muted = useState<boolean>('kk_muted', () => false)
@@ -59,10 +59,10 @@ if (import.meta.dev) {
 
 <template>
   <button
-    class="pointer-events-auto kk-btn-ghost !px-3"
+    class="pointer-events-auto relative inline-flex h-6 w-11 items-center rounded-full transition-colors" :class="muted ? 'bg-ink/20' : 'bg-leaf'" role="switch" :aria-checked="!muted"
     :title="muted ? 'Sound off (P)' : 'Sound on (P)'"
     @click.stop="toggleMute"
   >
-    {{ muted ? '🔇' : '🔊' }}
+    <span class="absolute h-5 w-5 rounded-full bg-white shadow transition-all" :class="muted ? 'left-0.5' : 'left-[1.375rem]'" />
   </button>
 </template>

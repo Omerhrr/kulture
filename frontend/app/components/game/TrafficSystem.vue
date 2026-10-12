@@ -9,16 +9,20 @@
 // vehicle positions are published through trafficProbe so pedestrians wait
 // for gaps and dodge.
 import * as THREE from 'three'
-import { BAKE } from '~/utils/kaduna'
+import { BAKE, roadW } from '~/utils/kaduna'
 import { vehicleSpec, type VehicleKind } from '~/utils/vehicles'
 import { signals, signalPhase, marketFront, type Signal } from '~/utils/kadunaLighting'
 import { probeReset, probePush, trafficProbe } from '~/utils/trafficProbe'
 import { kkAudio } from '~/utils/audio'
+import { knockPlayer, registerCrash } from '~/utils/impact'
+import { useRide, useInterior } from '~/composables/useControlsState'
 import { useIsTouch } from '~/composables/useControlsState'
 
 const isTouch = useIsTouch()
 const nightFactor = useState<number>('kk_night', () => 0)
-const playerPosState = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPosState = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
+const rideRef = useRide()
+const interiorRef = useInterior()
 
 // ---------------------------------------------------------------- routes
 interface Route {
@@ -40,7 +44,7 @@ function makeRoutes(classes: string[]): Route[] {
       if (i > 0) total += Math.hypot(r.pts[i][0] - r.pts[i - 1][0], r.pts[i][1] - r.pts[i - 1][1])
       cum[i] = total
     }
-    out.push({ pts: flat, cum, total, rw: r.class === 'trunk' ? 3.2 : r.class === 'primary' ? 2.6 : 1.8 })
+    out.push({ pts: flat, cum, total, rw: roadW(r) })
   }
   return out
 }
@@ -64,8 +68,19 @@ function routePoint(rt: Route, s: number, out: { x: number; z: number; fx: numbe
   const t = Math.min(1, (s - cum[lo]) / segLen)
   out.x = ax + (bx - ax) * t
   out.z = az + (bz - az) * t
-  out.fx = (bx - ax) / segLen
-  out.fz = (bz - az) / segLen
+  // duplicate route points make a zero-length segment: keep the previous
+  // heading rather than a (0, 0) one (which broke facing + hit tests)
+  const n = rt.pts.length / 2
+  for (let i = lo; i < n - 1; i++) {
+    const ex = rt.pts[(i + 1) * 2] - rt.pts[i * 2]
+    const ez = rt.pts[(i + 1) * 2 + 1] - rt.pts[i * 2 + 1]
+    const len = Math.hypot(ex, ez)
+    if (len > 1e-6) {
+      out.fx = ex / len
+      out.fz = ez / len
+      return
+    }
+  }
 }
 
 // ---------------------------------------------------------------- fleet
@@ -81,6 +96,8 @@ interface Car {
   fz: number
   h: number
   stuck: number
+  /** cooldown after hitting something */
+  hitCd: number
 }
 function spawnCar(routes: Route[], min: number, max: number): Car {
   const route = routes[Math.floor(Math.random() * routes.length)] ?? routes[0]
@@ -95,7 +112,8 @@ function spawnCar(routes: Route[], min: number, max: number): Car {
     fx: 0,
     fz: 1,
     h: 0,
-    stuck: 0
+    stuck: 0,
+    hitCd: 0
   }
 }
 
@@ -142,7 +160,7 @@ onMounted(() => {
   for (const c of CLASSES) total += c.count
   CLASSES.forEach((c, ci) => {
     const spec = vehicleSpec(c.kind)
-    const m = new THREE.InstancedMesh(spec.geo, mat, c.count)
+    const m = new THREE.InstancedMesh(spec.geoRider, mat, c.count)
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     m.castShadow = true
     const col = new THREE.Color()
@@ -202,7 +220,7 @@ function buildSignalPoles(g: THREE.Group) {
     const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, armLen), poleMat)
     // orient the box along the arm direction
     arm.position.set(sig.px + ax / 2, 4.4, sig.pz + az / 2)
-    arm.rotation.y = Math.atan2(ax, az) + Math.PI / 2
+    arm.rotation.y = Math.atan2(ax, az) // box length runs along local z
     g.add(arm)
     // housing + three lamps at the arm tip, facing back along the road
     const hx = sig.px + ax
@@ -356,9 +374,52 @@ const oneV = new THREE.Vector3(1, 1, 1)
 const eul = new THREE.Euler()
 let honkCooldown = 0
 
+// The city is several km across: keep ambient traffic around the player by
+// moving far-away vehicles onto a nearby stretch of road (out of sight).
+function nearestS(rt: Route, px: number, pz: number): [number, number] {
+  let bestD = Infinity
+  let bestS = 0
+  const n = rt.cum.length
+  for (let i = 0; i < n; i++) {
+    const d = Math.hypot(rt.pts[i * 2] - px, rt.pts[i * 2 + 1] - pz)
+    if (d < bestD) {
+      bestD = d
+      bestS = rt.cum[i]
+    }
+  }
+  return [bestD, bestS]
+}
+let recycleTimer = 0
+function recycleTraffic() {
+  const p = playerPosState.value
+  for (let ci = 0; ci < CLASSES.length; ci++) {
+    for (const car of carsByClass[ci]) {
+      if (Math.hypot(car.x - p[0], car.z - p[2]) < 650) continue
+      const routes = CLASSES[ci].routes
+      for (let t = 0; t < 10; t++) {
+        const rt = routes[Math.floor(Math.random() * routes.length)]
+        const [d, s] = nearestS(rt, p[0], p[2])
+        if (d > 320) continue
+        // appear 220-420 m away along the road, never right next to you
+        const off = (220 + Math.random() * 200) * (Math.random() < 0.5 ? -1 : 1)
+        car.route = rt
+        car.s = Math.max(0.5, Math.min(rt.total - 0.5, s + off))
+        car.dir = Math.random() < 0.5 ? 1 : -1
+        car.v = car.base * 0.8
+        break
+      }
+    }
+  }
+}
+
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta, elapsed }) => {
   const dt = Math.min(delta || 0.016, 0.1)
+  recycleTimer += dt
+  if (recycleTimer > 1.5) {
+    recycleTimer = 0
+    recycleTraffic()
+  }
   probeReset()
 
   // ---------------- signal lamp colors
@@ -386,7 +447,7 @@ onBeforeRender(({ delta, elapsed }) => {
         car.dir = 1
       }
       routePoint(car.route, car.s, tmp)
-      const off = car.route.rw * 0.24 + 0.55
+      const off = car.route.rw * 0.26
       car.x = tmp.x + -tmp.fz * off * car.dir
       car.z = tmp.z + tmp.fx * off * car.dir
       car.fx = tmp.fx * car.dir
@@ -439,6 +500,57 @@ onBeforeRender(({ delta, elapsed }) => {
         const lat = Math.abs(dx * -car.fz + dz * car.fx)
         if (along > 0.3 && along < 10 && lat < 2.2) {
           target = Math.min(target, Math.max(0, ((along - 3) / 5) * trafficProbe.playerSpeed))
+        }
+      }
+
+      // the player on foot: drivers brake if they see you in time; step out
+      // right in front of a moving car and it hits you
+      car.hitCd = Math.max(0, car.hitCd - dt)
+      if (!rideRef.value.active && !interiorRef.value.inside) {
+        const pp = playerPosState.value
+        const dx = pp[0] - car.x
+        const dz = pp[2] - car.z
+        const along = dx * car.fx + dz * car.fz
+        const lat = Math.abs(dx * -car.fz + dz * car.fx)
+        if (along > 0.3 && along < 16 && lat < 1.8) {
+          // reaction distance: brake to stop ~3.5 m short of you
+          target = Math.min(target, Math.max(0, (along - 3.5) * 1.6))
+        }
+        const half = CLASSES[ci].kind === 'bus' || CLASSES[ci].kind === 'truck' ? 2.9 : CLASSES[ci].kind === 'car' ? 2.4 : 1.2
+        const halfW = CLASSES[ci].kind === 'bus' || CLASSES[ci].kind === 'truck' ? 1.3 : CLASSES[ci].kind === 'car' ? 1.15 : 0.6
+        // proximity gate first: a recycled car with a zero heading vector
+        // reads along = lat = 0 and would "hit" the player from anywhere
+        const near = Math.abs(dx) < half + 1.5 && Math.abs(dz) < half + 1.5
+        if (near && car.hitCd <= 0 && along > -half && along < half && lat < halfW + 0.35 && car.v > 1.5) {
+          // push mostly along the car's travel, a bit sideways off the bonnet
+          const side = (dx * -car.fz + dz * car.fx) >= 0 ? 1 : -1
+          const px = car.fx * 0.8 + -car.fz * side * 0.6
+          const pz = car.fz * 0.8 + car.fx * side * 0.6
+          const n = Math.hypot(px, pz) || 1
+          if (import.meta.dev) (window as any).__kk_lasthit = { car: [car.x, car.z], p: [pp[0], pp[2]], along, lat, kind: CLASSES[ci].kind, v: car.v, half, halfW }
+          knockPlayer(px / n, pz / n, car.v)
+          kkAudio.init()
+          kkAudio.impact(Math.min(1, car.v / 14))
+          kkAudio.horn(CLASSES[ci].kind)
+          car.v *= 0.15
+          car.hitCd = 3
+        }
+      }
+      // ...and a crash with the player's own vehicle
+      if (pv && car.hitCd <= 0) {
+        const dx = pv.x - car.x
+        const dz = pv.z - car.z
+        const d = Math.hypot(dx, dz)
+        if (d < pv.r + 1.4) {
+          const rel = Math.abs(trafficProbe.playerSpeed) + car.v
+          if (rel > 2) {
+            const strength = Math.min(1, rel / 25)
+            registerCrash(strength)
+            kkAudio.impact(strength)
+            window.dispatchEvent(new CustomEvent('kk-crash', { detail: { strength, dx: dx / (d || 1), dz: dz / (d || 1), push: car.v } }))
+            car.v = 0
+            car.hitCd = 2
+          }
         }
       }
 

@@ -2,7 +2,10 @@
 
 ## World - Kaduna City
 
-The full city map at roughly 1 unit = 10 m: River Kaduna crossing the city,
+The full city map, with everything at real-world size (1 unit = 1 m for
+people, vehicles and buildings). The OSM bake is stored at 1 unit = 10 m and
+stretched at load by `WORLD_SCALE` (3x, see "World scale" below) into a
+~6.3 x 7.4 km playable Kaduna: River Kaduna crossing the city,
 the road grid (Ahmadu Bello Way, Yakubu Gowon Way, Ali Akilu Road, Nnamdi
 Azikiwe Way, Kachia Road and more), real districts (Kawo, Malali, Badiko,
 Rigasa, Barnawa, Kakuri, Sabon Tasha, Narayi, Television and others) and
@@ -22,6 +25,31 @@ Bridge.
 | Arewa House | Recognizable city center landmark (Sir Ahmadu Bello's residence) |
 | Stonetech Square | Community plaza, delivery drop-off (Hajiya Amina) |
 | Keke Napep Stop | Transport prototype (at Kaduna Junction) |
+
+## World scale + the modern city (v3)
+
+- **One scale for everything.** `WORLD_SCALE = 3` (frontend
+  `app/utils/kaduna.ts`) and `world_scale = 3.0` (backend
+  `app/core/config.py`) must match. All baked positions, roads, the river,
+  bounds and the playable spots are scaled at load; footprints stay in
+  meters. The backend heals databases seeded at an older scale on boot
+  (`reconcile_world_scale`, idempotent).
+- **Real street widths.** Trunk 13 m, primary 9.5 m, residential 6.5 m,
+  2.6 m sidewalks; dual carriageways (twin OSM ways) use 7.5-8.5 m each.
+- **Street grid.** The OSM extract only has arterials, so an 84 m block grid
+  of residential streets is laid over every developed area (skipping water,
+  landmarks, rail and the runway). Ambient keke/okada traffic uses it.
+- **~32k modern compounds** line every street: two-storey duplexes with
+  balconies and parapet roofs, stone-coated hip roofs, portico duplexes,
+  blocks of flats, shop rows with roller shutters near the main roads, all
+  with compound walls, steel gates, black water tanks, AC units and solar.
+  They are GPU-instanced prefabs (`app/utils/housing.ts`) with two levels of
+  detail: detailed within ~230 m (150 m on phones), massing models beyond.
+- **CBD skyline.** ~50 towers of 30-125 m on whole blocks, curtain-wall or
+  punched-window facades with lit windows at night (`app/utils/towers.ts`).
+- **People.** Real adult proportions (1.78 m, head = 1/7.5 of the body),
+  jointed knees/elbows, kaftan + kufi, gown + hijab or shirt outfits; the
+  camera sits at a close third-person distance. Walk 5 m/s, sprint 9.5 m/s.
 
 ## Player capabilities (MVP)
 
@@ -66,7 +94,8 @@ players.
 ## Movement & interaction validation
 
 - Client sends rate-limited `player.move` (≤ 20 Hz, client-throttled ~9 Hz);
-  the server clamps world bounds and persists every ~2 s.
+  the server clamps to the scaled world bounds (`world_bounds()`) and
+  persists every ~2 s.
 - Interactions (REST and WS) are validated server-side against the entity's
   interaction radius.
 - Known hardening item (P1): the REST interaction endpoint trusts the

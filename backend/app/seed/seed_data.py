@@ -16,7 +16,8 @@ from app.models.business import NPCAgent
 from app.models.business import Business, ShopListing
 from app.models.catalog import Item
 from app.models.jobs import Job
-from app.models.player import User
+from app.core.config import settings
+from app.models.player import PlayerState, User
 from app.models.world import WorldEntity, WorldRegion
 
 ITEMS = [
@@ -31,16 +32,17 @@ ITEMS = [
 ]
 
 ENTITIES = [
-    # code, name, type, x, z, rotation, radius
-    ("spawn_roadside", "Ahmadu Bello Way - Roadside Spawn", "spawn", -98.0, 40.0, 0.0, 8.0),
-    ("musa_shop", "Musa's Provision Store", "shop", -70.0, 75.0, 0.4, 10.0),
-    ("arewa_pos", "Arewa QuickPOS Kiosk", "pos_kiosk", -25.0, 8.0, 0.0, 6.0),
-    ("kaduna_central_market", "Kaduna Central Market", "market", -80.0, 102.0, -0.5, 14.0),
-    ("arewa_house", "Arewa House", "landmark", -20.0, -164.0, 0.9, 10.0),
-    ("stonetech_square", "Stonetech Square, Barnawa", "landmark", -55.0, 360.0, -0.4, 10.0),
-    ("keke_stop", "Keke Napep Stop, Kaduna Junction", "transport_stop", -245.0, 420.0, 0.2, 8.0),
-    ("npc_musa", "Mallam Musa", "npc", -74.0, 70.0, 0.5, 4.0),
-    ("npc_amina", "Hajiya Amina", "npc", -60.0, 355.0, -0.3, 4.0),
+    # code, name, type, raw x, raw z (bake units, scaled by
+    # settings.world_scale when written), rotation, radius (meters)
+    ("spawn_roadside", "Ahmadu Bello Way - Roadside Spawn", "spawn", -60.667, 85.483, 0.0, 8.0),
+    ("musa_shop", "Musa's Provision Store", "shop", -49.333, 80.183, 0.4, 10.0),
+    ("arewa_pos", "Arewa QuickPOS Kiosk", "pos_kiosk", -34.667, -2.683, 0.0, 6.0),
+    ("kaduna_central_market", "Kaduna Central Market", "market", -70.0, 98.0, -0.5, 14.0),
+    ("arewa_house", "Arewa House", "landmark", -34.667, -144.45, 0.9, 10.0),
+    ("stonetech_square", "Stonetech Square, Barnawa", "landmark", -42.0, 350.0, -0.4, 10.0),
+    ("keke_stop", "Keke Napep Stop, Kaduna Junction", "transport_stop", -245.0, 417.05, 0.2, 8.0),
+    ("npc_musa", "Mallam Musa", "npc", -50.5, 82.583, 0.5, 4.0),
+    ("npc_amina", "Hajiya Amina", "npc", -43.667, 349.333, -0.3, 4.0),
 ]
 
 SHOP_LISTINGS = [
@@ -66,6 +68,38 @@ SHOPKEEPER_TOOLS = [
 ]
 
 
+async def reconcile_world_scale(db: AsyncSession) -> int:
+    """Move seeded entities to their positions at the current world scale.
+
+    Idempotent: databases created before the WORLD_SCALE change (or with a
+    different scale) are healed on boot. Players stranded outside the new
+    city rectangle, or whose saved spot is now open ground between the old
+    and new layout, are sent back to the spawn. Returns the number of rows
+    changed."""
+    k = settings.world_scale
+    changed = 0
+    spawn = None
+    for code, _name, _etype, x, z, _rot, _radius in ENTITIES:
+        e = (await db.execute(select(WorldEntity).where(WorldEntity.code == code))).scalar_one_or_none()
+        if e is None:
+            continue
+        tx, tz = x * k, z * k
+        if abs(e.position_x - tx) > 0.01 or abs(e.position_z - tz) > 0.01:
+            e.position_x, e.position_z = tx, tz
+            changed += 1
+        if code == "spawn_roadside":
+            spawn = (tx, tz)
+    if changed and spawn is not None:
+        # entities moved => old saved player positions belong to the old
+        # scale; put everyone back on Ahmadu Bello Way
+        for ps in (await db.execute(select(PlayerState))).scalars().all():
+            ps.position_x, ps.position_y, ps.position_z = spawn[0], 0.0, spawn[1]
+            changed += 1
+    if changed:
+        await db.commit()
+    return changed
+
+
 async def seed_if_empty(db: AsyncSession) -> bool:
     if (await db.execute(select(func.count()).select_from(WorldRegion))).scalar_one() > 0:
         return False
@@ -87,7 +121,8 @@ async def seed_if_empty(db: AsyncSession) -> bool:
     for code, name, etype, x, z, rot, radius in ENTITIES:
         e = WorldEntity(
             region_id=region.id, code=code, name=name, entity_type=etype,
-            position_x=x, position_y=0.0, position_z=z, rotation=rot,
+            position_x=x * settings.world_scale, position_y=0.0,
+            position_z=z * settings.world_scale, rotation=rot,
             interaction_radius=radius, metadata_json={},
         )
         db.add(e)

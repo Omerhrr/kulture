@@ -76,7 +76,15 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Gameplay validation
     # ------------------------------------------------------------------
-    interaction_radius: float = 6.0          # world units
+    interaction_radius: float = 6.0          # world units (1 unit = 1 m)
+
+    # World scale (keep in sync with WORLD_SCALE in
+    # frontend/app/utils/kaduna.ts). The OSM bake is stored at 1 unit = 10 m;
+    # the playable city is stretched by this factor so map distances sit
+    # close to the 1 unit = 1 m of people, cars and houses.
+    world_scale: float = 3.0
+    # raw (bake) bounds of the city map; scaled by world_scale at use
+    world_raw_bounds: tuple[float, float, float, float] = (-1400.0, 700.0, -1020.0, 1450.0)
     movement_rate_limit_hz: float = 20.0     # WS movement messages per second
     job_reward_currency: str = "ngn_minor"
 
@@ -86,7 +94,7 @@ class Settings(BaseSettings):
     # than max_speed * dt (dt capped). Teleport attempts are clamped, and
     # REST interactions always use the server-stored position.
     # ------------------------------------------------------------------
-    movement_max_speed_units_per_s: float = 48.0   # walk 16, sprint 30, road vehicles up to ~38
+    movement_max_speed_units_per_s: float = 48.0   # walk 5, sprint 9.5, road vehicles up to ~38
     movement_dt_cap_seconds: float = 1.0
     movement_persist_interval_seconds: float = 0.5  # DB write throttle per mover
     interactions_use_server_position: bool = True
@@ -135,3 +143,10 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def world_bounds() -> tuple[float, float, float, float]:
+    """Playable (scaled) world rectangle: xmin, xmax, zmin, zmax."""
+    xmin, xmax, zmin, zmax = settings.world_raw_bounds
+    k = settings.world_scale
+    return xmin * k, xmax * k, zmin * k, zmax * k

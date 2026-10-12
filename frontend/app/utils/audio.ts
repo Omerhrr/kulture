@@ -5,6 +5,8 @@
 // UI chimes. Init needs a user gesture (autoplay policy); everything is
 // best effort and fails silent.
 
+import { WORLD_SCALE } from './kaduna'
+
 type Zones = {
   /** 0..1 how close the market is */
   market: number
@@ -28,6 +30,8 @@ class KKAudio {
   private chatterGain: GainNode | null = null
   private waterGain: GainNode | null = null
   private humGain: GainNode | null = null
+  private rainGain: GainNode | null = null
+  private weatherWind = 0.22
   private started = false
   private muted = false
   private night = 0
@@ -112,6 +116,18 @@ class KKAudio {
       water.connect(waterBp).connect(this.waterGain).connect(this.ambBus)
       water.start()
 
+      // ---- rain: bright hiss + low patter
+      const rainSrc = ctx.createBufferSource()
+      rainSrc.buffer = noiseBuf
+      rainSrc.loop = true
+      const rainHp = ctx.createBiquadFilter()
+      rainHp.type = 'highpass'
+      rainHp.frequency.value = 1400
+      this.rainGain = ctx.createGain()
+      this.rainGain.gain.value = 0
+      rainSrc.connect(rainHp).connect(this.rainGain).connect(this.ambBus)
+      rainSrc.start()
+
       // ---- engine: detuned saw pair through a lowpass
       this.engineFilter = ctx.createBiquadFilter()
       this.engineFilter.type = 'lowpass'
@@ -175,7 +191,7 @@ class KKAudio {
     if (!this.ready || !this.ctx) return
     const t = this.ctx.currentTime
     this.night = zones.night
-    this.windGain?.gain.setTargetAtTime(0.035 + zones.night * 0.02, t, 0.4)
+    this.windGain?.gain.setTargetAtTime(0.02 + zones.night * 0.015 + this.weatherWind * 0.11, t, 0.6)
     this.humGain?.gain.setTargetAtTime(0.028 * (1 - zones.night * 0.55), t, 0.4)
     this.chatterGain?.gain.setTargetAtTime(zones.market * (0.09 + Math.random() * 0.02), t, 0.5)
     this.waterGain?.gain.setTargetAtTime(zones.water * 0.12, t, 0.5)
@@ -202,6 +218,62 @@ class KKAudio {
       if (zones.rail > 0.25 && zones.night > 0.3) this.trainHorn(zones.rail)
     }
     void moving
+  }
+
+  /** Weather bed: rain hiss and wind follow utils/weather. */
+  setWeather(rain: number, wind: number, _storm: number) {
+    this.weatherWind = wind
+    if (!this.ready || !this.ctx) return
+    this.rainGain?.gain.setTargetAtTime(rain * 0.16, this.ctx.currentTime, 0.8)
+  }
+
+  /** Rolling thunder: low filtered noise burst with a long tail. */
+  thunder(strength = 1) {
+    if (!this.ready || !this.ctx || !this.master) return
+    const ctx = this.ctx
+    const t = ctx.currentTime
+    const src = ctx.createBufferSource()
+    src.buffer = this.noiseBuffer(3.5)
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.setValueAtTime(380, t)
+    lp.frequency.exponentialRampToValueAtTime(70, t + 3.2)
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(0.0001, t)
+    g.gain.exponentialRampToValueAtTime(0.55 * strength, t + 0.08)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4)
+    src.connect(lp).connect(g).connect(this.master)
+    src.start(t)
+  }
+
+  /** Physical impact: a short thud (body, crash) scaled by strength. */
+  impact(strength = 1) {
+    if (!this.ready || !this.ctx || !this.master) return
+    const ctx = this.ctx
+    const t = ctx.currentTime
+    const src = ctx.createBufferSource()
+    src.buffer = this.noiseBuffer(0.4)
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.value = 260 + strength * 600
+    const g = ctx.createGain()
+    g.gain.setValueAtTime(Math.min(0.9, 0.25 + strength * 0.5), t)
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35)
+    src.connect(lp).connect(g).connect(this.master)
+    src.start(t)
+    // metallic crunch for hard hits
+    if (strength > 0.55) {
+      const o = ctx.createOscillator()
+      o.type = 'square'
+      o.frequency.setValueAtTime(140, t)
+      o.frequency.exponentialRampToValueAtTime(48, t + 0.25)
+      const og = ctx.createGain()
+      og.gain.setValueAtTime(0.12 * strength, t)
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.28)
+      o.connect(og).connect(this.master)
+      o.start(t)
+      o.stop(t + 0.3)
+    }
   }
 
   /** Driving state: engine pitch + volume follow the speed. */
@@ -395,9 +467,9 @@ export function zoneLevels(
 ): Zones {
   const market = BAKE_LANDMARK_MARKET
   const dMarket = Math.hypot(px - market[0], pz - market[1])
-  const marketLevel = Math.max(0, 1 - dMarket / 90)
+  const marketLevel = Math.max(0, 1 - dMarket / 140)
   const dWater = waterDistApprox(px, pz)
-  const waterLevel = Math.max(0, 1 - dWater / 40)
+  const waterLevel = Math.max(0, 1 - dWater / 90)
   const railLevel = Math.max(0, 1 - railDistApprox(px, pz) / 320)
   return {
     market: marketLevel * marketLevel,
@@ -408,11 +480,11 @@ export function zoneLevels(
 }
 
 // lazy imports avoided: small local copies of the two distances we need
-const BAKE_LANDMARK_MARKET: [number, number] = [-80, 102]
+const BAKE_LANDMARK_MARKET: [number, number] = [-80 * WORLD_SCALE, 102 * WORLD_SCALE]
 function waterDistApprox(x: number, z: number): number {
   // river main stem approximated as a coarse polyline: cheap and good
   // enough for audio falloff
-  let best = 400
+  let best = 1200
   const pts = RIVER_APPROX
   for (let i = 0; i < pts.length; i += 2) {
     const d = Math.hypot(pts[i] - x, pts[i + 1] - z)
@@ -425,12 +497,12 @@ function waterDistApprox(x: number, z: number): number {
 const RIVER_APPROX: number[] = [
   572, -661, 493, -338, 296, 142, -9, 510, -320, 341, -532, 576, -1224, 417,
   -1786, 600, -1739, 929
-]
+].map((v) => v * WORLD_SCALE)
 
 // railway main line approximation for the train horn zone
 function railDistApprox(x: number, z: number): number {
   const pts = RAIL_APPROX
-  let best = 900
+  let best = 2700
   for (let i = 0; i + 3 < pts.length; i += 2) {
     const ax = pts[i]
     const az = pts[i + 1]
@@ -449,4 +521,4 @@ function railDistApprox(x: number, z: number): number {
 
 const RAIL_APPROX: number[] = [
   -213, 369, -464, 719, -529, 1266, -564, 1647, -684, 2022
-]
+].map((v) => v * WORLD_SCALE)

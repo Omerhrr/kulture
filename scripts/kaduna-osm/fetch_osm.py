@@ -15,7 +15,11 @@ import urllib.request
 import urllib.parse
 
 BBOX = "10.40,7.28,10.64,7.62"  # S,W,N,E around Kaduna city + airport + NDA
-OUT = "/home/z/my-project/kaduna-osm-raw"
+import os as _os
+_REPO = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", ".."))
+# raw OSM extracts live outside the repo by default; override with KK_OSM_RAW
+_RAW_DEFAULT = _os.environ.get("KK_OSM_RAW", _os.path.join(_REPO, "..", "kaduna-osm-raw"))
+OUT = _RAW_DEFAULT
 
 QUERIES = {
     "river": f'[out:json][timeout:90];way["waterway"="river"]({BBOX});out geom;',

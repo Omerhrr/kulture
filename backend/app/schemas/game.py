@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from app.schemas.utc import UTCDatetime as datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field

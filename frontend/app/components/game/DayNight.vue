@@ -7,8 +7,9 @@
 import * as THREE from 'three'
 import { useClock, useClockSpeed, sunState, skyPalette, mixHex } from '~/composables/useTimeOfDay'
 import { streetlights, windowLights } from '~/utils/kadunaLighting'
+import { weather } from '~/utils/weather'
 
-const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-98, 0, 40])
+const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const hour = useClock()
 const daySeconds = useClockSpeed()
 // shared night factor (0 day .. 1 night) for headlights, minimap, audio
@@ -211,9 +212,15 @@ onBeforeRender(({ delta, elapsed }) => {
   nightFactor.value = s.night
   const pal = skyPalette(s)
 
-  // 2) sky + fog + global light levels
-  skyC.set(pal.sky)
-  fogC.set(pal.fog)
+  // 2) sky + fog + global light levels, bent by the weather: grey skies
+  //    under cloud and rain, a dusty ochre haze in the harmattan
+  const w = weather.cur
+  const overcast = Math.min(1, w.cloud * 0.55 + w.rain * 0.4 + w.storm * 0.2)
+  skyC.set(mixHex(mixHex(pal.sky, s.night > 0.6 ? '#1a1f2a' : '#8d97a2', overcast), '#d6c49a', w.haze * 0.75 * (1 - s.night * 0.6)))
+  fogC.set(mixHex(mixHex(pal.fog, s.night > 0.6 ? '#20242c' : '#9aa2aa', overcast), '#cdb68a', w.haze * 0.85 * (1 - s.night * 0.6)))
+  if (weather.flash > 0) {
+    skyC.lerp(new THREE.Color('#dfe6ff'), weather.flash * 0.7)
+  }
   const scene = ctxAny?.scene?.value ?? ctxAny?.scene
   const renderer = ctxAny?.renderer?.instance ?? ctxAny?.renderer?.value
   if (scene) {
@@ -223,7 +230,7 @@ onBeforeRender(({ delta, elapsed }) => {
     }
     if (scene.fog) {
       ;(scene.fog as THREE.Fog).color.copy(fogC)
-      const far = 2500 - s.night * 900
+      const far = (2600 - s.night * 1000) * (1 - w.haze * 0.72) * (1 - w.rain * 0.45)
       ;(scene.fog as THREE.Fog).far += (far - (scene.fog as THREE.Fog).far) * Math.min(1, dt * 2)
     }
   }
@@ -231,7 +238,7 @@ onBeforeRender(({ delta, elapsed }) => {
     renderer.setClearColor(skyC)
   }
   if (ambientLight) {
-    ambientLight.intensity = 0.32 + s.daylight * 0.48
+    ambientLight.intensity = (0.32 + s.daylight * 0.48) * (1 - overcast * 0.22) + weather.flash * 1.6
     ambientLight.color.set(pal.ambient)
   }
   if (hemiLight) {

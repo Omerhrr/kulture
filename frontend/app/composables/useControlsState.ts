@@ -16,8 +16,8 @@ export function useMoveTarget() {
 export function useCamOrbit() {
   return useState<{ yaw: number; pitch: number; dist: number }>('kk_cam_orbit', () => ({
     yaw: 0,
-    pitch: 0.58,
-    dist: 20
+    pitch: 0.32,
+    dist: 8.5
   }))
 }
 

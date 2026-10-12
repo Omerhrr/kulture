@@ -29,7 +29,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from app.api.deps import get_current_profile_ws
-from app.core.config import settings
+from app.core.config import settings, world_bounds
 from app.db.session import AsyncSessionLocal
 from app.events.bus import manager
 from app.events.outbox_service import emit
@@ -128,8 +128,9 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                     await ws.send_json({"type": "error", "payload": {"code": "bad_move"}})
                     continue
                 # world bounds (full Kaduna city map): clamp, never trust client
-                x = max(-1400.0, min(700.0, x))
-                z = max(-1020.0, min(1450.0, z))
+                bx0, bx1, bz0, bz1 = world_bounds()
+                x = max(bx0, min(bx1, x))
+                z = max(bz0, min(bz1, z))
                 y = max(0.0, min(20.0, y))
 
                 # Speed envelope (P1): a move may advance the player at most

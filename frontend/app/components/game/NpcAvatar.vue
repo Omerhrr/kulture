@@ -21,8 +21,8 @@ const { onBeforeRender } = useLoop()
 onBeforeRender(({ elapsed }) => {
   const g = group.value
   if (!g) return
-  g.position.y = Math.sin(elapsed * 1.6 + props.x) * 0.05
-  g.rotation.y = Math.sin(elapsed * 0.35 + props.z) * 0.5
+  // stand on the ground and glance around now and then (no floating)
+  g.rotation.y = Math.sin(elapsed * 0.25 + props.z) * 0.6
 })
 </script>
 
@@ -37,7 +37,8 @@ onBeforeRender(({ elapsed }) => {
       :beard="props.beard"
     />
     <TresMesh :position="[0, 0.02, 0]" :rotation="[-Math.PI / 2, 0, 0]">
-      <TresCircleGeometry :args="[0.55, 20]" />
+      <TresCircleGeometry :args="[0.42, 20]" />
+      <TresMeshBasicMaterial color="#000000" transparent :opacity="0.22" :depth-write="false" />
     </TresMesh>
   </TresGroup>
 </template>

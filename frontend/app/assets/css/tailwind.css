@@ -1,3 +1,11 @@
+/* fonts are self-hosted so the game looks right on venue Wi-Fi / offline */
+@import '@fontsource/nunito/latin-400.css';
+@import '@fontsource/nunito/latin-600.css';
+@import '@fontsource/nunito/latin-700.css';
+@import '@fontsource/nunito/latin-800.css';
+@import '@fontsource/fredoka/latin-500.css';
+@import '@fontsource/fredoka/latin-600.css';
+@import '@fontsource/fredoka/latin-700.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -29,7 +37,7 @@ h1, h2, h3, .font-display {
 
   .kk-btn {
     @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold
-      transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-kasand/70
+      transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-kadeep/60
       focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -44,6 +52,33 @@ h1, h2, h3, .font-display {
   .kk-input {
     @apply w-full rounded-2xl border border-ink/15 bg-white px-4 py-2.5 text-ink placeholder-ink/35
       transition focus:border-kasand focus:outline-none focus:ring-2 focus:ring-kasand/40;
+  }
+
+  /* segmented HUD group: one surface, several actions */
+  .kk-seg {
+    @apply inline-flex items-center rounded-full border border-ink/10 bg-white/90 p-1 text-ink shadow-lg shadow-ink/10 backdrop-blur-md;
+  }
+  .kk-seg-btn {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold text-ink/80 transition-colors
+      hover:bg-ink/5 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-kadeep/60;
+  }
+  .kk-seg-div {
+    @apply mx-0.5 h-4 w-px bg-ink/10;
+  }
+  .kk-lbl {
+    @apply hidden md:inline;
+  }
+  .kk-kbd {
+    @apply hidden rounded-md border border-ink/15 bg-ink/5 px-1 font-mono text-[10px] font-bold leading-4 text-ink/45 xl:inline;
+  }
+  @media (max-height: 500px) {
+    .kk-lbl { display: none; }
+  }
+
+  /* one close affordance everywhere: 32px hit area, quiet until hovered */
+  .kk-close {
+    @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm text-ink/45 transition-colors
+      hover:bg-ink/5 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-kadeep/60;
   }
 
   .kk-chip {

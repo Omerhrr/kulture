@@ -11,6 +11,8 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@fontsource/fredoka": "5.1.0",
+    "@fontsource/nunito": "5.1.0",
     "@pinia/nuxt": "^0.11.2",
     "pinia": "^3.0.3",
     "qrcode": "^1.5.4",

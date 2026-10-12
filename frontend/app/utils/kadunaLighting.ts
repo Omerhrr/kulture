@@ -5,7 +5,8 @@
 // Everything here is computed with fixed hashes, so it is stable across
 // reloads without a bake step.
 
-import { BAKE } from './kaduna'
+import { BAKE, roadW, ws, wp, WORLD_SCALE, SIDEWALK_W } from './kaduna'
+import { houseWindowQuads } from './housing'
 import { hash01, hashDist, roadHash, houseHash, mulberry32 } from './kadunaExtras'
 
 // ------------------------------------------------------------ nearest road
@@ -23,12 +24,12 @@ export function nearestRoadPoint(
   ax: number,
   az: number,
   classes: string[] = ['trunk', 'primary'],
-  maxDist = 240
+  maxDist = 240 * WORLD_SCALE
 ): RoadHit | null {
   let best: RoadHit | null = null
   for (const r of BAKE.roads) {
     if (!classes.includes(r.class) || r.pts.length < 2) continue
-    const rw = r.class === 'trunk' ? 3.2 : r.class === 'primary' ? 2.6 : 1.8
+    const rw = roadW(r)
     for (let i = 0; i < r.pts.length - 1; i++) {
       const [px, pz] = r.pts[i]
       const [qx, qz] = r.pts[i + 1]
@@ -66,28 +67,27 @@ const lampList: StreetLamp[] | null = null
 export function streetlights(): StreetLamp[] {
   if (lampList) return lampList
   const out: StreetLamp[] = []
-  const roadWidth = (cls: string) => (cls === 'trunk' ? 3.2 : cls === 'primary' ? 2.6 : 1.8)
   for (const r of BAKE.roads) {
     if (r.class !== 'primary' && r.class !== 'trunk') continue
-    const rw = roadWidth(r.class)
+    const rw = roadW(r)
     for (let i = 0; i < r.pts.length - 1; i++) {
       const [ax, az] = r.pts[i]
       const [bx, bz] = r.pts[i + 1]
       const segLen = Math.hypot(bx - ax, bz - az)
-      const n = Math.floor(segLen / 44)
+      const n = Math.floor(segLen / 34)
       for (let k = 0; k < n; k++) {
         const t = (k + 0.5) / n
         const x = ax + (bx - ax) * t
         const z = az + (bz - az) * t
         const fx = (bx - ax) / (segLen || 1)
         const fz = (bz - az) / (segLen || 1)
-        const ox = -fz * (rw / 2 + 0.9)
-        const oz = fx * (rw / 2 + 0.9)
+        const ox = -fz * (rw / 2 + SIDEWALK_W * 0.6)
+        const oz = fx * (rw / 2 + SIDEWALK_W * 0.6)
         // head sits at the end of the arm reaching back over the road
         out.push({
-          x: x + ox + fz * 1.4,
-          y: 4.5,
-          z: z + oz - fx * 1.4,
+          x: x + ox + fz * 2.2,
+          y: 7.8,
+          z: z + oz - fx * 2.2,
           ax: -fz,
           az: fx
         })
@@ -120,64 +120,10 @@ const GLOW_COLORS = ['#ffd98a', '#ffe9b8', '#ffedc4', '#cfe4ff', '#ffcf7a']
 export function windowLights(): { quads: GlowQuad[]; lit: Float32Array } {
   const quads: GlowQuad[] = []
   const lit: number[] = []
-  const nWalls = 10
-  const addQuad = (x: number, y: number, z: number, rx: number, rz: number, h: number, color: string, on: number) => {
-    quads.push({ x, y, z, rx, rz, h, color })
-    lit.push(on)
-  }
-  for (const [x, z, w, d, rot, ci] of BAKE.houses) {
-    const h1 = hash01(x, z)
-    const h2 = hash01(x, z, 11)
-    const h3 = hash01(x, z, 23)
-    const twoStory = h1 < 0.26
-    const hh = twoStory ? 6.0 : 3.4 + (ci % 3) * 0.35
-    const winY = twoStory ? 4.6 : 1.9
-    const cr = Math.cos(rot)
-    const sr = Math.sin(rot)
-    // local tangent for a window on the +/-x flanks runs along local z
-    const tzx = sr
-    const tzz = cr
-    const txX = cr // local x axis in world
-    const txZ = -sr
-    const pushWin = (lx: number, lz: number, nx: number, nz: number, along: number) => {
-      // face center in world, pushed just past the window box's outer face
-      const out = 0.09
-      const wx = x + (lx + nx * out) * cr + lz * sr
-      const wz = z - (lx + nx * out) * sr + lz * cr
-      // lit probability: evening routine, most houses glow at night
-      const r = hash01(x * 1.7 + lx, z * 1.3 + lz, 41)
-      const on = r < 0.62 ? 1 : 0
-      const color = GLOW_COLORS[Math.floor(hash01(x, z + lz, 55) * GLOW_COLORS.length)]
-      // quad spans "along" on the window plane and 1.1 vertical:
-      // flank windows (normal along x) run along local z, others along x
-      const rx = nx === 0 ? txX : tzx
-      const rz = nx === 0 ? txZ : tzz
-      addQuad(wx, winY, wz, (rx * along) / 2, (rz * along) / 2, 0.52, color, on)
-      void nz
-    }
-    // flank windows (match KadunaCity: 1.0 wide, 1.1 tall)
-    pushWin(-(w / 2 + 0.08), d / 6, -1, 0, 1.0)
-    pushWin(w / 2 + 0.08, -d / 6, 1, 0, 1.0)
-    if (twoStory) {
-      // upstairs windows on both flanks
-      pushWin(-(w / 2 + 0.08), -d / 6, -1, 0, 1.0)
-      pushWin(w / 2 + 0.08, d / 6, 1, 0, 1.0)
-    }
-    // door lamp: warm glow over the entrance for a third of homes
-    if (h3 > 0.62) {
-      const [dnx, dnz] = doorSide(x, z)
-      const lx = dnx * (w / 2 + 0.35)
-      const lz = dnz * (d / 2 + 0.35)
-      const wx = x + lx * cr + lz * sr
-      const wz = z - lx * sr + lz * cr
-      // door on an x flank spans local z; on a z face it spans local x
-      const rx = dnx !== 0 ? tzx : txX
-      const rz = dnx !== 0 ? tzz : txZ
-      addQuad(wx, 2.75, wz, rx * 0.4, rz * 0.4, 0.24, '#ffd98a', 1)
-    }
-    void hh
-    void h2
-    void nWalls
+  // placed exactly on the glazing of the instanced house prefabs
+  for (const q of houseWindowQuads(4)) {
+    quads.push({ x: q.x, y: q.y, z: q.z, rx: q.rx, rz: q.rz, h: q.h, color: GLOW_COLORS[Math.floor(q.seed * 97) % GLOW_COLORS.length] })
+    lit.push(q.seed < 0.72 ? 1 : 0)
   }
   return { quads, lit: new Float32Array(lit) }
 }
@@ -219,18 +165,20 @@ let crosswalkCache: Crosswalk[] | null = null
  */
 export function crosswalks(): Crosswalk[] {
   if (crosswalkCache) return crosswalkCache
-  const anchors: Array<[number, number]> = [
-    [-80, 102], // Kaduna Central Market
-    [0, 26], // Murtala Square approach
-    [-98, 40], // the player's street
-    [-245, 420], // keke stop
-    [-46, 56], // CBD crossing
-    [114, 151] // KASU side
-  ]
+  const anchors: Array<[number, number]> = (
+    [
+      [-80, 102], // Kaduna Central Market
+      [0, 26], // Murtala Square approach
+      [-98, 40], // the player's street
+      [-245, 420], // keke stop
+      [-46, 56], // CBD crossing
+      [114, 151] // KASU side
+    ] as Array<[number, number]>
+  ).map((p) => wp(p))
   const out: Crosswalk[] = []
   for (const [ax, az] of anchors) {
     const hit = nearestRoadPoint(ax, az, ['trunk', 'primary'])
-    if (!hit || hit.dist > 120) continue
+    if (!hit || hit.dist > ws(120)) continue
     out.push({
       x: hit.x,
       z: hit.z,
@@ -257,6 +205,8 @@ export interface Signal {
   pz: number
   /** phase offset seconds */
   offset: number
+  /** asphalt width of the controlled road */
+  rw: number
 }
 
 let signalCache: Signal[] | null = null
@@ -264,16 +214,18 @@ let signalCache: Signal[] | null = null
 /** Traffic signals: market front, the square, and the keke stop road. */
 export function signals(): Signal[] {
   if (signalCache) return signalCache
-  const anchors: Array<[number, number, number]> = [
-    [-80, 102, 0],
-    [0, 0, 7],
-    [-245, 420, 14],
-    [-60, 210, 4]
-  ]
+  const anchors: Array<[number, number, number]> = (
+    [
+      [-80, 102, 0],
+      [0, 0, 7],
+      [-245, 420, 14],
+      [-60, 210, 4]
+    ] as Array<[number, number, number]>
+  ).map(([x, z, o]) => [ws(x), ws(z), o])
   const out: Signal[] = []
   for (const [ax, az, offset] of anchors) {
     const hit = nearestRoadPoint(ax, az, ['trunk', 'primary'])
-    if (!hit || hit.dist > 130) continue
+    if (!hit || hit.dist > ws(130)) continue
     out.push({
       x: hit.x,
       z: hit.z,
@@ -281,7 +233,8 @@ export function signals(): Signal[] {
       fz: hit.fz,
       px: hit.x + -hit.fz * (hit.rw / 2 + 1.1),
       pz: hit.z + hit.fx * (hit.rw / 2 + 1.1),
-      offset
+      offset,
+      rw: hit.rw
     })
   }
   signalCache = out
@@ -333,7 +286,7 @@ export function roadMedians(): Median[] {
         twin = j
       }
     }
-    if (twin < 0 || twinD > 26) continue
+    if (twin < 0 || twinD > 26 * WORLD_SCALE) continue
     used.add(i)
     used.add(twin)
     const b = mains[twin]
@@ -370,7 +323,7 @@ export function roadMedians(): Median[] {
         }
         if (!best || bestD > 14) continue
         const m: [number, number] = [(px + best[0]) / 2, (pz + best[1]) / 2]
-        if (last && Math.hypot(m[0] - last[0], m[1] - last[1]) > 26) {
+        if (last && Math.hypot(m[0] - last[0], m[1] - last[1]) > 26 * WORLD_SCALE) {
           if (pts.length > 1) out.push({ pts: pts.slice() })
           pts.length = 0
         }
@@ -388,8 +341,8 @@ export function roadMedians(): Median[] {
 /** The market congestion zone the traffic system respects. */
 export function marketFront(): { x: number; z: number; r: number } {
   const m = BAKE.landmarks.find((l) => l.kind === 'market')
-  if (m) return { x: m.x, z: m.z + 30, r: 34 }
-  return { x: -80, z: 132, r: 34 }
+  if (m) return { x: m.x, z: m.z + 40, r: 44 }
+  return { x: ws(-80), z: ws(102) + 40, r: 44 }
 }
 
 // ------------------------------------------------------------ determinism

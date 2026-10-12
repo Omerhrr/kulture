@@ -1,31 +1,57 @@
 // Vehicle geometry factory: one merged, vertex-colored BufferGeometry per
-// vehicle class, facing +Z. Shared by TrafficSystem (instanced ambient
-// traffic) and RideSystem (the boardable vehicles + interior rigs).
+// vehicle class, facing +Z (local +X is the driver's side: Nigeria drives
+// on the right in left-hand-drive cars). Shared by TrafficSystem (instanced
+// ambient traffic), RideSystem (boardable vehicles + interior rigs) and the
+// civic sites.
+//
+// v2 shapes are built from real side profiles (extruded silhouettes) so a
+// car reads as a saloon - bonnet, glasshouse, boot - a danfo as a VW-style
+// yellow bus with black stripes and a roof rack, a keke as a tricycle with a
+// canvas roof, an okada as a Bajaj-style motorbike, and so on. Doors are
+// separate parts so boarding can open them.
 import * as THREE from 'three'
 
 export type VehicleKind = 'car' | 'keke' | 'okada' | 'bus' | 'truck' | 'bicycle' | 'boat' | 'plane'
 
-export interface VehicleSpec {
+export interface VehicleDoor {
   geo: THREE.BufferGeometry
+  /** hinge (or slide origin) in vehicle space */
+  hinge: [number, number, number]
+  /** 'swing' opens around Y at the hinge, 'slide' moves back along -Z */
+  type: 'swing' | 'slide'
+}
+
+export interface VehicleSpec {
+  /** body without the driver (boardable / parked) */
+  geo: THREE.BufferGeometry
+  /** body + a seated driver or rider (ambient traffic) */
+  geoRider: THREE.BufferGeometry
+  /** driver door on the +X side (cars, buses, lorries) */
+  door: VehicleDoor | null
   /** collision radius in units */
   radius: number
   maxSpeed: number
   accel: number
   /** cockpit eye: [forward, up] offsets from vehicle center */
   cockpit: [number, number]
-  /** driver seat for the seated avatar: [lateral, up, forward] */
+  /** driver seat (hip point): [lateral, up, forward] */
   seat: [number, number, number]
+  /** straddled (two-wheelers): rider legs hang down both sides */
+  straddle: boolean
   label: string
 }
 
-function build(parts: Array<[string, THREE.BufferGeometry]>): THREE.BufferGeometry {
+type Part = [string, THREE.BufferGeometry]
+
+function build(parts: Part[]): THREE.BufferGeometry {
   const geos: THREE.BufferGeometry[] = []
-  const colors: number[] = []
   const col = new THREE.Color()
   for (const [hex, g] of parts) {
-    const gg = g.index ? g.toNonIndexed() : g
+    let gg = g.index ? g.toNonIndexed() : g
     if (gg !== g) g.dispose()
-    gg.deleteAttribute('uv')
+    if (gg.attributes.uv) gg.deleteAttribute('uv')
+    if (gg.attributes.uv2) gg.deleteAttribute('uv2')
+    if (!gg.attributes.normal) gg.computeVertexNormals()
     col.set(hex)
     const n = gg.attributes.position.count
     const arr = new Float32Array(n * 3)
@@ -34,244 +60,341 @@ function build(parts: Array<[string, THREE.BufferGeometry]>): THREE.BufferGeomet
       arr[i * 3 + 1] = col.g
       arr[i * 3 + 2] = col.b
     }
+    gg = gg.clone()
     gg.setAttribute('color', new THREE.BufferAttribute(arr, 3))
     geos.push(gg)
-    for (let i = 0; i < n; i++) colors.push(1, 1, 1)
   }
-  // manual merge (positions only + color)
   let total = 0
   for (const g of geos) total += g.attributes.position.count
   const pos = new Float32Array(total * 3)
+  const nrm = new Float32Array(total * 3)
   const ver = new Float32Array(total * 3)
   let off = 0
   for (const g of geos) {
     pos.set(g.attributes.position.array as Float32Array, off)
+    nrm.set(g.attributes.normal.array as Float32Array, off)
     ver.set(g.attributes.color.array as Float32Array, off)
     off += g.attributes.position.count * 3
     g.dispose()
   }
   const out = new THREE.BufferGeometry()
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
   out.setAttribute('color', new THREE.BufferAttribute(ver, 3))
-  out.computeVertexNormals()
+  out.computeBoundingSphere()
   return out
 }
 
-const bx = (w: number, h: number, d: number, x: number, y: number, z: number) => {
-  const g = new THREE.BoxGeometry(w, h, d)
-  g.translate(x, y, z)
+const bx = (w: number, h: number, d: number, x: number, y: number, z: number) => new THREE.BoxGeometry(w, h, d).translate(x, y, z)
+const cyl = (r: number, h: number, x: number, y: number, z: number, seg = 12, rb = r) => new THREE.CylinderGeometry(r, rb, h, seg).translate(x, y, z)
+const sph = (r: number, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1) => new THREE.SphereGeometry(r, 12, 9).scale(sx, sy, sz).translate(x, y, z)
+
+/** Extrude a side silhouette [z, y][] across the width (centred on x). */
+function profile(pts: Array<[number, number]>, width: number, bevel = 0.04, x = 0): THREE.BufferGeometry {
+  const shape = new THREE.Shape()
+  shape.moveTo(pts[0][0], pts[0][1])
+  for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1])
+  shape.closePath()
+  const depth = Math.max(0.01, width - bevel * 2)
+  const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 4 })
+  g.rotateY(-Math.PI / 2)
+  g.translate(depth / 2 + x, 0, 0)
   return g
 }
-const wheel = (r: number, w: number, x: number, y: number, z: number) => {
-  const g = new THREE.CylinderGeometry(r, r, w, 10)
-  g.rotateZ(Math.PI / 2)
-  g.translate(x, y, z)
+
+/** Tube between two points (bike frames, forks, racks). */
+function tube(a: [number, number, number], b: [number, number, number], r: number): THREE.BufferGeometry {
+  const va = new THREE.Vector3(...a)
+  const vb = new THREE.Vector3(...b)
+  const len = va.distanceTo(vb)
+  const g = new THREE.CylinderGeometry(r, r, len, 8)
+  const mid = va.clone().add(vb).multiplyScalar(0.5)
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.clone().sub(va).normalize())
+  g.applyQuaternion(q)
+  g.translate(mid.x, mid.y, mid.z)
   return g
 }
+
+/** Tyre + rim + hub, axle along X. */
+function wheel(r: number, w: number, x: number, y: number, z: number, rim = '#c8ccd2'): Part[] {
+  const tyre = new THREE.CylinderGeometry(r, r, w, 18).rotateZ(Math.PI / 2).translate(x, y, z)
+  const side = x >= 0 ? 1 : -1
+  const disc = new THREE.CylinderGeometry(r * 0.62, r * 0.62, w + 0.02, 14).rotateZ(Math.PI / 2).translate(x + side * 0.005, y, z)
+  const hub = new THREE.CylinderGeometry(r * 0.18, r * 0.18, w + 0.05, 8).rotateZ(Math.PI / 2).translate(x, y, z)
+  return [['#161618', tyre], [rim, disc], ['#4a4e54', hub]]
+}
+
+/** Thin spoked bike wheel, axle along X. */
+function bikeWheel(r: number, z: number, y = r): Part[] {
+  const tyre = new THREE.TorusGeometry(r, r * 0.09, 6, 22).rotateY(Math.PI / 2).translate(0, y, z)
+  const rimT = new THREE.TorusGeometry(r * 0.86, r * 0.03, 4, 22).rotateY(Math.PI / 2).translate(0, y, z)
+  const parts: Part[] = [['#151517', tyre], ['#b8bcc4', rimT]]
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI
+    parts.push(['#9aa0a6', tube([0, y + Math.cos(a) * r * 0.85, z + Math.sin(a) * r * 0.85], [0, y - Math.cos(a) * r * 0.85, z - Math.sin(a) * r * 0.85], 0.008)])
+  }
+  parts.push(['#4a4e54', cyl(0.05, 0.12, 0, y, z, 8).rotateZ(Math.PI / 2).translate(0, 0, 0)])
+  return parts
+}
+
+/** Seated person for ambient traffic, hips at (x, y, z). */
+function seated(x: number, y: number, z: number, shirt: string, straddle = false): Part[] {
+  const out: Part[] = []
+  const skin = '#6e4630'
+  const trouser = '#2b3440'
+  out.push([shirt, cyl(0.17, 0.5, x, y + 0.3, z, 10, 0.155).scale(1, 1, 1)])
+  out.push([shirt, sph(0.18, x, y + 0.54, z, 1.05, 0.42, 0.68)])
+  out.push([skin, cyl(0.05, 0.1, x, y + 0.62, z, 8)])
+  out.push([skin, sph(0.112, x, y + 0.76, z + 0.01, 0.9, 1.08, 1)])
+  out.push(['#141114', sph(0.116, x, y + 0.79, z - 0.005, 0.93, 0.85, 1)])
+  for (const s of [-1, 1]) {
+    if (straddle) {
+      out.push([trouser, tube([x + s * 0.1, y, z], [x + s * 0.2, y - 0.2, z + 0.32], 0.072)])
+      out.push([trouser, tube([x + s * 0.2, y - 0.2, z + 0.32], [x + s * 0.2, y - 0.62, z + 0.2], 0.058)])
+    } else {
+      out.push([trouser, tube([x + s * 0.1, y, z], [x + s * 0.1, y + 0.02, z + 0.42], 0.075)])
+      out.push([trouser, tube([x + s * 0.1, y + 0.02, z + 0.42], [x + s * 0.1, y - 0.4, z + 0.5], 0.06)])
+    }
+    out.push([shirt, tube([x + s * 0.22, y + 0.48, z], [x + s * 0.24, y + 0.26, z + 0.24], 0.05)])
+    out.push([skin, tube([x + s * 0.24, y + 0.26, z + 0.24], [x + s * 0.2, y + 0.32, z + 0.5], 0.042)])
+  }
+  return out
+}
+
+function lights(front: number, back: number, y: number, half: number): Part[] {
+  return [
+    ['#f6f1d8', bx(0.34, 0.14, 0.05, half - 0.28, y, front)],
+    ['#f6f1d8', bx(0.34, 0.14, 0.05, -half + 0.28, y, front)],
+    ['#b8262e', bx(0.3, 0.14, 0.05, half - 0.24, y + 0.04, back)],
+    ['#b8262e', bx(0.3, 0.14, 0.05, -half + 0.24, y + 0.04, back)]
+  ]
+}
+
+const BODY = '#ffffff' // tinted per instance in traffic
+const GLASS = '#1d2730'
+const TRIM = '#2a2d33'
 
 const cache = new Map<VehicleKind, VehicleSpec>()
 
 export function vehicleSpec(kind: VehicleKind): VehicleSpec {
   const hit = cache.get(kind)
   if (hit) return hit
-  let spec: VehicleSpec
+  let parts: Part[] = []
+  let rider: Part[] = []
+  let door: VehicleDoor | null = null
+  let meta: Omit<VehicleSpec, 'geo' | 'geoRider' | 'door'>
   switch (kind) {
     case 'car': {
-      const white = '#ffffff'
-      spec = {
-        geo: build([
-          [white, bx(1.9, 0.72, 4.3, 0, 0.74, 0)], // body (tinted per instance)
-          ['#22262c', bx(1.68, 0.6, 2.15, 0, 1.38, -0.12)], // glasshouse
-          ['#e8e4d8', bx(1.7, 0.1, 0.5, 0, 1.36, 1.0)], // roof front edge
-          ['#1a1a1e', wheel(0.36, 0.26, -0.92, 0.36, 1.35)],
-          ['#1a1a1e', wheel(0.36, 0.26, 0.92, 0.36, 1.35)],
-          ['#1a1a1e', wheel(0.36, 0.26, -0.92, 0.36, -1.35)],
-          ['#1a1a1e', wheel(0.36, 0.26, 0.92, 0.36, -1.35)],
-          ['#f5e9b0', bx(0.42, 0.16, 0.06, -0.6, 0.78, 2.16)], // headlights
-          ['#f5e9b0', bx(0.42, 0.16, 0.06, 0.6, 0.78, 2.16)],
-          ['#8a2a2a', bx(0.4, 0.14, 0.05, -0.6, 0.8, -2.16)], // tail lights
-          ['#8a2a2a', bx(0.4, 0.14, 0.05, 0.6, 0.8, -2.16)]
-        ]),
-        radius: 1.7,
-        maxSpeed: 34,
-        accel: 13,
-        cockpit: [0.35, 1.45],
-        seat: [-0.45, 0.62, 0.35],
-        label: 'Car'
+      // saloon: 4.5 m, boot, slanted screens, glasshouse with pillars
+      const W = 1.78
+      parts.push([BODY, profile([[-2.25, 0.3], [-2.25, 0.86], [-2.05, 0.98], [-1.3, 1.02], [1.05, 1.0], [2.0, 0.88], [2.25, 0.72], [2.25, 0.3]], W, 0.06)])
+      parts.push([GLASS, profile([[-1.32, 0.98], [-0.78, 1.42], [0.44, 1.44], [1.06, 0.98]], W - 0.18, 0.03)])
+      parts.push([BODY, profile([[-0.82, 1.39], [-0.74, 1.47], [0.42, 1.48], [0.52, 1.4]], W - 0.14, 0.03)])
+      parts.push([BODY, bx(W - 0.12, 0.42, 0.1, 0, 1.2, -0.16)]) // B pillar
+      parts.push([TRIM, bx(W + 0.02, 0.2, 0.18, 0, 0.42, 2.22)]) // bumpers
+      parts.push([TRIM, bx(W + 0.02, 0.2, 0.18, 0, 0.42, -2.22)])
+      parts.push(['#15181c', bx(0.8, 0.16, 0.06, 0, 0.68, 2.26)]) // grille
+      parts.push(['#e8e8e0', bx(0.42, 0.12, 0.03, 0, 0.46, 2.32)]) // plate
+      parts.push(['#e8e8e0', bx(0.42, 0.12, 0.03, 0, 0.62, -2.28)])
+      parts.push(...lights(2.26, -2.27, 0.8, W / 2))
+      for (const s of [-1, 1]) {
+        parts.push([TRIM, bx(0.12, 0.08, 0.18, s * (W / 2 + 0.06), 1.04, 0.95)]) // mirrors
+        parts.push([TRIM, bx(0.02, 0.55, 0.02, s * (W / 2 + 0.005), 0.72, -0.16)]) // door shut line
+        parts.push([TRIM, bx(0.02, 0.55, 0.02, s * (W / 2 + 0.005), 0.72, -1.2)])
+        parts.push([TRIM, bx(0.03, 0.04, 0.16, s * (W / 2 + 0.01), 0.82, 0.35)]) // handles
+        parts.push([TRIM, bx(0.03, 0.04, 0.16, s * (W / 2 + 0.01), 0.82, -0.75)])
       }
-      break
-    }
-    case 'keke': {
-      spec = {
-        geo: build([
-          ['#e6b93c', bx(1.5, 1.0, 2.3, 0, 0.92, -0.1)], // cabin
-          ['#e6b93c', bx(1.3, 0.55, 1.0, 0, 0.85, 1.15)], // nose cowl
-          ['#22262c', bx(1.2, 0.55, 0.06, 0, 1.28, 1.62)], // windshield
-          ['#3a2f1c', bx(1.4, 0.16, 1.7, 0, 1.5, -0.2)], // roof
-          ['#1a1a1e', wheel(0.3, 0.18, 0, 0.3, 1.42)], // front wheel
-          ['#1a1a1e', wheel(0.34, 0.2, -0.72, 0.34, -0.85)],
-          ['#1a1a1e', wheel(0.34, 0.2, 0.72, 0.34, -0.85)],
-          ['#c8a12e', bx(0.24, 0.1, 0.05, -0.34, 0.78, 1.66)] // lamp
-        ]),
-        radius: 1.25,
-        maxSpeed: 22,
-        accel: 9,
-        cockpit: [0.2, 1.3],
-        seat: [-0.4, 0.75, 0.15],
-        label: 'Keke NAPEP'
+      for (const z of [1.4, -1.38]) for (const s of [-1, 1]) parts.push(...wheel(0.33, 0.23, s * 0.8, 0.33, z))
+      // driver door: the +X front door panel, hinged at its front edge
+      door = {
+        geo: build([[BODY, bx(0.05, 0.62, 1.12, 0, -0.01, -0.56)], [GLASS, bx(0.04, 0.38, 0.9, 0, 0.5, -0.5)], [TRIM, bx(0.03, 0.04, 0.16, 0.02, 0.1, -0.85)]]),
+        hinge: [W / 2 + 0.03, 0.72, 0.98],
+        type: 'swing'
       }
-      break
-    }
-    case 'okada': {
-      spec = {
-        geo: build([
-          ['#b8433a', bx(0.34, 0.3, 1.55, 0, 0.66, 0)], // frame
-          ['#22262c', bx(0.4, 0.15, 0.72, 0, 0.86, -0.3)], // seat
-          ['#22262c', bx(0.78, 0.07, 0.07, 0, 1.04, 0.62)], // handlebar
-          ['#1a1a1e', wheel(0.42, 0.12, 0, 0.42, 0.78)],
-          ['#1a1a1e', wheel(0.42, 0.12, 0, 0.42, -0.78)],
-          ['#3f7d5b', bx(0.44, 0.62, 0.3, 0, 1.28, -0.28)], // rider torso
-          ['#8a5a3b', new THREE.SphereGeometry(0.19, 8, 7).translate(0, 1.74, -0.28)], // rider head
-          ['#2b3440', bx(0.4, 0.4, 0.24, 0, 0.78, -0.62)] // rider legs
-        ]),
-        radius: 0.95,
-        maxSpeed: 30,
-        accel: 14,
-        cockpit: [0.25, 1.55],
-        seat: [0, 0.95, -0.45],
-        label: 'Okada'
-      }
+      rider = seated(0.4, 0.5, 0.0, '#e8e2d2')
+      meta = { radius: 1.7, maxSpeed: 34, accel: 13, cockpit: [0.2, 1.22], seat: [0.4, 0.5, 0.0], straddle: false, label: 'Car' }
       break
     }
     case 'bus': {
-      spec = {
-        geo: build([
-          ['#d8c23c', bx(2.1, 1.6, 5.0, 0, 1.18, 0)], // danfo body
-          ['#22262c', bx(2.16, 0.55, 3.9, 0, 1.62, -0.15)], // window band
-          ['#2b2f36', bx(2.14, 0.3, 5.02, 0, 0.78, 0)], // skirt stripe
-          ['#1a1a1e', wheel(0.42, 0.26, -1.0, 0.42, 1.65)],
-          ['#1a1a1e', wheel(0.42, 0.26, 1.0, 0.42, 1.65)],
-          ['#1a1a1e', wheel(0.42, 0.26, -1.0, 0.42, -1.6)],
-          ['#1a1a1e', wheel(0.42, 0.26, 1.0, 0.42, -1.6)],
-          ['#f5e9b0', bx(0.5, 0.18, 0.06, -0.66, 1.0, 2.51)],
-          ['#f5e9b0', bx(0.5, 0.18, 0.06, 0.66, 1.0, 2.51)]
-        ]),
-        radius: 2.3,
-        maxSpeed: 24,
-        accel: 9,
-        cockpit: [0.4, 1.58],
-        seat: [-0.55, 1.1, 1.55],
-        label: 'Danfo Bus'
+      // danfo: VW-style van, yellow with black stripes, luggage on the roof
+      const W = 1.9
+      parts.push(['#e8c12e', profile([[-2.45, 0.36], [-2.45, 1.94], [-2.3, 2.04], [1.95, 2.04], [2.38, 1.62], [2.46, 1.02], [2.46, 0.36]], W, 0.07)])
+      parts.push([GLASS, profile([[-2.3, 1.28], [-2.3, 1.86], [1.92, 1.86], [2.3, 1.5], [2.36, 1.28]], W + 0.02, 0.02)])
+      parts.push(['#141414', profile([[-2.46, 1.0], [-2.46, 1.12], [2.47, 1.12], [2.47, 1.0]], W + 0.04, 0.01)])
+      parts.push(['#141414', profile([[-2.46, 0.6], [-2.46, 0.7], [2.47, 0.7], [2.47, 0.6]], W + 0.04, 0.01)])
+      parts.push([TRIM, bx(W + 0.04, 0.24, 0.2, 0, 0.42, 2.48)])
+      parts.push([TRIM, bx(W + 0.04, 0.24, 0.2, 0, 0.42, -2.48)])
+      parts.push(...lights(2.47, -2.47, 0.85, W / 2))
+      // roof rack + luggage (bags, a basin, a jerrycan)
+      for (const s of [-1, 1]) parts.push(['#3a3f46', bx(0.05, 0.05, 3.6, s * 0.86, 2.16, -0.2)])
+      for (let i = 0; i < 5; i++) parts.push(['#3a3f46', bx(1.76, 0.04, 0.05, 0, 2.16, -1.9 + i * 0.85)])
+      parts.push(['#3f6fae', bx(0.7, 0.4, 0.9, -0.35, 2.38, -0.9)])
+      parts.push(['#b8433a', bx(0.6, 0.32, 0.6, 0.4, 2.34, 0.2)])
+      parts.push(['#c9b18a', cyl(0.35, 0.25, 0.2, 2.31, -1.8, 12, 0.3)])
+      parts.push(['#2f7d5b', bx(0.3, 0.45, 0.2, -0.5, 2.4, 0.8)])
+      for (const z of [1.62, -1.6]) for (const s of [-1, 1]) parts.push(...wheel(0.38, 0.26, s * 0.84, 0.38, z))
+      // sliding passenger door (+X side)
+      door = {
+        geo: build([['#e8c12e', bx(0.05, 1.5, 1.2, 0, 0, 0)], [GLASS, bx(0.04, 0.55, 1.0, 0.01, 0.42, 0)], ['#141414', bx(0.06, 0.1, 1.2, 0, -0.08, 0)]]),
+        hinge: [W / 2 + 0.03, 1.12, 0.5],
+        type: 'slide'
       }
+      rider = [...seated(0.5, 0.8, 1.45, '#3f6fae'), ...seated(-0.45, 0.85, 0.2, '#b8433a'), ...seated(0.45, 0.85, -0.7, '#e8e2d2')]
+      meta = { radius: 2.3, maxSpeed: 24, accel: 9, cockpit: [1.5, 1.6], seat: [0.5, 0.8, 1.45], straddle: false, label: 'Danfo Bus' }
       break
     }
-    case 'truck': {
-      spec = {
-        geo: build([
-          ['#3f6fae', bx(2.0, 1.35, 1.9, 0, 1.35, 1.55)], // cab
-          ['#dfe3ea', bx(2.24, 1.85, 3.4, 0, 1.5, -0.85)], // cargo box
-          ['#22262c', bx(1.9, 0.5, 0.08, 0, 1.5, 2.52)], // windshield
-          ['#1a1a1e', wheel(0.46, 0.3, -0.98, 0.46, 1.7)],
-          ['#1a1a1e', wheel(0.46, 0.3, 0.98, 0.46, 1.7)],
-          ['#1a1a1e', wheel(0.46, 0.3, -0.98, 0.46, -1.5)],
-          ['#1a1a1e', wheel(0.46, 0.3, 0.98, 0.46, -1.5)]
-        ]),
-        radius: 2.3,
-        maxSpeed: 19,
-        accel: 7,
-        cockpit: [0.4, 1.5],
-        seat: [-0.5, 1.3, 1.5],
-        label: 'Lorry'
-      }
+    case 'keke': {
+      // keke NAPEP tricycle: yellow body, green canvas roof, open sides
+      parts.push(['#e6b93c', profile([[-1.2, 0.32], [-1.2, 0.98], [0.55, 0.98], [1.1, 0.82], [1.32, 0.48], [1.32, 0.32]], 1.3, 0.05)])
+      parts.push(['#e6b93c', profile([[0.7, 0.82], [0.85, 1.55], [1.0, 1.55], [1.2, 0.82]], 1.22, 0.03)]) // cowl / screen frame
+      parts.push([GLASS, bx(1.0, 0.6, 0.04, 0, 1.2, 1.0)])
+      parts.push(['#2f6e3a', profile([[-1.25, 1.62], [-1.2, 1.78], [0.95, 1.8], [1.08, 1.68], [1.0, 1.62]], 1.36, 0.04)]) // roof
+      for (const [px2, pz] of [[0.6, 0.92], [-0.6, 0.92], [0.6, -1.1], [-0.6, -1.1]] as const) parts.push([TRIM, tube([px2, 0.95, pz], [px2 * 0.98, 1.64, pz + (pz > 0 ? 0.04 : 0)], 0.03)])
+      parts.push(['#4a3b2f', bx(1.1, 0.16, 0.6, 0, 1.0, -0.65)]) // rear bench
+      parts.push(['#4a3b2f', bx(1.1, 0.5, 0.12, 0, 1.25, -0.98)])
+      parts.push(['#2f6e3a', cyl(0.07, 1.9, 0.68, 1.55, -0.1, 8).rotateX(Math.PI / 2).translate(0, 0, 0)]) // rolled side canvas
+      parts.push(['#2f6e3a', cyl(0.07, 1.9, -0.68, 1.55, -0.1, 8).rotateX(Math.PI / 2)])
+      parts.push(['#f6f1d8', bx(0.24, 0.14, 0.05, 0, 0.9, 1.34)])
+      parts.push(...wheel(0.27, 0.16, 0, 0.27, 1.12))
+      parts.push(...wheel(0.29, 0.18, 0.62, 0.29, -0.82))
+      parts.push(...wheel(0.29, 0.18, -0.62, 0.29, -0.82))
+      rider = [...seated(0, 0.95, 0.35, '#2e7d5b'), ...seated(-0.3, 1.08, -0.65, '#b8433a')]
+      meta = { radius: 1.25, maxSpeed: 22, accel: 9, cockpit: [0.35, 1.5], seat: [0, 0.95, 0.35], straddle: false, label: 'Keke NAPEP' }
+      break
+    }
+    case 'okada': {
+      // Bajaj-style 125 cc: tank, long seat, carrier, chrome exhaust
+      parts.push(...bikeWheel(0.31, 0.68))
+      parts.push(...bikeWheel(0.31, -0.68))
+      parts.push(['#b8bcc4', tube([0, 0.31, 0.68], [0, 1.02, 0.5], 0.035)]) // fork
+      parts.push(['#b8bcc4', tube([0.08, 0.31, 0.68], [0.08, 1.0, 0.5], 0.03)])
+      parts.push(['#a3262e', sph(0.2, 0, 0.86, 0.22, 0.85, 0.7, 1.4)]) // tank
+      parts.push(['#141416', bx(0.26, 0.1, 0.78, 0, 0.88, -0.32)]) // seat
+      parts.push(['#a3262e', bx(0.22, 0.2, 0.4, 0, 0.72, -0.58)]) // tail
+      parts.push(['#5a5e64', bx(0.22, 0.3, 0.34, 0, 0.5, 0.02)]) // engine
+      parts.push(['#c8ccd2', tube([0.14, 0.42, 0.0], [0.16, 0.48, -0.75], 0.045)]) // exhaust
+      parts.push(['#2a2d33', tube([0, 0.5, 0.0], [0, 0.31, -0.68], 0.03)]) // swingarm
+      parts.push(['#2a2d33', tube([-0.32, 1.06, 0.48], [0.32, 1.06, 0.48], 0.018)]) // bars
+      parts.push(['#f6f1d8', sph(0.08, 0, 0.98, 0.6, 1, 1, 0.6)]) // lamp
+      parts.push(['#3a3f46', bx(0.3, 0.03, 0.34, 0, 0.94, -0.85)]) // carrier
+      rider = seated(0, 0.92, -0.18, '#3f7d5b', true)
+      meta = { radius: 0.95, maxSpeed: 30, accel: 14, cockpit: [0.25, 1.62], seat: [0, 0.92, -0.18], straddle: true, label: 'Okada' }
       break
     }
     case 'bicycle': {
-      spec = {
-        geo: build([
-          ['#3a7d5b', bx(0.08, 0.08, 1.5, 0, 0.62, 0)], // frame spar
-          ['#3a7d5b', bx(0.08, 0.5, 0.08, 0, 0.85, 0.55)], // fork
-          ['#22262c', bx(0.6, 0.06, 0.06, 0, 1.1, 0.6)], // handlebar
-          ['#22262c', bx(0.34, 0.1, 0.4, 0, 0.95, -0.25)], // saddle
-          ['#1a1a1e', wheel(0.34, 0.05, 0, 0.34, 0.72)],
-          ['#1a1a1e', wheel(0.34, 0.05, 0, 0.34, -0.72)],
-          ['#8a5a3b', new THREE.SphereGeometry(0.18, 8, 7).translate(0, 1.68, -0.2)], // rider head
-          ['#b8433a', bx(0.4, 0.55, 0.26, 0, 1.28, -0.2)], // rider torso
-          ['#2b3440', bx(0.36, 0.4, 0.22, 0, 0.82, -0.5)] // rider legs
-        ]),
-        radius: 0.7,
-        maxSpeed: 11,
-        accel: 6,
-        cockpit: [0.3, 1.5],
-        seat: [0, 1.0, -0.25],
-        label: 'Bicycle'
+      const fr = '#2f7d5b'
+      parts.push(...bikeWheel(0.34, 0.58))
+      parts.push(...bikeWheel(0.34, -0.5))
+      const bb: [number, number, number] = [0, 0.3, 0.02] // bottom bracket
+      const st: [number, number, number] = [0, 0.86, -0.12] // seat tube top
+      const ht: [number, number, number] = [0, 0.9, 0.48] // head tube
+      parts.push([fr, tube(bb, st, 0.02)])
+      parts.push([fr, tube(bb, ht, 0.022)])
+      parts.push([fr, tube(st, ht, 0.02)])
+      parts.push([fr, tube(bb, [0, 0.34, -0.5], 0.014)])
+      parts.push([fr, tube(st, [0, 0.34, -0.5], 0.014)])
+      parts.push(['#b8bcc4', tube(ht, [0, 0.34, 0.58], 0.016)])
+      parts.push(['#141416', bx(0.14, 0.05, 0.26, 0, 0.92, -0.14)]) // saddle
+      parts.push(['#2a2d33', tube([-0.26, 1.02, 0.45], [0.26, 1.02, 0.45], 0.014)])
+      parts.push(['#2a2d33', tube(ht, [0, 1.02, 0.45], 0.016)])
+      parts.push(['#c8ccd2', cyl(0.09, 0.02, 0.05, 0.3, 0.02, 12).rotateZ(Math.PI / 2)])
+      rider = seated(0, 0.94, -0.22, '#b8433a', true)
+      meta = { radius: 0.7, maxSpeed: 11, accel: 6, cockpit: [0.3, 1.6], seat: [0, 0.94, -0.22], straddle: true, label: 'Bicycle' }
+      break
+    }
+    case 'truck': {
+      // lorry: cab-over with a wooden tipper body
+      const W = 2.3
+      parts.push(['#2f5ea8', profile([[0.9, 0.55], [0.9, 2.55], [1.05, 2.65], [2.6, 2.6], [2.85, 2.1], [2.95, 1.0], [2.95, 0.55]], W, 0.06)])
+      parts.push([GLASS, profile([[1.25, 1.65], [1.25, 2.4], [2.55, 2.38], [2.78, 1.95], [2.83, 1.65]], W + 0.02, 0.02)])
+      parts.push(['#e8e8e0', bx(W - 0.3, 0.3, 0.1, 0, 0.95, 2.98)]) // grille
+      parts.push([TRIM, bx(W + 0.1, 0.3, 0.25, 0, 0.6, 2.98)])
+      parts.push(['#3a3f46', bx(W - 0.1, 0.25, 5.6, 0, 0.75, -1.2)]) // chassis
+      parts.push(['#8a5a34', bx(W, 1.3, 3.9, 0, 1.55, -1.95)]) // wooden body
+      parts.push(['#6b4528', bx(W + 0.04, 0.06, 3.92, 0, 1.9, -1.95)])
+      parts.push(['#6b4528', bx(W + 0.04, 0.06, 3.92, 0, 1.4, -1.95)])
+      parts.push(['#c9a76a', bx(W - 0.3, 0.5, 3.4, 0, 2.3, -1.95)]) // sand load
+      parts.push(...lights(2.98, -3.92, 0.9, W / 2))
+      for (const z of [2.05, -1.2, -2.6]) for (const s of [-1, 1]) parts.push(...wheel(0.48, 0.34, s * 0.98, 0.48, z))
+      door = {
+        geo: build([['#2f5ea8', bx(0.05, 1.1, 1.0, 0, -0.1, -0.5)], [GLASS, bx(0.04, 0.6, 0.8, 0.01, 0.62, -0.45)]]),
+        hinge: [W / 2 + 0.03, 1.5, 2.35],
+        type: 'swing'
       }
+      rider = seated(0.55, 1.4, 1.75, '#e8e2d2')
+      meta = { radius: 2.4, maxSpeed: 19, accel: 7, cockpit: [2.2, 2.25], seat: [0.55, 1.4, 1.75], straddle: false, label: 'Lorry' }
       break
     }
     case 'boat': {
-      spec = {
-        geo: build([
-          ['#e8e4d8', bx(1.9, 0.65, 4.4, 0, 0.42, -0.2)], // hull
-          ['#c9764a', new THREE.ConeGeometry(0.95, 1.6, 4).rotateX(Math.PI / 2).translate(0, 0.42, 2.7)], // bow
-          ['#6b4a2f', bx(1.6, 0.14, 3.4, 0, 0.78, -0.4)], // deck trim
-          ['#22262c', bx(0.9, 0.7, 0.3, 0, 1.15, 0.6)], // console
-          ['#8a8f96', new THREE.TorusGeometry(0.26, 0.05, 6, 12).translate(0, 1.42, 0.62)], // wheel
-          ['#c9764a', bx(1.3, 0.14, 1.0, 0, 0.86, -1.3)] // stern bench
-        ]),
-        radius: 1.6,
-        maxSpeed: 20,
-        accel: 8,
-        cockpit: [0.4, 1.75],
-        seat: [0, 0.95, 0.6],
-        label: 'River Boat'
-      }
+      parts = [
+        ['#e8e4d8', bx(1.9, 0.65, 4.4, 0, 0.42, -0.2)],
+        ['#c9764a', new THREE.ConeGeometry(0.95, 1.6, 4).rotateX(Math.PI / 2).translate(0, 0.42, 2.7)],
+        ['#6b4a2f', bx(1.6, 0.14, 3.4, 0, 0.78, -0.4)],
+        ['#22262c', bx(0.9, 0.7, 0.3, 0, 1.15, 0.6)],
+        ['#8a8f96', new THREE.TorusGeometry(0.26, 0.05, 6, 12).translate(0, 1.42, 0.62)],
+        ['#c9764a', bx(1.3, 0.14, 1.0, 0, 0.86, -1.3)]
+      ]
+      rider = seated(0, 0.95, 0.1, '#3f6fae')
+      meta = { radius: 1.6, maxSpeed: 20, accel: 8, cockpit: [0.4, 1.75], seat: [0, 0.95, 0.1], straddle: false, label: 'River Boat' }
       break
     }
-    case 'plane': {
-      spec = {
-        geo: build([
-          ['#e8e4d8', (() => {
-            const g = new THREE.CylinderGeometry(0.72, 0.5, 5.6, 10)
-            g.rotateX(Math.PI / 2)
-            g.translate(0, 1.05, 0)
-            return g
-          })()],
-          ['#e8e4d8', new THREE.ConeGeometry(0.5, 1.4, 10).rotateX(Math.PI / 2).translate(0, 1.05, 3.4)], // nose
-          ['#b8433a', bx(9.2, 0.16, 1.5, 0, 1.32, 0.4)], // wing
-          ['#b8433a', bx(3.0, 0.12, 0.9, 0, 1.55, -2.5)], // tailplane
-          ['#b8433a', bx(0.14, 1.25, 1.0, 0, 1.75, -2.55)], // fin
-          ['#22262c', bx(1.05, 0.55, 1.15, 0, 1.55, 1.3)], // canopy
-          ['#1a1a1e', wheel(0.26, 0.12, -0.9, 0.26, 0.5)],
-          ['#1a1a1e', wheel(0.26, 0.12, 0.9, 0.26, 0.5)],
-          ['#1a1a1e', wheel(0.2, 0.1, 0, 0.2, -2.4)],
-          ['#8a8f96', bx(0.16, 0.9, 0.16, 0, 1.05, 4.15)], // prop hub
-          ['#3a3f4a', bx(0.12, 2.1, 0.06, 0, 1.05, 4.2)] // prop blade
-        ]),
-        radius: 2.6,
-        maxSpeed: 38,
-        accel: 7,
-        cockpit: [1.1, 1.75],
-        seat: [-0.42, 1.15, 1.15],
-        label: 'Light Aircraft'
-      }
+    case 'plane':
+    default: {
+      parts = [
+        ['#e8e4d8', new THREE.CylinderGeometry(0.72, 0.5, 5.6, 14).rotateX(Math.PI / 2).translate(0, 1.05, 0)],
+        ['#e8e4d8', new THREE.ConeGeometry(0.5, 1.4, 14).rotateX(Math.PI / 2).translate(0, 1.05, 3.4)],
+        ['#b8433a', bx(9.2, 0.16, 1.5, 0, 1.32, 0.4)],
+        ['#b8433a', bx(3.0, 0.12, 0.9, 0, 1.55, -2.5)],
+        ['#b8433a', bx(0.14, 1.25, 1.0, 0, 1.75, -2.55)],
+        [GLASS, bx(1.05, 0.55, 1.15, 0, 1.55, 1.3)],
+        ...wheel(0.26, 0.12, -0.9, 0.26, 0.5),
+        ...wheel(0.26, 0.12, 0.9, 0.26, 0.5),
+        ...wheel(0.2, 0.1, 0, 0.2, -2.4),
+        ['#8a8f96', bx(0.16, 0.9, 0.16, 0, 1.05, 4.15)],
+        ['#3a3f4a', bx(0.12, 2.1, 0.06, 0, 1.05, 4.2)]
+      ]
+      rider = seated(-0.3, 1.1, 1.15, '#3f6fae')
+      meta = { radius: 2.6, maxSpeed: 38, accel: 7, cockpit: [1.1, 1.75], seat: [-0.3, 1.1, 1.15], straddle: false, label: 'Light Aircraft' }
       break
     }
   }
+  const geo = build([...parts.map(([c, g]) => [c, g.clone()] as Part)])
+  const geoRider = build([...parts, ...rider])
+  const spec: VehicleSpec = { geo, geoRider, door, ...meta }
   cache.set(kind, spec)
   return spec
 }
 
 /** Seated driver figure (hips at origin, facing +Z toward the wheel). */
 export function buildDriverFigure(): THREE.BufferGeometry {
+  // seated adult at the same proportions as CharacterAvatar (head = 1/7.5
+  // of the body), origin at the seat
+  const torso = new THREE.CylinderGeometry(0.18, 0.16, 0.52, 12)
+  torso.scale(1, 1, 0.66)
+  torso.translate(0, 0.3, 0)
+  const head = new THREE.SphereGeometry(0.112, 14, 10)
+  head.scale(0.9, 1.08, 1)
+  head.translate(0, 0.76, 0.01)
+  const neck = new THREE.CylinderGeometry(0.05, 0.055, 0.12, 8).translate(0, 0.62, 0)
+  const kufi = new THREE.CylinderGeometry(0.104, 0.112, 0.085, 14).translate(0, 0.85, 0)
+  const thigh = (x: number) => new THREE.CapsuleGeometry(0.075, 0.34, 3, 8).rotateX(Math.PI / 2).translate(x, 0.0, 0.24)
+  const shin = (x: number) => new THREE.CapsuleGeometry(0.06, 0.32, 3, 8).translate(x, -0.24, 0.46)
+  const arm = (x: number) => new THREE.CapsuleGeometry(0.05, 0.4, 3, 8).rotateX(1.15).translate(x, 0.36, 0.26)
+  const hand = (x: number) => new THREE.SphereGeometry(0.045, 8, 6).translate(x, 0.27, 0.5)
   return build([
-    ['#2e7d5b', bx(0.44, 0.62, 0.28, 0, 0.31, 0)], // torso
-    ['#8a5a3b', new THREE.SphereGeometry(0.22, 10, 8).translate(0, 0.78, 0)], // head
-    ['#e8e2d2', bx(0.3, 0.09, 0.3, 0, 0.94, 0)], // kufi
-    ['#2b3440', bx(0.16, 0.14, 0.6, -0.14, -0.12, 0.34)], // left thigh
-    ['#2b3440', bx(0.16, 0.14, 0.6, 0.14, -0.12, 0.34)], // right thigh
-    ['#2e7d5b', bx(0.12, 0.12, 0.46, -0.27, 0.4, 0.3)], // left arm to wheel
-    ['#2e7d5b', bx(0.12, 0.12, 0.46, 0.27, 0.4, 0.3)], // right arm
-    ['#8a5a3b', bx(0.09, 0.09, 0.09, -0.27, 0.4, 0.55)], // left hand
-    ['#8a5a3b', bx(0.09, 0.09, 0.09, 0.27, 0.4, 0.55)] // right hand
+    ['#2e7d5b', torso],
+    ['#2e7d5b', new THREE.SphereGeometry(0.18, 12, 8).scale(1.05, 0.42, 0.68).translate(0, 0.54, 0)],
+    ['#7a4e33', head],
+    ['#7a4e33', neck],
+    ['#f1ece0', kufi],
+    ['#2b3440', thigh(-0.1)],
+    ['#2b3440', thigh(0.1)],
+    ['#2b3440', shin(-0.1)],
+    ['#2b3440', shin(0.1)],
+    ['#2e7d5b', arm(-0.22)],
+    ['#2e7d5b', arm(0.22)],
+    ['#7a4e33', hand(-0.22)],
+    ['#7a4e33', hand(0.22)]
   ])
 }
 
@@ -281,13 +404,12 @@ export function buildInterior(kind: VehicleKind): THREE.BufferGeometry | null {
   switch (kind) {
     case 'car':
       parts.push(
-        ['#26282e', bx(1.8, 0.5, 0.6, 0, 1.02, 1.35)], // dashboard
-        ['#3a3f46', new THREE.TorusGeometry(0.24, 0.045, 6, 14).translate(-0.45, 1.18, 1.05)], // wheel
-        ['#2b2e34', bx(0.5, 0.45, 0.55, 0.45, 0.62, 0.2)], // passenger seat
-        ['#2b2e34', bx(0.5, 0.45, 0.55, -0.45, 0.62, -1.0)], // rear seat L
-        ['#2b2e34', bx(0.5, 0.45, 0.55, 0.45, 0.62, -1.0)], // rear seat R
-        ['#b8a888', bx(1.7, 0.7, 0.06, 0, 1.5, 2.14)], // windshield header
-        ['#26282e', bx(0.34, 0.3, 0.34, 0.5, 1.02, 0.35)] // console box
+        ['#26282e', bx(1.7, 0.32, 0.5, 0, 0.92, 0.95)], // dashboard
+        ['#3a3f46', new THREE.TorusGeometry(0.2, 0.04, 6, 14).rotateX(-0.35).translate(0.42, 1.0, 0.62)], // steering wheel (LHD)
+        ['#2b2e34', bx(0.5, 0.45, 0.55, -0.42, 0.42, 0.0)], // passenger seat
+        ['#2b2e34', bx(1.5, 0.45, 0.55, 0, 0.42, -0.95)], // rear bench
+        ['#b8a888', bx(1.6, 0.06, 1.6, 0, 1.44, -0.1)], // headliner
+        ['#26282e', bx(0.2, 0.25, 0.6, 0, 0.55, 0.35)] // console
       )
       break
     case 'keke':
