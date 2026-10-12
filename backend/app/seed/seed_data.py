@@ -31,6 +31,15 @@ ITEMS = [
     ("quest_parcel", "Sealed Package", "quest", "A sealed package for delivery. Do not shake.", "\U0001f4e6"),
 ]
 
+# district content items (upserted by reconcile_content on every boot)
+NEW_ITEMS = [
+    ("wax_print", "Wax Print Fabric", "fashion", "Six yards of Dutch wax, the sharp pattern everybody is asking for.", "\U0001f9f5"),
+    ("kunu_aya", "Kunu Aya", "food", "Tiger nut and date drink, ice cold. The KASU gate sellers know.", "\U0001f9cb"),
+    ("data_bundle", "Data Bundle Card", "electronics", "10GB data card. No be small thing.", "\U0001f4f6"),
+    ("tokunbo_sneakers", "Tokunbo Sneakers", "fashion", "UK used, clean, your size dey.", "\U0001f45f"),
+    ("tomato_basket", "Basket of Tomatoes", "food", "Fresh from the fadama farms, still bearing the morning dew.", "\U0001f345"),
+]
+
 ENTITIES = [
     # code, name, type, raw x, raw z (bake units, scaled by
     # settings.world_scale when written), rotation, radius (meters)
@@ -43,6 +52,21 @@ ENTITIES = [
     ("keke_stop", "Keke Napep Stop, Kaduna Junction", "transport_stop", -245.0, 417.05, 0.2, 8.0),
     ("npc_musa", "Mallam Musa", "npc", -50.5, 82.583, 0.5, 4.0),
     ("npc_amina", "Hajiya Amina", "npc", -43.667, 349.333, -0.3, 4.0),
+]
+
+# district content entities (upserted by reconcile_content on every boot).
+# Same raw coordinates the frontend mirrors in kaduna.ts PLAYABLE_RAW.
+NEW_ENTITIES = [
+    ("textile_market", "Kaduna Textile Market", "market", -186.0, 640.0, -0.4, 12.0),
+    ("kawo_motor_park", "Kawo Motor Park", "transport_stop", 76.0, -546.0, 0.1, 12.0),
+    ("kasu_gate", "KASU Main Gate", "landmark", 114.0, 108.0, 0.0, 10.0),
+    ("rigasa_station", "Rigasa Station Freight Office", "transport_stop", -943.0, -134.0, -0.2, 12.0),
+    ("sabon_tasha_shop", "Sabon Tasha Community Shop", "shop", 252.0, 1042.0, 0.3, 10.0),
+    ("npc_mama_chidi", "Mama Chidi", "npc", -181.0, 631.0, 0.5, 4.0),
+    ("npc_bashir", "Bashir the Union Man", "npc", 69.0, -542.0, -0.4, 4.0),
+    ("npc_prof_danjuma", "Professor Danjuma", "npc", 107.0, 104.0, 0.2, 4.0),
+    ("npc_tunde", "Tunde the Freight Officer", "npc", -936.0, -130.0, 0.3, 4.0),
+    ("npc_ngozi", "Ngozi of Sabon Tasha", "npc", 246.0, 1036.0, -0.5, 4.0),
 ]
 
 SHOP_LISTINGS = [
@@ -65,6 +89,110 @@ SHOPKEEPER_TOOLS = [
     "create_delivery_job",
     "set_price_within_limits",
     "record_customer_interaction",
+]
+
+# ---------------------------------------------------------------- district content
+# Businesses, listings, NPC agents and delivery jobs for the five new
+# district spots. Upserted by reconcile_content on every boot, so both a
+# fresh database and an already-seeded one end up with the same world.
+BUSINESS_DEFS = [
+    # code, name, business_type, entity_code, tagline
+    ("textile_fabrics", "Mama Chidi's Fabric Stall", "shop", "textile_market", "Wax prints, ankara, tokunbo - everything fabric"),
+    ("campus_kiosk", "KASU Campus Kiosk", "shop", "kasu_gate", "Snacks and data for the campus crowd"),
+    ("station_freight", "Rigasa Freight Office", "shop", "rigasa_station", "Waybills, parcels and departure times"),
+    ("sabon_tasha_stores", "Sabon Tasha Community Shop", "shop", "sabon_tasha_shop", "The southern shops everybody knows"),
+]
+
+# business_code -> [(item_code, stock, ngn_minor, sats)]
+LISTING_DEFS: dict[str, list[tuple[str, int, int, int]]] = {
+    "textile_fabrics": [
+        ("wax_print", 18, 815_000, 3500),
+        ("tokunbo_sneakers", 10, 650_000, 2800),
+        ("ankara_fabric", 12, 1_050_000, 4500),
+        ("data_bundle", 25, 720_000, 3100),
+    ],
+    "campus_kiosk": [
+        ("kunu_aya", 30, 140_000, 600),
+        ("kuli_kuli", 40, 160_000, 650),
+        ("suya_spice", 24, 300_000, 1300),
+        ("data_bundle", 20, 700_000, 3000),
+    ],
+    "station_freight": [
+        ("suya_spice", 20, 290_000, 1250),
+        ("fura_nono", 16, 440_000, 1900),
+        ("zobo_concentrate", 26, 245_000, 1050),
+        ("data_bundle", 22, 680_000, 2900),
+    ],
+    "sabon_tasha_stores": [
+        ("tomato_basket", 22, 210_000, 900),
+        ("kunu_aya", 26, 150_000, 650),
+        ("kuli_kuli", 34, 165_000, 700),
+        ("fura_nono", 14, 420_000, 1800),
+    ],
+}
+
+NPC_DEFS = [
+    # code, name, entity_code, business_code or None, agent_type, persona
+    ("kaduna_fabric_trader_001", "Mama Chidi", "npc_mama_chidi", "textile_fabrics", "shopkeeper",
+     "Mama Chidi runs the fabric stall at the Kaduna Textile Market by the old "
+     "Textile Mill. A sharp Igbo trader with a warm laugh: she knows every wax "
+     "print by name, gives honest prices, and never lets a customer leave "
+     "unhappy. She knows Bitcoin Lightning lets customers pay with real sats, "
+     "but she cannot touch anyone's wallet - the payment system settles."),
+    ("kaduna_union_driver_001", "Bashir", "npc_bashir", None, "recipient",
+     "Bashir is the NURTW union man at Kawo Motor Park. Loud voice, warm "
+     "heart, pocket full of small change. He knows every route, fare and "
+     "shortcut in Kaduna, and will tell you which keke to take and which "
+     "driver to avoid. Mixes Hausa greetings into his Nigerian English."),
+    ("kaduna_professor_001", "Professor Danjuma", "npc_prof_danjuma", "campus_kiosk", "shopkeeper",
+     "Professor Danjuma teaches economics at Kaduna State University and runs "
+     "a small kiosk at the main gate for students. Measured, thoughtful, "
+     "loves a good debate about scarcity, incentives and sats. He explains "
+     "Lightning payments to students with real examples, but he cannot touch "
+     "anyone's wallet - the payment system settles."),
+    ("kaduna_freight_officer_001", "Tunde", "npc_tunde", "station_freight", "shopkeeper",
+     "Tunde is the freight officer at Rigasa Station. Precise, "
+     "timetable-obsessed, scans every package twice. He talks in departure "
+     "times and waybill numbers, but softens for regular customers. He knows "
+     "the station pays delivery jobs through the Lightning ledger."),
+    ("kaduna_community_shop_001", "Ngozi", "npc_ngozi", "sabon_tasha_stores", "shopkeeper",
+     "Ngozi runs the community shop in Sabon Tasha. Everyone's elder sister: "
+     "she sells on credit to regulars, remembers every birthday on the "
+     "street, and her tomato baskets are the freshest south of the river. "
+     "She settles her stock money through the Lightning ledger."),
+]
+
+JOB_DEFS = [
+    # code, title, description, issuer_business_code, pickup_code, dropoff_code, ngn_minor, rep
+    ("deliv-musa-kasu-0002", "Deliver textbooks to KASU Main Gate",
+     "Collect a parcel at Musa's Provision Store and take it to Professor "
+     "Danjuma at the KASU Main Gate, east across town.",
+     "musa_provision_store", "musa_shop", "kasu_gate", 6_000_00, 5),
+    ("deliv-musa-kawo-0003", "Parcel run to Kawo Motor Park",
+     "Musa has a parcel bound for the north. Take it to Bashir at the Kawo "
+     "Motor Park union point.",
+     "musa_provision_store", "musa_shop", "kawo_motor_park", 7_500_00, 5),
+    ("deliv-textile-musa-0004", "Wax print bolts to Musa's store",
+     "Mama Chidi set aside six bolts of wax print for Musa. Pick them up at "
+     "the Textile Market and deliver them to his shop.",
+     "textile_fabrics", "textile_market", "musa_shop", 9_000_00, 6),
+    ("deliv-textile-rigasa-0005", "Fabric freight to Rigasa Station",
+     "A long-haul load: fabric from the Textile Market must reach Tunde at "
+     "the Rigasa Station freight office before the evening train. Best with "
+     "a car.",
+     "textile_fabrics", "textile_market", "rigasa_station", 16_000_00, 9),
+    ("deliv-sabon-market-0006", "Fresh tomatoes to the Central Market",
+     "Ngozi's tomato basket must reach the Central Market traders while the "
+     "dew is still on it. Ride fast, ride safe.",
+     "sabon_tasha_stores", "sabon_tasha_shop", "kaduna_central_market", 11_000_00, 7),
+    ("deliv-rigasa-kawo-0007", "Station waybill to Kawo Motor Park",
+     "A waybill came in on the morning train. Tunde needs it at the Kawo "
+     "Motor Park union point, south across the river.",
+     "station_freight", "rigasa_station", "kawo_motor_park", 12_000_00, 7),
+    ("deliv-kasu-stonetech-0008", "Lab supplies to Stonetech Square",
+     "Professor Danjuma has a box of lab supplies for Hajiya Amina at "
+     "Stonetech Square in Barnawa.",
+     "campus_kiosk", "kasu_gate", "stonetech_square", 9_500_00, 6),
 ]
 
 
@@ -98,6 +226,138 @@ async def reconcile_world_scale(db: AsyncSession) -> int:
     if changed:
         await db.commit()
     return changed
+
+
+async def reconcile_content(db: AsyncSession) -> int:
+    """Idempotently add the district content (entities, items, businesses,
+    listings, NPC agents, delivery jobs) on every boot. Rows are detected
+    by code and skipped, so this is safe for fresh databases (seed_if_empty
+    just ran) and for older databases alike. Returns the rows added."""
+    added = 0
+    region = (
+        await db.execute(select(WorldRegion).where(WorldRegion.slug == "kaduna-city"))
+    ).scalar_one_or_none()
+    if region is None:
+        return 0
+    k = settings.world_scale
+
+    # 1) entities
+    entities = {
+        e.code: e
+        for e in (await db.execute(select(WorldEntity).where(WorldEntity.region_id == region.id))).scalars()
+    }
+    for code, name, etype, x, z, rot, radius in NEW_ENTITIES:
+        if code in entities:
+            continue
+        e = WorldEntity(
+            region_id=region.id, code=code, name=name, entity_type=etype,
+            position_x=x * k, position_y=0.0, position_z=z * k, rotation=rot,
+            interaction_radius=radius, metadata_json={},
+        )
+        db.add(e)
+        entities[code] = e
+        added += 1
+    await db.flush()
+
+    # 2) items
+    items = {i.code: i for i in (await db.execute(select(Item))).scalars()}
+    for code, name, itype, desc, emoji in NEW_ITEMS:
+        if code in items:
+            continue
+        it = Item(code=code, name=name, item_type=itype, description=desc, emoji=emoji)
+        db.add(it)
+        items[code] = it
+        added += 1
+    await db.flush()
+
+    # 3) businesses (they hang off entities; original rows keep their ids)
+    biz_codes = [b[0] for b in BUSINESS_DEFS]
+    businesses = {
+        b.code: b
+        for b in (
+            await db.execute(select(Business).where(Business.code.in_(biz_codes)))
+        ).unique().scalars()
+    }
+    for code, name, btype, entity_code, tagline in BUSINESS_DEFS:
+        if code in businesses:
+            continue
+        b = Business(
+            code=code, name=name, owner_type="npc", owner_id=None, business_type=btype,
+            entity_id=entities[entity_code].id, status="open",
+            metadata_json={"tagline": tagline},
+        )
+        db.add(b)
+        businesses[code] = b
+        added += 1
+    await db.flush()
+
+    # 4) listings: only for businesses that have none (never touch a
+    # shopkeeper's live prices)
+    for bcode, rows in LISTING_DEFS.items():
+        biz = businesses.get(bcode)
+        if biz is None:
+            continue
+        have = (
+            await db.execute(select(func.count()).select_from(ShopListing).where(ShopListing.business_id == biz.id))
+        ).scalar_one()
+        if have > 0:
+            continue
+        for item_code, stock, ngn_minor, sats in rows:
+            item = items.get(item_code)
+            if item is None:
+                continue
+            db.add(
+                ShopListing(
+                    business_id=biz.id, item_id=item.id, quantity_available=stock,
+                    price_ngn_minor=ngn_minor, price_sats=sats, is_active=True,
+                )
+            )
+            added += 1
+
+    # 5) NPC agents
+    agents = {
+        a.code: a
+        for a in (await db.execute(select(NPCAgent).where(NPCAgent.code.in_([n[0] for n in NPC_DEFS])))).scalars()
+    }
+    for code, name, entity_code, biz_code, agent_type, persona in NPC_DEFS:
+        if code in agents:
+            continue
+        db.add(
+            NPCAgent(
+                code=code, name=name, persona=persona,
+                world_entity_id=entities[entity_code].id,
+                business_id=businesses[biz_code].id if biz_code else None,
+                agent_type=agent_type,
+                allowed_tools=SHOPKEEPER_TOOLS if biz_code else [],
+                configuration={"interaction_log": []}, status="active",
+            )
+        )
+        added += 1
+
+    # 6) jobs
+    job_codes = [j[0] for j in JOB_DEFS]
+    jobs = {
+        j.code: j
+        for j in (await db.execute(select(Job).where(Job.code.in_(job_codes)))).scalars()
+    }
+    for code, title, desc, issuer_code, pickup_code, dropoff_code, ngn_minor, rep in JOB_DEFS:
+        if code in jobs:
+            continue
+        db.add(
+            Job(
+                code=code, job_type="delivery", title=title, description=desc,
+                issuer_business_id=businesses[issuer_code].id if issuer_code in businesses else None,
+                status="available",
+                pickup_entity_id=entities[pickup_code].id,
+                dropoff_entity_id=entities[dropoff_code].id,
+                reward_ngn_minor=ngn_minor, reward_reputation=rep,
+            )
+        )
+        added += 1
+
+    if added:
+        await db.commit()
+    return added
 
 
 async def seed_if_empty(db: AsyncSession) -> bool:

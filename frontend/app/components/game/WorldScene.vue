@@ -41,12 +41,29 @@ const neonMarket = new THREE.MeshBasicMaterial({ map: makeSignTexture('KADUNA CE
 const neonArewa = new THREE.MeshBasicMaterial({ map: makeSignTexture('AREWA HOUSE', { bg: '#3a2b12', sub: 'Gidan Arewa' }) })
 const neonStone = new THREE.MeshBasicMaterial({ map: makeSignTexture('STONETECH SQUARE', { bg: '#23272e', sub: 'Community Plaza' }) })
 const neonKeke = new THREE.MeshBasicMaterial({ map: makeSignTexture('KEKE STOP', { bg: '#123528' }) })
+// district signs
+const neonTextile = new THREE.MeshBasicMaterial({ map: makeSignTexture('TEXTILE MARKET', { bg: '#3a1b3f', sub: 'Kantin Masaka' }) })
+const neonKawo = new THREE.MeshBasicMaterial({ map: makeSignTexture('KAWO MOTOR PARK', { bg: '#3a2b12', sub: 'NURTW Line' }) })
+const neonKasu = new THREE.MeshBasicMaterial({ map: makeSignTexture('KADUNA STATE UNIVERSITY', { bg: '#123528', sub: 'KASU Main Gate' }) })
+const neonRigasa = new THREE.MeshBasicMaterial({ map: makeSignTexture('RIGASA STATION', { bg: '#23272e', sub: 'Freight Office' }) })
+const neonSabon = new THREE.MeshBasicMaterial({ map: makeSignTexture('SABON TASHA STORES', { bg: '#0b2f3a', sub: 'Community Shop' }) })
+
+const brickMat = new THREE.MeshStandardMaterial({ color: '#9a5a42', roughness: 0.9 })
+const zincMat = new THREE.MeshStandardMaterial({ color: '#8a8f96', roughness: 0.5, metalness: 0.35 })
+const platformMat = new THREE.MeshStandardMaterial({ color: '#b0a488', roughness: 1 })
 
 // market shed grid relative to the market entity position
 const SHEDS: Array<[number, number, number]> = []
 for (let r = 0; r < 4; r++) {
   for (let c = 0; c < 6; c++) {
     SHEDS.push([-21 + c * 8.4, -12 + r * 8, r % 2])
+  }
+}
+// textile market stall grid (smaller sibling of the central market)
+const STALLS: Array<[number, number, number]> = []
+for (let r = 0; r < 2; r++) {
+  for (let c = 0; c < 3; c++) {
+    STALLS.push([-7 + c * 7, -4 + r * 8, (r + c) % 3])
   }
 }
 
@@ -69,7 +86,12 @@ const labels = computed(() => {
     ['kaduna_central_market', 'Kaduna Central Market', 30],
     ['arewa_house', 'Arewa House', 22],
     ['stonetech_square', 'Stonetech Square', 22],
-    ['keke_stop', 'Keke Napep Stop', 18]
+    ['keke_stop', 'Keke Napep Stop', 18],
+    ['textile_market', 'Textile Market', 20],
+    ['kawo_motor_park', 'Kawo Motor Park', 20],
+    ['kasu_gate', 'KASU Main Gate', 20],
+    ['rigasa_station', 'Rigasa Station', 20],
+    ['sabon_tasha_shop', 'Sabon Tasha Stores', 18]
   ]
   for (const [code, name, w] of defs) {
     const e = entityByCode(code)
@@ -209,6 +231,114 @@ const labels = computed(() => {
           <TresCylinderGeometry :args="[0.35, 0.35, 0.25, 12]" :rotation="[Math.PI / 2, 0, 0]" />
         </TresMesh>
       </TresGroup>
+    </TresGroup>
+
+    <!-- Textile Market: fabric stall block in the Barnawa mill district -->
+    <TresGroup :position="pos3('textile_market', PLAYABLE_POS.textile_market)">
+      <TresMesh :position="[0, 0.04, 0]" receive-shadow :material="padMat">
+        <TresBoxGeometry :args="[24, 0.08, 14]" />
+      </TresMesh>
+      <TresGroup v-for="(st, i) in STALLS" :key="'stall' + i">
+        <TresMesh :position="[st[0], 1.25, st[1]]" cast-shadow :material="wallShed">
+          <TresBoxGeometry :args="[5.2, 2.5, 4.6]" />
+        </TresMesh>
+        <TresMesh :position="[st[0], 2.75, st[1]]" cast-shadow :material="shedRoofs[(i * 2 + st[2]) % shedRoofs.length]">
+          <TresBoxGeometry :args="[6, 0.3, 5.4]" />
+        </TresMesh>
+        <TresMesh :position="[st[0], 1.5, st[1] + 2.35]" :rotation="[0, 0, 0]" :material="i % 2 ? awning1 : awning2">
+          <TresPlaneGeometry :args="[4.6, 1.1]" />
+        </TresMesh>
+      </TresGroup>
+      <TresMesh :position="[0, 7.6, -8.2]" :material="neonTextile">
+        <TresPlaneGeometry :args="[13, 1.7]" />
+      </TresMesh>
+      <TresMesh v-for="p in 2" :key="'tpole' + p" :position="[-6.4 + (p - 1) * 12.8, 3.6, -8.2]" :material="woodMat">
+        <TresCylinderGeometry :args="[0.16, 0.22, 7.2, 8]" />
+      </TresMesh>
+    </TresGroup>
+
+    <!-- Kawo Motor Park: union transport hub with a keke line -->
+    <TresGroup :position="pos3('kawo_motor_park', PLAYABLE_POS.kawo_motor_park)">
+      <TresMesh :position="[0, 0.03, 0]" receive-shadow :material="padMat">
+        <TresBoxGeometry :args="[22, 0.06, 13]" />
+      </TresMesh>
+      <TresMesh :position="[0, 3.5, -2.5]" :rotation="[Math.PI / 2, 0, 0]" :material="zincMat" cast-shadow>
+        <TresBoxGeometry :args="[16, 7.5, 0.14]" />
+      </TresMesh>
+      <TresMesh v-for="p in 4" :key="'kpole' + p" :position="[-7 + (p - 1) * 4.7, 1.75, -2.5 + (p % 2) * 5]" cast-shadow :material="woodMat">
+        <TresCylinderGeometry :args="[0.14, 0.18, 3.5, 8]" />
+      </TresMesh>
+      <TresMesh :position="[0, 4.6, 1.2]" :material="neonKawo">
+        <TresPlaneGeometry :args="[11, 1.5]" />
+      </TresMesh>
+      <TresGroup v-for="(k, i) in [[-4.5, 3.6, 0.4], [0.5, 3.9, -0.35], [5.2, 3.4, 0.9]]" :key="'pkeke' + i" :position="[k[0], 0, k[1]]" :rotation="[0, k[2], 0]">
+        <TresMesh :position="[0, 0.75, 0]" cast-shadow :material="kekeYellow">
+          <TresBoxGeometry :args="[1.7, 1.3, 2.4]" />
+        </TresMesh>
+        <TresMesh :position="[0, 0.8, 1.05]" :material="kekeBlack">
+          <TresBoxGeometry :args="[1.4, 0.9, 0.5]" />
+        </TresMesh>
+        <TresMesh v-for="w in 3" :key="'kw' + w" :position="[w === 1 ? 0 : w === 2 ? -0.85 : 0.85, 0.3, w === 1 ? 1.2 : -0.7]" cast-shadow :material="kekeBlack">
+          <TresCylinderGeometry :args="[0.3, 0.3, 0.24, 10]" :rotation="[Math.PI / 2, 0, 0]" />
+        </TresMesh>
+      </TresGroup>
+    </TresGroup>
+
+    <!-- KASU Main Gate: brick pillars + arch over the campus walk -->
+    <TresGroup :position="pos3('kasu_gate', PLAYABLE_POS.kasu_gate)">
+      <TresMesh :position="[-5.6, 2.6, 0]" cast-shadow :material="brickMat">
+        <TresBoxGeometry :args="[1.8, 5.2, 1.8]" />
+      </TresMesh>
+      <TresMesh :position="[5.6, 2.6, 0]" cast-shadow :material="brickMat">
+        <TresBoxGeometry :args="[1.8, 5.2, 1.8]" />
+      </TresMesh>
+      <TresMesh :position="[0, 5.8, 0]" cast-shadow :material="brickMat">
+        <TresBoxGeometry :args="[13, 1.2, 1.6]" />
+      </TresMesh>
+      <TresMesh :position="[0, 7.4, 0]" :material="neonKasu">
+        <TresPlaneGeometry :args="[12, 1.4]" />
+      </TresMesh>
+      <TresMesh :position="[0, 0.05, 0]" receive-shadow :material="platformMat">
+        <TresBoxGeometry :args="[11, 0.1, 5]" />
+      </TresMesh>
+    </TresGroup>
+
+    <!-- Rigasa Station: platform canopy of the north terminus -->
+    <TresGroup :position="pos3('rigasa_station', PLAYABLE_POS.rigasa_station)">
+      <TresMesh :position="[0, 0.5, 0]" receive-shadow :material="platformMat">
+        <TresBoxGeometry :args="[30, 1, 6.5]" />
+      </TresMesh>
+      <TresMesh :position="[0, 3.8, -1.6]" :rotation="[Math.PI / 2, 0, 0]" :material="zincMat" cast-shadow>
+        <TresBoxGeometry :args="[29, 7, 0.14]" />
+      </TresMesh>
+      <TresMesh v-for="p in 6" :key="'rpole' + p" :position="[-12.5 + (p - 1) * 5, 2.15, -1.6]" cast-shadow :material="stoneMat">
+        <TresCylinderGeometry :args="[0.17, 0.2, 4.3, 8]" />
+      </TresMesh>
+      <TresMesh :position="[0, 5.4, 1.8]" :material="neonRigasa">
+        <TresPlaneGeometry :args="[12, 1.5]" />
+      </TresMesh>
+      <TresMesh v-for="b in 2" :key="'rbench' + b" :position="[-6 + (b - 1) * 12, 1.25, 1.4]" cast-shadow :material="woodMat">
+        <TresBoxGeometry :args="[3.2, 0.5, 0.9]" />
+      </TresMesh>
+    </TresGroup>
+
+    <!-- Sabon Tasha Community Shop: the southern provision store -->
+    <TresGroup :position="pos3('sabon_tasha_shop', PLAYABLE_POS.sabon_tasha_shop)">
+      <TresMesh :position="[0, 1.9, 0]" cast-shadow :material="brickMat">
+        <TresBoxGeometry :args="[12, 3.8, 9]" />
+      </TresMesh>
+      <TresMesh :position="[0, 4.1, 0]" cast-shadow :material="zincMat">
+        <TresBoxGeometry :args="[13, 0.4, 10.2]" />
+      </TresMesh>
+      <TresMesh :position="[0, 2.3, 4.55]" :material="glassMat">
+        <TresBoxGeometry :args="[7.5, 2, 0.2]" />
+      </TresMesh>
+      <TresMesh :position="[0, 5.2, 4.7]" :material="neonSabon">
+        <TresPlaneGeometry :args="[9, 1.4]" />
+      </TresMesh>
+      <TresMesh :position="[0, 3.4, 5.7]" :rotation="[0.5, 0, 0]" :material="awning2" cast-shadow>
+        <TresBoxGeometry :args="[9.5, 0.12, 2.2]" />
+      </TresMesh>
     </TresGroup>
 
     <!-- floating name labels -->

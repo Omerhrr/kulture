@@ -7,8 +7,10 @@
 # of assuming N frames happened within M milliseconds. Runs the world at
 # low quality (dpr 1, no shadows, lighter rain) to keep frames coming.
 # Run: python scripts/e2e_living_city.py [baseUrl]
+import json
 import re
 import sys
+from urllib import request as _urlreq
 from playwright.sync_api import sync_playwright
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:3000"
@@ -74,6 +76,14 @@ with sync_playwright() as pw:
     ok("world canvas mounts", authed)
     ok("no page errors after load", len(errors) == 0, errors[:3])
 
+    # ---------- district NPCs render (7 named characters now)
+    npc_codes = []
+    npcs_live = poll(page, "window.__kk_npcs && window.__kk_npcs().length >= 7", 12)
+    if npcs_live:
+        npc_codes = page.evaluate("window.__kk_npcs ? window.__kk_npcs() : []")
+    need_npcs = {"npc_mama_chidi", "npc_bashir", "npc_prof_danjuma", "npc_tunde", "npc_ngozi"}
+    ok("district NPCs rendered", need_npcs.issubset(set(npc_codes)), npc_codes)
+
     # ---------- movement (open road first: persisted spawn can sit wedged
     # against a shed, which would block the probe). At walk 5 u/s and the
     # 0.1s dt clamp, ~2 frames are needed per unit; poll generously.
@@ -81,6 +91,29 @@ with sync_playwright() as pw:
     page.wait_for_timeout(600)
     moved, p0, p1 = walk_by_keys(page, "ArrowUp", 0.6, timeout_s=16)
     ok("arrow key movement", moved, f"{p0} -> {p1}")
+
+    # ---------- vehicle collision: you cannot walk through a parked car
+    # (spawn kerb fleet car: PLAYABLE_POS.spawn_roadside + (9, -2.9)). Walk
+    # straight at it and track the closest approach: blocked means the walk
+    # stops ~2.5 u short of the car center instead of crossing it.
+    car_c = [-182.001 + 9.0, 256.449 - 2.9]
+    page.evaluate(f"window.__kk_teleport && window.__kk_teleport({car_c[0]}, {car_c[1] + 6.5})")
+    page.wait_for_timeout(700)
+    page.keyboard.down("ArrowUp")
+    min_z = 999.0
+    deadline = 15000
+    waited = 0
+    while waited < deadline:
+        page.wait_for_timeout(600)
+        waited += 600
+        z = page.evaluate("window.__kk_pos && window.__kk_pos()[1]")
+        if z is None:
+            continue
+        min_z = min(min_z, z)
+        if z < car_c[1] + 2.2:
+            break  # walked into/past the car footprint
+    page.keyboard.up("ArrowUp")
+    ok("parked car blocks the player", min_z > car_c[1] + 2.2, f"closest approach z={min_z} (car center {car_c[1]})")
 
     # ---------- day/night cycle
     t0 = page.evaluate("window.__kk_time && window.__kk_time()")
@@ -251,6 +284,29 @@ with sync_playwright() as pw:
     # ---------- audio wiring
     audio = page.evaluate("window.__kk_audio && window.__kk_audio()")
     ok("audio engine ready", bool(audio and audio.get("ready")), audio)
+
+    # ---------- district content served by the backend
+    try:
+        def _api(method: str, path: str, payload=None, token=None):
+            data = json.dumps(payload).encode() if payload is not None else None
+            req = _urlreq.Request(
+                BASE + path, data=data, method=method,
+                headers={"Content-Type": "application/json", **({"Authorization": "Bearer " + token} if token else {})},
+            )
+            with _urlreq.urlopen(req, timeout=15) as r:
+                return json.loads(r.read())
+
+        tok = _api("POST", "/api/v1/auth/login", {"username": "demo_player", "password": "kaduna-demo-2026"})["access_token"]
+        region = _api("GET", "/api/v1/world/regions/kaduna-city", token=tok)
+        codes = {e["code"] for e in region["entities"]}
+        need = {"textile_market", "kawo_motor_park", "kasu_gate", "rigasa_station", "sabon_tasha_shop"}
+        ok("district spots seeded", need.issubset(codes), sorted(need - codes))
+        jobs = _api("GET", "/api/v1/jobs/available", token=tok)
+        ok("job board has district routes", len(jobs) >= 7, len(jobs))
+        rewards = sorted(int(j["reward_ngn_minor"]) for j in jobs)
+        ok("job rewards tuned by distance", rewards[0] >= 5_000_00 and rewards[-1] >= 15_000_00, [r / 100 for r in rewards])
+    except Exception as e:  # noqa: BLE001
+        ok("district content API reachable", False, str(e)[:120])
 
     ok("no page errors at the end", len(errors) == 0, errors[:4])
     browser.close()

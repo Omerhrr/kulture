@@ -111,11 +111,13 @@ onBeforeRender(({ delta }) => {
     const fr = Math.exp(-(air ? 0.6 : 5) * dt)
     k.vx *= fr
     k.vz *= fr
-    const nx = playerPos.value[0] + k.vx * dt
-    const nz = playerPos.value[2] + k.vz * dt
-    if (!collides(nx, playerPos.value[2])) playerPos.value[0] = nx
+    const ox = playerPos.value[0]
+    const oz = playerPos.value[2]
+    const nx = ox + k.vx * dt
+    const nz = oz + k.vz * dt
+    if (!collides(nx, oz, ox, oz)) playerPos.value[0] = nx
     else k.vx *= -0.3
-    if (!collides(playerPos.value[0], nz)) playerPos.value[2] = nz
+    if (!collides(ox, nz, ox, oz)) playerPos.value[2] = nz
     else k.vz *= -0.3
     const b = bodyRef.value
     if (b) {
@@ -238,9 +240,12 @@ onBeforeRender(({ delta }) => {
       playerPos.value[0] = ux
       playerPos.value[2] = uz
     } else {
-      // axis-separated collision resolution
-      if (!collides(nx, playerPos.value[2])) playerPos.value[0] = nx
-      if (!collides(playerPos.value[0], nz)) playerPos.value[2] = nz
+      // axis-separated collision resolution (origin = current spot, so a
+      // car that stopped on top of us never traps the character)
+      const ox = playerPos.value[0]
+      const oz = playerPos.value[2]
+      if (!collides(nx, oz, ox, oz)) playerPos.value[0] = nx
+      if (!collides(ox, nz, ox, oz)) playerPos.value[2] = nz
     }
     playerFacing.value = Math.atan2(vx, vz)
     playerPos.value[1] = 0

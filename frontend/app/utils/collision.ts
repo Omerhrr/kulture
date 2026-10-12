@@ -4,6 +4,7 @@
 // playable structures rendered by WorldScene.
 
 import { BAKE, clampWorld, PLAYABLE_POS } from './kaduna'
+import { trafficProbe } from './trafficProbe'
 
 export interface Box {
   x: number
@@ -23,7 +24,13 @@ const PLAYABLE: Box[] = [
   { ...at('kaduna_central_market'), w: 54, d: 36 }, // Central Market shed block
   { ...at('arewa_house'), w: 17, d: 13 }, // Arewa House
   { ...at('stonetech_square'), w: 5, d: 5 }, // Stonetech monument
-  { ...at('keke_stop'), w: 11, d: 5 } // keke stop shelter
+  { ...at('keke_stop'), w: 11, d: 5 }, // keke stop shelter
+  // districts
+  { ...at('textile_market'), w: 22, d: 13 }, // fabric stall block
+  { ...at('kawo_motor_park'), w: 17, d: 6 }, // motor park canopy
+  { ...at('kasu_gate'), w: 14, d: 3.4 }, // campus gate arch line
+  { ...at('rigasa_station'), w: 32, d: 7 }, // platform canopy
+  { ...at('sabon_tasha_shop'), w: 13, d: 10 } // community store
 ]
 
 function buildColliders(): Box[] {
@@ -149,7 +156,32 @@ export function setVehicleObstacles(boxes: Box[]) {
   vehicleBoxes = boxes
 }
 
-export function collides(x: number, z: number): boolean {
+/**
+ * Vehicles are solid to anyone on foot: the parked fleet above plus every
+ * live vehicle in the traffic probe (ambient cars, kekes, the train, the
+ * plane and the player's ride). Enter-block semantics: moving INTO a
+ * vehicle is blocked, but a vehicle that stopped on top of you never traps
+ * you - walking out of it stays allowed.
+ */
+function entersVehicle(ox: number, oz: number, x: number, z: number, r: number): boolean {
+  for (const b of vehicleBoxes) {
+    if (Math.abs(x - b.x) >= b.w / 2 + r || Math.abs(z - b.z) >= b.d / 2 + r) continue
+    if (Math.abs(ox - b.x) < b.w / 2 + r && Math.abs(oz - b.z) < b.d / 2 + r) continue
+    return true
+  }
+  for (const c of trafficProbe.cars) {
+    const rr = c.r * 0.85 + r
+    const dx = x - c.x
+    const dz = z - c.z
+    if (dx * dx + dz * dz >= rr * rr) continue
+    const d0x = ox - c.x
+    const d0z = oz - c.z
+    if (d0x * d0x + d0z * d0z >= rr * rr) return true
+  }
+  return false
+}
+
+export function collides(x: number, z: number, ox = x, oz = z): boolean {
   if (interiorWalls) {
     for (const b of interiorWalls) {
       if (Math.abs(x - b.x) < b.w / 2 + PLAYER_RADIUS && Math.abs(z - b.z) < b.d / 2 + PLAYER_RADIUS) {
@@ -163,16 +195,12 @@ export function collides(x: number, z: number): boolean {
       return true
     }
   }
-  for (const b of vehicleBoxes) {
-    if (Math.abs(x - b.x) < b.w / 2 + PLAYER_RADIUS && Math.abs(z - b.z) < b.d / 2 + PLAYER_RADIUS) {
-      return true
-    }
-  }
+  if (entersVehicle(ox, oz, x, z, PLAYER_RADIUS)) return true
   return false
 }
 
 /** Pedestrians use a smaller radius when testing the same boxes. */
-export function collidesRadius(x: number, z: number, r: number): boolean {
+export function collidesRadius(x: number, z: number, r: number, ox = x, oz = z): boolean {
   if (interiorWalls) {
     for (const b of interiorWalls) {
       if (Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r) return true
@@ -180,6 +208,7 @@ export function collidesRadius(x: number, z: number, r: number): boolean {
     return false
   }
   if (hitsBuilding(x, z, r)) return true
+  if (entersVehicle(ox, oz, x, z, r)) return true
   return false
 }
 

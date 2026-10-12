@@ -21,7 +21,7 @@ from app.db.session import AsyncSessionLocal, engine
 from app.api.router import api_root
 from app.models import Base
 from app.models.world import WorldRegion
-from app.seed.seed_data import reconcile_world_scale, seed_if_empty
+from app.seed.seed_data import reconcile_content, reconcile_world_scale, seed_if_empty
 from app.workers.runner import start_all
 
 logging.basicConfig(
@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
             moved = await reconcile_world_scale(db)
             if moved:
                 log.info("World rescaled to x%s: %d rows updated.", settings.world_scale, moved)
+        content = await reconcile_content(db)
+        if content:
+            log.info("District content reconciled: %d rows added.", content)
     workers = start_all()
     log.info("Kaduna Kulture backend up (env=%s, lightning=%s)", settings.env, settings.lightning_provider)
     try:

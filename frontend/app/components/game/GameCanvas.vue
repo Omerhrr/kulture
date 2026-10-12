@@ -7,8 +7,21 @@ import { getQuality } from '~/utils/quality'
 const world = useWorldStore()
 const low = getQuality() === 'low'
 
-const musa = computed(() => world.npcEntities.find((e) => e.code === 'npc_musa'))
-const amina = computed(() => world.npcEntities.find((e) => e.code === 'npc_amina'))
+// Distinct look per server NPC (positions come from the world store).
+const NPC_LOOKS: Record<string, { female?: boolean; shirt: string; hairStyle?: 'cap' | 'afro' | 'braids' | 'bald'; beard?: boolean }> = {
+  npc_musa: { shirt: '#efe8d6', hairStyle: 'cap', beard: true },
+  npc_amina: { female: true, shirt: '#3f6fae', hairStyle: 'braids' },
+  npc_mama_chidi: { female: true, shirt: '#8a3a5a', hairStyle: 'braids' },
+  npc_bashir: { shirt: '#2e7d5b', hairStyle: 'cap', beard: true },
+  npc_prof_danjuma: { shirt: '#4a6a8a', hairStyle: 'afro', beard: true },
+  npc_tunde: { shirt: '#c47a2a', hairStyle: 'cap' },
+  npc_ngozi: { female: true, shirt: '#a84a6a', hairStyle: 'braids' }
+}
+const npcs = computed(() =>
+  world.npcEntities
+    .filter((e) => NPC_LOOKS[e.code])
+    .map((e) => ({ code: e.code, x: e.position[0], z: e.position[2], ...NPC_LOOKS[e.code] }))
+)
 
 // mount telemetry (headless debugging)
 onMounted(() => {
@@ -19,6 +32,9 @@ onUnmounted(() => {
   const w = window as any
   w.__kk_canvas_unmounts = (w.__kk_canvas_unmounts || 0) + 1
 })
+if (import.meta.dev) {
+  ;(window as any).__kk_npcs = () => npcs.value.map((n) => n.code)
+}
 </script>
 
 <template>
@@ -41,23 +57,6 @@ onUnmounted(() => {
     <RideSystem />
     <Interiors />
     <PlayerAvatar />
-    <NpcAvatar
-      v-if="musa"
-      :x="musa.position[0]"
-      :z="musa.position[2]"
-      name="Mallam Musa"
-      shirt="#efe8d6"
-      hair-style="cap"
-      :beard="true"
-    />
-    <NpcAvatar
-      v-if="amina"
-      :x="amina.position[0]"
-      :z="amina.position[2]"
-      name="Hajiya Amina"
-      :female="true"
-      shirt="#3f6fae"
-      hair-style="braids"
-    />
+    <NpcAvatar v-for="n in npcs" :key="n.code" :x="n.x" :z="n.z" :name="n.code" :female="n.female" :shirt="n.shirt" :hair-style="n.hairStyle" :beard="n.beard" />
   </TresCanvas>
 </template>

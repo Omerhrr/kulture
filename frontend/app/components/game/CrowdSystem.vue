@@ -254,8 +254,12 @@ const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)]
 
 let torsoM: THREE.InstancedMesh | null = null
 let headM: THREE.InstancedMesh | null = null
+// jointed limbs: upper + lower segment per side (the same rig the player
+// avatar uses, so the crowd walks with real knees and elbows)
 let legM: THREE.InstancedMesh | null = null
+let legM2: THREE.InstancedMesh | null = null
 let armM: THREE.InstancedMesh | null = null
+let armM2: THREE.InstancedMesh | null = null
 let trayM: THREE.InstancedMesh | null = null
 // face + dress meshes
 let eyesM: THREE.InstancedMesh | null = null
@@ -324,13 +328,23 @@ onMounted(() => {
   const neck = new THREE.CylinderGeometry(0.052, 0.058, 0.12, 8)
   neck.translate(0, 1.56, 0.005)
   const headGeo = mergeGeos([skull, jaw, neck])
-  const legGeo = new THREE.CapsuleGeometry(0.07, 0.72, 3, 8)
-  legGeo.translate(0, -0.44, 0)
+  // two-segment legs (thigh -> knee -> shin + shoe), matching CharacterAvatar
+  const thigh = new THREE.CapsuleGeometry(0.075, 0.34, 3, 8)
+  thigh.translate(0, -0.26, 0)
+  const shin = new THREE.CapsuleGeometry(0.058, 0.3, 3, 8)
+  shin.translate(0, -0.23, 0)
   const foot = new THREE.BoxGeometry(0.1, 0.08, 0.25)
-  foot.translate(0, -0.86, 0.05)
-  const legFull = mergeGeos([legGeo, foot])
-  const armGeo = new THREE.CapsuleGeometry(0.05, 0.5, 3, 8)
-  armGeo.translate(0, -0.3, 0)
+  foot.translate(0, -0.42, 0.05)
+  const legLower = mergeGeos([shin, foot])
+  // two-segment arms (upper arm -> elbow -> forearm + hand)
+  const upArm = new THREE.CapsuleGeometry(0.05, 0.24, 3, 8)
+  upArm.translate(0, -0.16, 0)
+  const fore = new THREE.CapsuleGeometry(0.042, 0.2, 3, 8)
+  fore.translate(0, -0.15, 0)
+  const hand = new THREE.SphereGeometry(0.046, 8, 6)
+  hand.scale(0.8, 1.15, 0.6)
+  hand.translate(0, -0.28, 0.01)
+  const armLower = mergeGeos([fore, hand])
   const trayGeo = new THREE.BoxGeometry(0.55, 0.06, 0.55)
   trayGeo.translate(0, 1.86, 0)
   const goodsGeo = new THREE.BoxGeometry(0.34, 0.16, 0.34)
@@ -399,8 +413,10 @@ onMounted(() => {
   const plain = (color: string) => new THREE.MeshLambertMaterial({ color })
   torsoM = new THREE.InstancedMesh(torsoGeo, new THREE.MeshLambertMaterial(), TOTAL)
   headM = new THREE.InstancedMesh(headGeo, new THREE.MeshLambertMaterial(), TOTAL)
-  legM = new THREE.InstancedMesh(legFull, new THREE.MeshLambertMaterial(), TOTAL * 2)
-  armM = new THREE.InstancedMesh(armGeo, new THREE.MeshLambertMaterial(), TOTAL * 2)
+  legM = new THREE.InstancedMesh(thigh, new THREE.MeshLambertMaterial(), TOTAL * 2)
+  legM2 = new THREE.InstancedMesh(legLower, new THREE.MeshLambertMaterial(), TOTAL * 2)
+  armM = new THREE.InstancedMesh(upArm, new THREE.MeshLambertMaterial(), TOTAL * 2)
+  armM2 = new THREE.InstancedMesh(armLower, new THREE.MeshLambertMaterial(), TOTAL * 2)
   trayM = new THREE.InstancedMesh(trayFull, new THREE.MeshLambertMaterial(), TOTAL)
   eyesM = new THREE.InstancedMesh(eyesGeo, plain('#f2f0ea'), TOTAL)
   pupilsM = new THREE.InstancedMesh(pupilsGeo, plain('#14100e'), TOTAL)
@@ -412,7 +428,7 @@ onMounted(() => {
   skirtM = new THREE.InstancedMesh(skirtGeo, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), TOTAL)
 
   torsoM.castShadow = headM.castShadow = legM.castShadow = true
-  const all = [torsoM, headM, legM, armM, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]
+  const all = [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]
   // ---- things people carry
   const bagGeo = mergeGeos([
     new THREE.BoxGeometry(0.3, 0.32, 0.12).translate(0, -0.2, 0),
@@ -473,9 +489,14 @@ onMounted(() => {
     c.set(skin)
     headM!.setColorAt(i, c)
     noseM!.setColorAt(i, c)
+    // jointed limbs: females wear the dress outfit (legs = skin, like the
+    // player avatar), males keep trousers; forearms and hands are skin
+    const legColor = p.female ? skin : trouser
     for (let k = 0; k < 2; k++) {
-      legM!.setColorAt(i * 2 + k, c.set(trouser))
+      legM!.setColorAt(i * 2 + k, c.set(legColor))
+      legM2!.setColorAt(i * 2 + k, c.set(legColor))
       armM!.setColorAt(i * 2 + k, c.set(shirt))
+      armM2!.setColorAt(i * 2 + k, c.set(skin))
     }
     c.set(pick(colors.goods))
     trayM!.setColorAt(i, c)
@@ -491,7 +512,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  for (const m of [torsoM, headM, legM, armM, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]) m?.dispose()
+  for (const m of [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]) m?.dispose()
 })
 
 // ---------------------------------------------------------------- update
@@ -500,6 +521,7 @@ const itemM = new THREE.Matrix4()
 const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0)
 const localM = new THREE.Matrix4()
 const partM = new THREE.Matrix4()
+const chainM = new THREE.Matrix4()
 const posV = new THREE.Vector3()
 const scaleV = new THREE.Vector3()
 const oneV = new THREE.Vector3(1, 1, 1)
@@ -513,19 +535,44 @@ function setPart(mesh: THREE.InstancedMesh, i: number, root: THREE.Matrix4, px: 
   mesh.setMatrixAt(i, partM)
 }
 
-/** Move with wall sliding; returns false when fully blocked. */
+/** Jointed limb, exactly how CharacterAvatar animates: an upper segment
+ *  pivoting at the root (hip / shoulder) and a lower segment pivoting at
+ *  the joint (knee / elbow). upper[i] + lower[i] share the side slot. */
+function twoSeg(
+  upper: THREE.InstancedMesh,
+  lower: THREE.InstancedMesh,
+  i: number,
+  root: THREE.Matrix4,
+  px: number,
+  py: number,
+  pz: number,
+  rx: number,
+  jointLen: number,
+  jrx: number
+) {
+  localM.compose(posV.set(px, py, pz), q.setFromEuler(eul.set(rx, 0, 0)), oneV)
+  partM.multiplyMatrices(root, localM)
+  upper.setMatrixAt(i, partM)
+  localM.compose(posV.set(0, jointLen, 0), q.setFromEuler(eul.set(jrx, 0, 0)), oneV)
+  chainM.multiplyMatrices(partM, localM)
+  lower.setMatrixAt(i, chainM)
+}
+
+/** Move with wall + vehicle sliding; returns false when fully blocked.
+ *  The current position is passed as the origin so a pedestrian caught
+ *  under a car can always walk out, but never walk into one. */
 function slideMove(p: Ped, mx: number, mz: number): boolean {
   const r = 0.34
-  if (!collidesRadius(p.x + mx, p.z + mz, r)) {
+  if (!collidesRadius(p.x + mx, p.z + mz, r, p.x, p.z)) {
     p.x += mx
     p.z += mz
     return true
   }
-  if (mx !== 0 && !collidesRadius(p.x + mx, p.z, r)) {
+  if (mx !== 0 && !collidesRadius(p.x + mx, p.z, r, p.x, p.z)) {
     p.x += mx
     return true
   }
-  if (mz !== 0 && !collidesRadius(p.x, p.z + mz, r)) {
+  if (mz !== 0 && !collidesRadius(p.x, p.z + mz, r, p.x, p.z)) {
     p.z += mz
     return true
   }
@@ -810,8 +857,11 @@ onBeforeRender(({ delta, elapsed }) => {
     const p = peds[i]
     const walking =
       p.kind === 'walker' || p.kind === 'hawker' || p.kind === 'kid' || (p.kind === 'shopper' && Math.hypot(p.tx - p.x, p.tz - p.z) > 0.8)
+    const wk = walking ? 1 : 0
     const sw = walking ? Math.sin(p.swing) : 0
     const s = p.height
+    // gait bob, same amplitude the player avatar uses
+    const bobY = walking ? Math.abs(Math.cos(p.swing)) * 0.035 - 0.012 : 0
 
     const kt = p.knock ?? -1
     if (kt >= 0) {
@@ -823,15 +873,23 @@ onBeforeRender(({ delta, elapsed }) => {
       )
       eul.order = 'XYZ'
     } else {
-      rootM.compose(posV.set(p.x, 0, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
+      rootM.compose(posV.set(p.x, bobY, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
     }
     torsoM.setMatrixAt(i, rootM)
     headM.setMatrixAt(i, rootM)
-    setPart(legM, i * 2, rootM, -0.1, 0.94, 0, sw * 0.5)
-    setPart(legM, i * 2 + 1, rootM, 0.1, 0.94, 0, -sw * 0.5)
-    const armBase = p.kind === 'worker' ? -0.9 + Math.sin(elapsed * 6 + p.phase) * 0.55 : 0
-    setPart(armM, i * 2, rootM, -0.225, 1.43, 0, p.kind === 'worker' ? armBase : -sw * 0.42)
-    setPart(armM, i * 2 + 1, rootM, 0.225, 1.43, 0, p.kind === 'worker' ? armBase : sw * 0.42)
+    // legs: hip swing + knee flex that peaks mid-swing (the player's gait)
+    const stride = p.female ? 0.32 : 0.5
+    const kneeAmp = p.female ? 0.5 : 0.72
+    const kneeL = 0.08 + Math.max(0, Math.sin(p.swing - 1.2)) * kneeAmp * wk
+    const kneeR = 0.08 + Math.max(0, Math.sin(p.swing - 1.2 + Math.PI)) * kneeAmp * wk
+    twoSeg(legM, legM2, i * 2, rootM, -0.1, 0.94, 0, -sw * stride, -0.47, kneeL)
+    twoSeg(legM, legM2, i * 2 + 1, rootM, 0.1, 0.94, 0, sw * stride, -0.47, kneeR)
+    // arms counter-swing the legs like the player rig, elbows bent
+    const hammer = p.kind === 'worker' ? -0.9 + Math.sin(elapsed * 6 + p.phase) * 0.55 : 0
+    const shL = p.kind === 'worker' ? hammer : sw * 0.42
+    const shR = p.kind === 'worker' ? hammer : -sw * 0.42
+    const elL = p.kind === 'worker' ? -0.5 : -(0.22 + Math.max(0, sw) * 0.25) * wk - 0.12
+    const elR = p.kind === 'worker' ? -0.5 : -(0.22 + Math.max(0, -sw) * 0.25) * wk - 0.12
     // face follows the head; hide per kind
     eyesM.setMatrixAt(i, rootM)
     pupilsM.setMatrixAt(i, rootM)
@@ -842,8 +900,6 @@ onBeforeRender(({ delta, elapsed }) => {
       hairM.setMatrixAt(i, partM.makeScale(0, 0, 0))
       hijabM.setMatrixAt(i, rootM)
       skirtM.setMatrixAt(i, rootM)
-      setPart(legM, i * 2, rootM, -0.1, 0.94, 0, sw * 0.3)
-      setPart(legM, i * 2 + 1, rootM, 0.1, 0.94, 0, -sw * 0.3)
     } else {
       hairM.setMatrixAt(i, rootM)
       hijabM.setMatrixAt(i, partM.makeScale(0, 0, 0))
@@ -857,33 +913,41 @@ onBeforeRender(({ delta, elapsed }) => {
 
     // carried items + umbrellas (rain)
     if (bagM && phoneM && basinM && packM && caseM && umbM) {
-      const down = (kt >= 0)
+      const down = kt >= 0
       const it = down ? 0 : p.item ?? 0
       const umb = !down && p.umbrella && rainNow > 0.25
-      const swingR = p.kind === 'worker' ? 0 : sw * 0.42
-      // right hand position at the end of the swinging arm
-      const handY = 1.43 - 0.6 * Math.cos(swingR)
-      const handZ = 0.6 * Math.sin(-swingR) * -1
+      // right hand lands where the two-segment arm ends
+      const handY = 1.43 - 0.29 * Math.cos(shR) - 0.29 * Math.cos(shR + elR)
+      const handZ = -0.29 * Math.sin(shR) - 0.29 * Math.sin(shR + elR)
       const ZM = ZERO_M
       bagM.setMatrixAt(i, it === 1 ? (localM.makeTranslation(0.25, handY, handZ), itemM.multiplyMatrices(rootM, localM)) : ZM)
       caseM.setMatrixAt(i, it === 5 ? (localM.makeTranslation(0.25, handY, handZ), itemM.multiplyMatrices(rootM, localM)) : ZM)
       basinM.setMatrixAt(i, it === 3 && !umb ? (localM.makeTranslation(0, 1.81, 0), itemM.multiplyMatrices(rootM, localM)) : ZM)
       packM.setMatrixAt(i, it === 4 ? (localM.makeTranslation(0, 1.25, -0.18), itemM.multiplyMatrices(rootM, localM)) : ZM)
       if (it === 2 && !umb) {
-        // phone held up to the ear / face: left arm raised
-        setPart(armM, i * 2, rootM, -0.225, 1.43, 0, -2.25)
+        // phone held up to the ear: left arm raised, elbow bent to the face
+        twoSeg(armM, armM2, i * 2, rootM, -0.225, 1.43, 0, -1.15, -0.29, -1.15)
         localM.compose(posV.set(-0.13, 1.66, 0.09), q.setFromEuler(eul.set(0, 0.4, 0)), oneV)
         phoneM.setMatrixAt(i, itemM.multiplyMatrices(rootM, localM))
-      } else phoneM.setMatrixAt(i, ZM)
+      } else {
+        twoSeg(armM, armM2, i * 2, rootM, -0.225, 1.43, 0, shL, -0.29, elL)
+        phoneM.setMatrixAt(i, ZM)
+      }
       if (umb) {
         // umbrella held up in the right hand, canopy over the head
-        setPart(armM, i * 2 + 1, rootM, 0.225, 1.43, 0, -2.0)
+        twoSeg(armM, armM2, i * 2 + 1, rootM, 0.225, 1.43, 0, -1.75, -0.29, -0.55)
         localM.compose(posV.set(0.16, 1.62, 0.18), q.setFromEuler(eul.set(-0.15, 0, -0.12)), oneV)
         umbM.setMatrixAt(i, itemM.multiplyMatrices(rootM, localM))
-      } else umbM.setMatrixAt(i, ZM)
+      } else {
+        twoSeg(armM, armM2, i * 2 + 1, rootM, 0.225, 1.43, 0, shR, -0.29, elR)
+        umbM.setMatrixAt(i, ZM)
+      }
+    } else {
+      twoSeg(armM, armM2, i * 2, rootM, -0.225, 1.43, 0, shL, -0.29, elL)
+      twoSeg(armM, armM2, i * 2 + 1, rootM, 0.225, 1.43, 0, shR, -0.29, elR)
     }
   }
-  for (const m of [torsoM, headM, legM, armM, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM, bagM, phoneM, basinM, packM, caseM, umbM]) {
+  for (const m of [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM, bagM, phoneM, basinM, packM, caseM, umbM]) {
     if (m) m.instanceMatrix.needsUpdate = true
   }
 
@@ -966,12 +1030,13 @@ if (import.meta.dev) {
       .slice(0, 6)
       .map((p) => [p.stage, Math.round(p.crossTimer)])
   })
-  ;(window as any).__kk_nearest_ped = () => {
+  ;(window as any).__kk_nearest_ped = (kind?: string) => {
     const px = playerPos.value[0]
     const pz = playerPos.value[2]
     let best: Ped | null = null
     let bestD = Infinity
     for (const p of peds) {
+      if (kind && p.kind !== kind) continue
       const d = Math.hypot(p.x - px, p.z - pz)
       if (d < bestD) {
         bestD = d

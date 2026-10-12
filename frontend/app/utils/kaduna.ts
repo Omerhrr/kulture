@@ -99,7 +99,17 @@ const PLAYABLE_CLEAR: Record<string, number> = {
   keke_stop: 9,
   spawn_roadside: 2,
   npc_musa: 2,
-  npc_amina: 2
+  npc_amina: 2,
+  textile_market: 13,
+  kawo_motor_park: 12,
+  kasu_gate: 11,
+  rigasa_station: 13,
+  sabon_tasha_shop: 10,
+  npc_mama_chidi: 2,
+  npc_bashir: 2,
+  npc_prof_danjuma: 2,
+  npc_tunde: 2,
+  npc_ngozi: 2
 }
 const PLAYABLE_RAW: Record<string, [number, number]> = {
   spawn_roadside: [-60.667, 85.483],
@@ -110,7 +120,18 @@ const PLAYABLE_RAW: Record<string, [number, number]> = {
   stonetech_square: [-42.0, 350.0],
   keke_stop: [-245.0, 417.05],
   npc_musa: [-50.5, 82.583],
-  npc_amina: [-43.667, 349.333]
+  npc_amina: [-43.667, 349.333],
+  // districts (see seed_data.py ENTITIES - same raw coordinates)
+  textile_market: [-186.0, 640.0],
+  kawo_motor_park: [76.0, -546.0],
+  kasu_gate: [114.0, 108.0],
+  rigasa_station: [-943.0, -134.0],
+  sabon_tasha_shop: [252.0, 1042.0],
+  npc_mama_chidi: [-181.0, 631.0],
+  npc_bashir: [69.0, -542.0],
+  npc_prof_danjuma: [107.0, 104.0],
+  npc_tunde: [-936.0, -130.0],
+  npc_ngozi: [246.0, 1036.0]
 }
 
 
