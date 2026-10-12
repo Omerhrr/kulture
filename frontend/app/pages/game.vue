@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useSimStore } from '~/stores/sim'
 // Game page - auth gate, world bootstrap, socket wiring, panel orchestration.
 
 import { unstick } from '~/utils/collision'
@@ -24,6 +25,8 @@ const authError = ref('')
 const authBusy = ref(false)
 
 const ready = ref(false)
+const sim = useSimStore()
+const phoneOpen = useState<boolean>('kk_phone_open', () => false)
 // true until we know whether a saved session exists (avoids login flash)
 const booting = ref(true)
 const showHint = ref(true)
@@ -62,6 +65,9 @@ function onKey(e: KeyboardEvent) {
   }
   if (e.key === 'e' || e.key === 'E') tryInteract()
   if (e.key === 'Escape') {
+    const ask = useState<boolean>('kk_ask_open')
+    if (ask.value) return void (ask.value = false)
+    if (phoneOpen.value) return void (phoneOpen.value = false)
     if (mapOpen.value) mapOpen.value = false
     else ui.closeAll()
   }
@@ -105,6 +111,7 @@ onMounted(async () => {
     window.addEventListener('kk-do-interact', tryInteract)
   player.token = localStorage.getItem('kk_token') || ''
   player.authenticated = !!player.token
+  sim.load()
   booting.value = false
   hintTimer = setTimeout(() => (showHint.value = false), 15000)
   if (!player.authenticated) return
@@ -269,9 +276,15 @@ function fmtNgn(minor: number) {
 
     <!-- in-game UI -->
     <template v-if="ready && player.authenticated">
-      <Hud @open="(p) => ui.open(p)" />
-      <ObjectiveTracker />
-      <Minimap v-show="!ui.openPanel" />
+      <SimHud @settings="phoneOpen = true">
+        <ObjectiveTracker />
+      </SimHud>
+      <Minimap v-show="!ui.openPanel && !sim.cleanScreen" />
+      <Dock v-show="!sim.cleanScreen" />
+      <Phone />
+      <AskSheet />
+      <Tour v-if="sim.created && !sim.tourDone" />
+      <CharacterCreator v-if="!sim.created" />
       <MapOverlay />
       <MobileControls />
       <InteractionPrompt />
@@ -348,11 +361,11 @@ function fmtNgn(minor: number) {
       <!-- controls hint (sits directly on the 3D world) -->
       <div
         v-if="!isTouch && !showHint"
-        class="pointer-events-auto absolute bottom-4 left-4 z-20"
+        class="pointer-events-auto absolute bottom-24 left-4 z-20"
       ><button class="kk-btn-ghost !px-3 !py-1.5 text-xs" @click="showHint = true">? Controls</button></div>
       <div
         v-else-if="!isTouch"
-        class="pointer-events-auto absolute bottom-4 left-4 cursor-pointer z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
+        class="pointer-events-auto absolute bottom-24 left-4 cursor-pointer z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
         <div>WASD or arrows to walk · Shift to sprint · click the ground to go there · Y weather</div>
         <div>E talk, board a keke, car, okada, bus, boat or plane, or enter homes · V inner view</div>

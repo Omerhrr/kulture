@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useSimStore } from '~/stores/sim'
+import { usePlayerPose } from '~/composables/useControlsState'
 // PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
 // Inputs: WASD / arrow keys, the touch joystick (mobile), plus
@@ -20,6 +22,9 @@ const { onBeforeRender } = useLoop()
 
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const playerFacing = useState<number>('kk_player_facing', () => 0)
+const sim = useSimStore()
+const pose = usePlayerPose()
+const lookKey = computed(() => JSON.stringify(sim.look))
 const proximity = useState<{ entityId: string; name: string; code: string } | null>(
   'kk_proximity',
   () => null
@@ -305,13 +310,17 @@ onBeforeRender(({ delta }) => {
     <TresGroup ref="bodyRef">
     <CharacterAvatar
       v-if="!ride.active"
-      shirt="#2e7d5b"
-      trouser="#2b3440"
-      :kufi="true"
-      hair-style="cap"
-      outfit="kaftan"
-      :beard="true"
-      :mode="walking ? 'walk' : 'idle'"
+      :key="lookKey"
+      :shirt="sim.look.top"
+      :trouser="sim.look.bottom"
+      :skin="sim.look.skin"
+      :kufi="sim.look.hair === 'cap'"
+      :hijab="sim.look.outfit === 'dress'"
+      :hair-style="sim.look.hair"
+      :hair-color="sim.look.hairColor"
+      :outfit="sim.look.outfit"
+      :beard="sim.look.body === 'man' && sim.look.hair !== 'braids'"
+      :mode="pose ?? (walking ? 'walk' : 'idle')"
       :gait-speed="sprinting ? 15 : 10.5"
     />
     </TresGroup>

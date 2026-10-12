@@ -56,7 +56,7 @@ const kindLabel: Record<string, string> = {
       <div v-else-if="doorPrompt && !ui.anyBlocking" class="kk-panel pointer-events-auto px-5 py-3.5 text-center">
         <div class="font-display text-base font-semibold text-ink">{{ doorPrompt.label }}</div>
         <button class="kk-btn-primary mt-2" @click="fireKkEvent('kk-door-use')">
-          {{ doorPrompt.action === 'enter' ? 'Walk in' : 'Step out' }}
+          {{ doorPrompt.button ?? (doorPrompt.action === 'enter' ? 'Walk in' : 'Step out') }}
           <span class="ml-1 rounded-md bg-white/20 px-1.5 py-0.5 text-[10px]">E</span>
         </button>
       </div>

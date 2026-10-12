@@ -192,7 +192,16 @@ chest.add(head)
     }
   } else {
     // hijab wraps the head and drapes over the shoulders
-    head.add(ball(0.13, M.cap, 0, 0.012, -0.012, 0.95, 1.08, 1.02, 18))
+    // an open hood: the sphere leaves a face opening at the front (+z)
+    const open = 2.0 // radians of the face opening
+    const hood = new THREE.Mesh(new THREE.SphereGeometry(0.128, 22, 16, Math.PI / 2 + open / 2, Math.PI * 2 - open, 0, Math.PI * 0.82), M.cap)
+    hood.position.set(0, 0.012, -0.012)
+    hood.scale.set(0.95, 1.08, 1.02)
+    ;(hood.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide
+    hood.castShadow = true
+    head.add(hood)
+    // soft band framing the face
+    head.add(mesh(new THREE.TorusGeometry(0.098, 0.014, 8, 20, Math.PI * 1.25), M.cap, 0, 0.0, 0.068).rotateZ(-Math.PI * 0.125 + Math.PI / 2 - Math.PI * 0.5))
     const drape = mesh(new THREE.CylinderGeometry(0.11, 0.26, 0.3, 18, 1, true), M.cap, 0, -0.17, -0.01)
     drape.scale.z = 0.85
     ;(drape.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide

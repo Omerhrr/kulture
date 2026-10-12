@@ -121,7 +121,7 @@ defineExpose({ reset })
 </script>
 
 <template>
-  <div class="pointer-events-auto absolute left-3 top-[5.6rem] z-20 sm:left-4 sm:top-24">
+  <div class="pointer-events-auto">
     <button v-if="hidden" class="kk-btn-ghost !px-3 !py-1.5 text-xs" @click="reset">🎯 Guide</button>
     <div v-else-if="collapsed" class="kk-panel flex cursor-pointer items-center gap-2 px-3 py-2" @click="collapsed = false">
       <span class="text-xs font-extrabold text-kadeep">{{ Math.min(index + 1, 6) }}/6</span>

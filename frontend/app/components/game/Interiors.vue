@@ -14,7 +14,10 @@ import { setInteriorWalls, type Box } from '~/utils/collision'
 import { makeLabelTexture } from '~/utils/sign'
 import { useInterior, useDoorPrompt, useRide, useCamOrbit } from '~/composables/useControlsState'
 import { housePlacements, NW, ND } from '~/utils/housing'
-import { buildRoom, cutaway, type BuiltRoom } from '~/utils/interiorRoom'
+import { buildRoom, cutaway, type BuiltRoom, type Hotspot } from '~/utils/interiorRoom'
+import { useSimStore, type NeedKey } from '~/stores/sim'
+import { usePlayerPose, fireKkEvent, useMoveTarget } from '~/composables/useControlsState'
+import { PLAYABLE_POS } from '~/utils/kaduna'
 
 const ride = useRide()
 const interior = useInterior()
@@ -22,6 +25,58 @@ const doorPrompt = useDoorPrompt()
 const orbit = useCamOrbit()
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const ctx = useTresContext() as any
+const sim = useSimStore()
+const pose = usePlayerPose()
+const playerFacing = useState<number>('kk_player_facing', () => 0)
+
+// what each appliance does (real seconds, need points)
+const ACTS: Record<Hotspot['id'], { label: string; button: string; need: NeedKey; gain: number; dur: number; sit?: boolean; sleep?: boolean }> = {
+  fridge: { label: 'Fridge', button: 'Grab a snack', need: 'hunger', gain: 30, dur: 3 },
+  cooker: { label: 'Gas cooker', button: 'Cook jollof', need: 'hunger', gain: 70, dur: 7 },
+  bed: { label: 'Bed', button: 'Sleep', need: 'energy', gain: 100, dur: 8, sleep: true },
+  tv: { label: 'TV', button: 'Watch TV', need: 'fun', gain: 45, dur: 6, sit: true },
+  toilet: { label: 'Toilet', button: 'Use the toilet', need: 'bladder', gain: 100, dur: 3 },
+  shower: { label: 'Shower', button: 'Take a baff', need: 'hygiene', gain: 100, dur: 5 }
+}
+let pendingSpot: { spot: Hotspot; wx: number; wz: number; fwx: number; fwz: number } | null = null
+let actAt: [number, number] | null = null
+let sleptSkips = 0
+const moveTarget = useMoveTarget()
+const ui = useUiStore()
+
+// ---------------------------------------------------------------- your home
+// The family house closest to where you start is yours. "Home" on the dock
+// walks you to its gate (the server only accepts real movement) and lets you in.
+let homeIdx = -1
+let goingHome = false
+function homeDoor(): Door | null {
+  if (homeIdx < 0) {
+    const [sx, sz] = PLAYABLE_POS.spawn_roadside
+    let bd = Infinity
+    for (const [i, pl] of housePlacements().entries()) {
+      if (pl.type === 'shops' || pl.type === 'open') continue
+      const d = Math.hypot(pl.x - sx, pl.z - sz)
+      if (d < bd) (bd = d), (homeIdx = i)
+    }
+  }
+  const d = doorForPlacement(homeIdx)
+  if (d) d.house.name = 'Your home'
+  return d
+}
+function goHome() {
+  if (interior.value.inside) {
+    ui.showToast(active?.door.house.name === 'Your home' ? "You're home. Use the fridge, bed or shower." : 'Step out first, then tap Home.', 'info')
+    return
+  }
+  const d = homeDoor()
+  if (!d) return
+  const [fx, fz] = doorFront(d.house)
+  const dist = Math.hypot(playerPos.value[0] - fx, playerPos.value[2] - fz)
+  if (dist < 2.2) return enter(d)
+  goingHome = true
+  moveTarget.value = { x: fx + d.house.nx * 0.6, z: fz + d.house.nz * 0.6 }
+  ui.showToast(`Walking home · ${Math.round(dist)} m`, 'info')
+}
 
 const root = new THREE.Group()
 
@@ -89,6 +144,7 @@ onMounted(() => {
     if (!a) doorGrid.set(k, (a = []))
     a.push([fx, fz, i])
   }
+  homeDoor()
 })
 
 function nearestHouseDoor(px: number, pz: number, r: number): number {
@@ -165,7 +221,38 @@ function enter(door: Door) {
   orbit.value.yaw = rot + 0.55
 }
 
+/** local room coords -> world (room is rotated by `rot` about the house centre) */
+function toWorld(lx: number, lz: number): [number, number] {
+  const a = active!
+  const c = Math.cos(a.rot)
+  const sn = Math.sin(a.rot)
+  const h = a.door.house
+  return [h.x + lx * c + lz * sn, h.z - lx * sn + lz * c]
+}
+
+function startUse() {
+  if (!pendingSpot) return
+  const { spot, wx, wz, fwx, fwz } = pendingSpot
+  const a = ACTS[spot.id]
+  let gain = a.gain
+  if (a.need === 'hunger' && sim.traits.includes('foodie')) gain *= 1.25
+  sim.activity = { id: spot.id, label: a.button, need: a.need, gain, dur: a.dur, t: 0 }
+  playerPos.value = [wx, playerPos.value[1], wz]
+  playerFacing.value = Math.atan2(fwx - wx, fwz - wz)
+  actAt = [wx, wz]
+  pose.value = a.sit ? 'sit' : 'idle'
+  sleptSkips = 0
+  doorPrompt.value = null
+}
+function endUse() {
+  sim.activity = null
+  pose.value = null
+  actAt = null
+  sim.save()
+}
+
 function exit() {
+  if (sim.activity) endUse()
   if (!active) return
   const h = active.door.house
   setInteriorWalls(null)
@@ -192,6 +279,20 @@ onBeforeRender(({ delta }) => {
       cutaway(active.room, camLocal.x, camLocal.z)
     }
   }
+  // furniture in use: refill the need over the action's duration
+  const act = sim.activity
+  if (act && active) {
+    const dt = Math.min(delta || 0.016, 0.25)
+    act.t += dt
+    sim.bump(act.need, (act.gain / act.dur) * dt)
+    // sleeping passes the night: 6 in-game hours over the action
+    if (ACTS[act.id as Hotspot['id']]?.sleep && sleptSkips < 3 && act.t > ((sleptSkips + 1) * act.dur) / 4) {
+      sleptSkips++
+      fireKkEvent('kk-time-skip')
+    }
+    const moved = actAt && Math.hypot(playerPos.value[0] - actAt[0], playerPos.value[2] - actAt[1]) > 0.35
+    if (act.t >= act.dur || moved) endUse()
+  }
   scanTimer += delta || 0
   if (scanTimer < 0.18) return
   scanTimer = 0
@@ -201,6 +302,17 @@ onBeforeRender(({ delta }) => {
   }
   const px = playerPos.value[0]
   const pz = playerPos.value[2]
+  if (goingHome && !interior.value.inside) {
+    const d = homeDoor()!
+    const [fx, fz] = doorFront(d.house)
+    if (Math.hypot(px - fx, pz - fz) < 2.2) {
+      goingHome = false
+      moveTarget.value = null
+      enter(d)
+      return
+    }
+    if (!moveTarget.value) goingHome = false // you took over or got stuck
+  }
   if (!interior.value.inside) {
     for (const d of named) {
       const [fx, fz] = doorFront(d.house)
@@ -212,8 +324,8 @@ onBeforeRender(({ delta }) => {
     }
     const idx = nearestHouseDoor(px, pz, 1.8)
     if (idx >= 0) {
-      pending = doorForPlacement(idx)
-      doorPrompt.value = { label: 'Enter this home', action: 'enter', slot: 0 }
+      pending = idx === homeIdx ? homeDoor() : doorForPlacement(idx)
+      doorPrompt.value = { label: idx === homeIdx ? 'Your home' : 'Enter this home', action: 'enter', slot: 0, button: idx === homeIdx ? 'Go inside' : undefined }
       return
     }
     pending = null
@@ -224,7 +336,28 @@ onBeforeRender(({ delta }) => {
     const lz = active.D / 2 - 0.6
     const ex = h.x + lz * Math.sin(active.rot)
     const ez = h.z + lz * Math.cos(active.rot)
-    doorPrompt.value = Math.hypot(px - ex, pz - ez) < 1.6 ? { label: 'Exit to the street', action: 'exit', slot: 0 } : null
+    if (Math.hypot(px - ex, pz - ez) < 1.6) {
+      doorPrompt.value = { label: 'Exit to the street', action: 'exit', slot: 0 }
+      return
+    }
+    if (sim.activity) {
+      doorPrompt.value = null
+      return
+    }
+    // appliances: fridge, cooker, bed, TV, toilet, shower
+    let best: typeof pendingSpot = null
+    let bd = 1.25
+    for (const spot of active.room.hotspots) {
+      const [wx, wz] = toWorld(spot.x, spot.z)
+      const d = Math.hypot(px - wx, pz - wz)
+      if (d < bd) {
+        const [fwx, fwz] = toWorld(spot.fx, spot.fz)
+        bd = d
+        best = { spot, wx, wz, fwx, fwz }
+      }
+    }
+    pendingSpot = best
+    doorPrompt.value = best ? { label: ACTS[best.spot.id].label, action: 'use', slot: 0, button: ACTS[best.spot.id].button } : null
   }
 })
 
@@ -233,17 +366,21 @@ function onDoorUse() {
   if (!p) return
   if (p.action === 'enter' && pending) enter(pending)
   else if (p.action === 'exit') exit()
+  else if (p.action === 'use') startUse()
 }
 
 onMounted(() => {
   window.addEventListener('kk-door-use', onDoorUse)
+  window.addEventListener('kk-go-home', goHome)
   if (import.meta.dev) {
     ;(window as any).__kk_doors = () => named.map((d) => ({ name: d.house.name, door: doorFront(d.house).map((v) => +v.toFixed(1)) }))
-    ;(window as any).__kk_interior = () => ({ ...interior.value, prompt: doorPrompt.value })
+    ;(window as any).__kk_interior = () => ({ ...interior.value, prompt: doorPrompt.value, activity: sim.activity })
+    ;(window as any).__kk_hotspots = () => (active ? active.room.hotspots.map((h) => ({ id: h.id, at: toWorld(h.x, h.z) })) : [])
   }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('kk-door-use', onDoorUse)
+  window.removeEventListener('kk-go-home', goHome)
   if (active) active.room.dispose()
 })
 </script>

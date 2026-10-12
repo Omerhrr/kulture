@@ -84,10 +84,15 @@ export function useInterior() {
 
 /** Nearest door prompt (enter a house / exit to the street), set by Interiors. */
 export function useDoorPrompt() {
-  return useState<{ label: string; action: 'enter' | 'exit'; slot: number } | null>(
+  return useState<{ label: string; action: 'enter' | 'exit' | 'use'; slot: number; button?: string } | null>(
     'kk_door_prompt',
     () => null
   )
+}
+
+/** Pose override for the player avatar while using furniture (sit on sofa...). */
+export function usePlayerPose() {
+  return useState<null | 'sit' | 'idle'>('kk_player_pose', () => null)
 }
 
 // ------------------------------------------------------------------ map

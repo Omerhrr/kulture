@@ -26,10 +26,20 @@ export interface LocalBox {
   w: number
   d: number
 }
+/** A spot where the player can stand and use something (local coords). */
+export interface Hotspot {
+  id: 'fridge' | 'cooker' | 'bed' | 'tv' | 'toilet' | 'shower'
+  x: number
+  z: number
+  /** where the object is (the player turns to face it) */
+  fx: number
+  fz: number
+}
 export interface BuiltRoom {
   group: THREE.Group
   walls: RoomWall[]
   colliders: LocalBox[]
+  hotspots: Hotspot[]
   dispose: () => void
 }
 
@@ -581,10 +591,21 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   group.add(lawn)
   disposables.push(lawn.geometry)
 
+  // usable spots: stand in front of each appliance
+  const hotspots: Hotspot[] = [
+    { id: 'fridge', x: frX - 0.1, z: frZ + 0.85, fx: frX, fz: frZ },
+    { id: 'cooker', x: ckX, z: kz + 0.8, fx: ckX, fz: kz },
+    { id: 'bed', x: bx + 1.2, z: bz + 0.3, fx: bx, fz: bz },
+    { id: 'tv', x: sx - 0.85, z: lzMid, fx: tvX, fz: lzMid },
+    { id: 'toilet', x: tx - 0.55, z: -D / 2 + 1.2, fx: tx - 0.55, fz: -D / 2 + 0.5 },
+    { id: 'shower', x: tx + 0.1, z: -D / 2 + BACK - 0.75, fx: tx + 0.3, fz: -D / 2 + BACK - 0.7 }
+  ]
+
   return {
     group,
     walls,
     colliders,
+    hotspots,
     dispose() {
       for (const d of disposables) d.dispose()
       group.clear()
