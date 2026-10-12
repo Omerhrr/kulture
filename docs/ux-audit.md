@@ -28,9 +28,9 @@ A pre-DevFest Kaduna '26 audit of the player experience, focusing on the first t
 | 13 | No way to trade looks for frame rate | An HD/Lite toggle in the HUD. Lite means dpr 1, no shadows, a smaller detail radius and lighter rain. It defaults to Lite on touch devices. |
 
 ## Still open / recommended
-- Run a usability test with 3–5 people who haven't played. Time how long it takes them to reach the Lightning payment, and aim for under 3 minutes.
+- Run a usability test with 3-5 people who haven't played. Time how long it takes them to reach the Lightning payment, and aim for under 3 minutes.
 - Do the demo rehearsal on the actual venue laptop and projector. Use Lite if it runs below 30 fps.
-- Interiors are generated from one layout family. Add 2–3 floor-plan variants (flat, duplex ground floor, shop with living quarters).
+- Interiors are generated from one layout family. Add 2-3 floor-plan variants (flat, duplex ground floor, shop with living quarters).
 - Accessibility: keyboard focus rings on HUD buttons, a reduced-motion option for camera shake, and colour-blind-safe map icons.
 
 ---

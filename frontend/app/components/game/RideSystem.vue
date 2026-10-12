@@ -682,6 +682,7 @@ function placeAvatar() {
 if (import.meta.dev) {
   ;(window as any).__kk_ride = () => ({
     ...ride.value,
+    phase: phase.value,
     pos: [+playerPos.value[0].toFixed(1), +playerPos.value[2].toFixed(1)]
   })
   ;(window as any).__kk_fleet = () => fleet.map((f) => [f.kind, +f.x.toFixed(0), +f.z.toFixed(0)])

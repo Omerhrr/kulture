@@ -134,7 +134,7 @@ defineExpose({ reset })
           {{ index < 6 ? `Step ${index + 1} of 6` : 'Free roam' }}
         </div>
         <div class="flex gap-1">
-          <button class="rounded-full px-1.5 text-xs text-ink/40 hover:text-ink" title="Minimise" @click="collapsed = true">—</button>
+          <button class="rounded-full px-1.5 text-xs text-ink/40 hover:text-ink" title="Minimise" @click="collapsed = true">-</button>
           <button class="rounded-full px-1.5 text-xs text-ink/40 hover:text-ink" title="Hide guide" @click="dismiss">✕</button>
         </div>
       </div>

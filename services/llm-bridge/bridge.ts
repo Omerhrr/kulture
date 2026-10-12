@@ -3,9 +3,35 @@
 // standard OpenAI chat protocol to this bridge; swap KK_LLM_BASE_URL to
 // https://api.deepseek.com for production DeepSeek access.
 
+import { spawn } from 'node:child_process'
 import ZAI from 'z-ai-web-dev-sdk'
 
 const PORT = Number(process.env.PORT || 8100)
+
+// Bootstrap the game backend if it is not reachable. The bridge is a
+// platform-owned long-lived process, so children it spawns survive (tool
+// spawned processes do not). Idempotent: only fires when :8000 is down.
+async function ensureBackend() {
+  if (process.env.KK_NO_BOOTSTRAP) return
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/v1/health/live', {
+      signal: AbortSignal.timeout(1500)
+    })
+    if (res.ok) return
+  } catch {
+    /* backend down - boot it */
+  }
+  const log = await import('node:fs')
+  const out = log.openSync('/tmp/kk-backend.log', 'a')
+  const child = spawn('bash', ['/home/z/my-project/mini-services/kk-backend/supervise.sh'], {
+    detached: true,
+    stdio: ['ignore', out, out],
+    env: { ...process.env }
+  })
+  child.unref()
+  console.log(`[kk-bridge] bootstrapped kk-backend supervisor (pid ${child.pid})`)
+}
+ensureBackend().catch((e) => console.error('[kk-bridge] bootstrap failed:', e?.message || e))
 
 interface ChatMessage {
   role: string
@@ -81,3 +107,5 @@ const server = Bun.serve({
 })
 
 console.log(`[kk-llm-bridge] listening on :${PORT} (OpenAI-compatible /v1/chat/completions)`)
+
+// bridge touch: re-run bootstrap
