@@ -18,6 +18,9 @@ import { buildRoom, cutaway, type BuiltRoom, type Hotspot } from '~/utils/interi
 import { useSimStore, type NeedKey } from '~/stores/sim'
 import { usePlayerPose, fireKkEvent, useMoveTarget } from '~/composables/useControlsState'
 import { PLAYABLE_POS } from '~/utils/kaduna'
+import { nearestSeat } from '~/utils/seats'
+import { ITEMS, rotLocal, starterLayout } from '~/utils/furniture'
+import { useHomeStore } from '~/stores/home'
 
 const ride = useRide()
 const interior = useInterior()
@@ -30,16 +33,33 @@ const pose = usePlayerPose()
 const playerFacing = useState<number>('kk_player_facing', () => 0)
 
 // what each appliance does (real seconds, need points)
-const ACTS: Record<Hotspot['id'], { label: string; button: string; need: NeedKey; gain: number; dur: number; sit?: boolean; sleep?: boolean }> = {
+type Pose = 'sit' | 'sleep' | 'eat' | 'idle'
+const ACTS: Record<Hotspot['id'] | 'street', { label: string; button: string; need: NeedKey; gain: number; dur: number; pose?: Pose; skips?: number; stay?: boolean }> = {
   fridge: { label: 'Fridge', button: 'Grab a snack', need: 'hunger', gain: 30, dur: 3 },
   cooker: { label: 'Gas cooker', button: 'Cook jollof', need: 'hunger', gain: 70, dur: 7 },
-  bed: { label: 'Bed', button: 'Sleep', need: 'energy', gain: 100, dur: 8, sleep: true },
-  tv: { label: 'TV', button: 'Watch TV', need: 'fun', gain: 45, dur: 6, sit: true },
+  bed: { label: 'Bed', button: 'Sleep', need: 'energy', gain: 100, dur: 8, pose: 'sleep', skips: 3 },
+  tv: { label: 'Sofa · TV', button: 'Sit and watch TV', need: 'fun', gain: 45, dur: 6, pose: 'sit', stay: true },
+  sofa: { label: 'Sofa cushions', button: 'Nap on the sofa', need: 'energy', gain: 40, dur: 6, pose: 'sleep', skips: 1 },
+  dining: { label: 'Dining table', button: 'Sit and eat', need: 'hunger', gain: 45, dur: 6, pose: 'eat', stay: true },
   toilet: { label: 'Toilet', button: 'Use the toilet', need: 'bladder', gain: 100, dur: 3 },
-  shower: { label: 'Shower', button: 'Take a baff', need: 'hygiene', gain: 100, dur: 5 }
+  shower: { label: 'Shower', button: 'Take a baff', need: 'hygiene', gain: 100, dur: 5 },
+  chair: { label: 'Chair', button: 'Sit down', need: 'fun', gain: 12, dur: 6, pose: 'sit', stay: true },
+  street: { label: 'Seat', button: 'Sit down', need: 'fun', gain: 12, dur: 6, pose: 'sit', stay: true }
 }
-let pendingSpot: { spot: Hotspot; wx: number; wz: number; fwx: number; fwz: number } | null = null
+interface Pending {
+  id: Hotspot['id'] | 'street'
+  wx: number
+  wz: number
+  fwx: number
+  fwz: number
+  seat?: { x: number; z: number; h: number; yaw: number }
+  label?: string
+}
+let pendingSpot: Pending | null = null
 let actAt: [number, number] | null = null
+let standAt: [number, number] | null = null
+let seated = false
+const seatH = useState<number>('kk_player_seat', () => 0.45)
 let sleptSkips = 0
 const moveTarget = useMoveTarget()
 const ui = useUiStore()
@@ -144,7 +164,11 @@ onMounted(() => {
     if (!a) doorGrid.set(k, (a = []))
     a.push([fx, fz, i])
   }
-  homeDoor()
+  const hd = homeDoor()
+  if (hd) {
+    const [fx, fz] = doorFront(hd.house)
+    useState<[number, number] | null>('kk_home_door').value = [fx + hd.house.nx * 0.8, fz + hd.house.nz * 0.8]
+  }
 })
 
 function nearestHouseDoor(px: number, pz: number, r: number): number {
@@ -186,7 +210,151 @@ function doorForPlacement(idx: number): Door | null {
 }
 
 // ---------------------------------------------------------------- active room
-let active: { door: Door; room: BuiltRoom; holder: THREE.Group; rot: number; W: number; D: number } | null = null
+let active: { door: Door; room: BuiltRoom; holder: THREE.Group; rot: number; W: number; D: number; home: boolean } | null = null
+
+// ---------------------------------------------------------------- your furniture
+const home = useHomeStore()
+const furnGroup = new THREE.Group()
+const objs = new Map<string, { obj: THREE.Group; sku: string }>()
+let furnColliders: Array<{ x: number; z: number; w: number; d: number }> = []
+let furnSpots: Hotspot[] = []
+const selBox = new THREE.BoxHelper(new THREE.Object3D(), 0x2f9e6e)
+selBox.visible = false
+root.add(selBox) // BoxHelper works in world space
+
+function allSpots(): Hotspot[] {
+  return active ? [...active.room.hotspots, ...furnSpots] : []
+}
+function refreshColliders() {
+  if (!active) return
+  const room = { ...active.room, colliders: [...active.room.colliders, ...furnColliders] }
+  setInteriorWalls(roomColliders(active.door, room as BuiltRoom, active.rot))
+}
+function syncFurniture() {
+  if (!active?.home) return
+  const seen = new Set<string>()
+  furnColliders = []
+  furnSpots = []
+  for (const it of home.items) {
+    const def = ITEMS[it.sku]
+    if (!def) continue
+    seen.add(it.uid)
+    let o = objs.get(it.uid)
+    if (!o) {
+      const obj = def.build()
+      obj.userData.uid = it.uid
+      obj.traverse((c) => (c.userData.uid = it.uid))
+      furnGroup.add(obj)
+      o = { obj, sku: it.sku }
+      objs.set(it.uid, o)
+    }
+    o.obj.position.set(it.x, 0, it.z)
+    o.obj.rotation.y = (it.rot * Math.PI) / 2
+    const odd = it.rot % 2 === 1
+    if (def.solid) furnColliders.push({ x: it.x, z: it.z, w: (odd ? def.d : def.w) * 0.92, d: (odd ? def.w : def.d) * 0.92 })
+    for (const sp of def.spots ?? []) {
+      const [ax, az] = rotLocal(sp.x, sp.z, it.rot)
+      const spot: Hotspot = { id: sp.id, x: it.x + ax, z: it.z + az, fx: it.x, fz: it.z }
+      if (sp.seat) {
+        const [sx2, sz2] = rotLocal(sp.seat.x, sp.seat.z, it.rot)
+        spot.seat = { x: it.x + sx2, z: it.z + sz2, h: sp.seat.h, yaw: sp.seat.yaw + (it.rot * Math.PI) / 2 }
+      }
+      furnSpots.push(spot)
+    }
+  }
+  for (const [uid, o] of objs) {
+    if (seen.has(uid)) continue
+    furnGroup.remove(o.obj)
+    o.obj.traverse((c) => (c as THREE.Mesh).geometry?.dispose())
+    objs.delete(uid)
+  }
+  refreshColliders()
+  updateSelBox()
+}
+function updateSelBox() {
+  const o = home.selected ? objs.get(home.selected) : null
+  if (o && home.build) {
+    selBox.setFromObject(o.obj)
+    selBox.visible = true
+  } else selBox.visible = false
+}
+watch(() => home.version, syncFurniture)
+watch(() => [home.selected, home.build], updateSelBox)
+watch(
+  () => home.build,
+  (b) => {
+    if (!b) home.selected = null
+  }
+)
+
+// build mode: tap a piece to select it, drag it across the floor
+const ray = new THREE.Raycaster()
+const ndc = new THREE.Vector2()
+const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), INTERIOR_DROP)
+const hitPt = new THREE.Vector3()
+let dragging: string | null = null
+let dragOff: [number, number] = [0, 0]
+function pointerRay(e: PointerEvent): boolean {
+  const cam = ctx.camera?.activeCamera?.value as THREE.Camera | undefined
+  const el = (ctx.renderer?.instance ?? ctx.renderer?.value)?.domElement as HTMLElement | undefined
+  if (!cam || !el) return false
+  const r = el.getBoundingClientRect()
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1)
+  ray.setFromCamera(ndc, cam)
+  return true
+}
+function floorLocal(): [number, number] | null {
+  if (!active || !ray.ray.intersectPlane(floorPlane, hitPt)) return null
+  const v = active.holder.worldToLocal(hitPt.clone())
+  return [v.x, v.z]
+}
+function onBuildDown(e: PointerEvent) {
+  if (!home.build || !active?.home || (e.target as HTMLElement)?.tagName !== 'CANVAS' || !pointerRay(e)) return
+  const hits = ray.intersectObjects(furnGroup.children, true)
+  const uid = hits.find((h) => h.object.userData.uid)?.object.userData.uid as string | undefined
+  if (!uid) {
+    home.selected = null
+    return
+  }
+  e.stopPropagation()
+  e.preventDefault()
+  home.selected = uid
+  const it = home.items.find((i) => i.uid === uid)
+  const p = floorLocal()
+  if (it && p) {
+    dragging = uid
+    dragOff = [it.x - p[0], it.z - p[1]]
+  }
+}
+function onBuildMove(e: PointerEvent) {
+  if (!dragging || !active || !pointerRay(e)) return
+  e.stopPropagation()
+  const p = floorLocal()
+  const it = home.items.find((i) => i.uid === dragging)
+  if (!p || !it) return
+  const snap = (v: number) => Math.round(v / 0.05) * 0.05
+  it.x = Math.max(-active.W / 2 + 0.3, Math.min(active.W / 2 - 0.3, snap(p[0] + dragOff[0])))
+  it.z = Math.max(-active.D / 2 + 0.3, Math.min(active.D / 2 - 0.3, snap(p[1] + dragOff[1])))
+  const o = objs.get(it.uid)
+  o?.obj.position.set(it.x, 0, it.z)
+  updateSelBox()
+}
+function onBuildUp() {
+  if (!dragging) return
+  const it = home.items.find((i) => i.uid === dragging)
+  dragging = null
+  if (it) home.move(it.uid, it.x, it.z, it.rot).catch(() => {})
+}
+onMounted(() => {
+  window.addEventListener('pointerdown', onBuildDown, true)
+  window.addEventListener('pointermove', onBuildMove, true)
+  window.addEventListener('pointerup', onBuildUp, true)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', onBuildDown, true)
+  window.removeEventListener('pointermove', onBuildMove, true)
+  window.removeEventListener('pointerup', onBuildUp, true)
+})
 let pending: Door | null = null
 
 function roomColliders(door: Door, room: BuiltRoom, rot: number): Box[] {
@@ -205,14 +373,24 @@ function enter(door: Door) {
   const rot = Math.atan2(h.nx, h.nz)
   const W = h.nz !== 0 ? h.w : h.d
   const D = h.nz !== 0 ? h.d : h.w
-  const room = buildRoom(W, D, door.seed)
+  const isHome = h.name === 'Your home'
+  const room = buildRoom(W, D, door.seed, { customFurniture: isHome })
   const holder = new THREE.Group()
   holder.add(room.group)
+  if (isHome) {
+    holder.add(furnGroup)
+  }
   holder.position.set(h.x, -INTERIOR_DROP, h.z)
   holder.rotation.y = rot
   root.add(holder)
-  active = { door, room, holder, rot, W, D }
+  active = { door, room, holder, rot, W, D, home: isHome }
   setInteriorWalls(roomColliders(door, room, rot))
+  if (isHome) {
+    home
+      .load(() => starterLayout(W, D))
+      .then(syncFurniture)
+      .catch((e: any) => ui.showToast(e.message || 'Could not load your furniture', 'error'))
+  }
   interior.value = { inside: true, name: h.name }
   doorPrompt.value = null
   // step just inside the front door, facing into the living room
@@ -232,23 +410,52 @@ function toWorld(lx: number, lz: number): [number, number] {
 
 function startUse() {
   if (!pendingSpot) return
-  const { spot, wx, wz, fwx, fwz } = pendingSpot
-  const a = ACTS[spot.id]
+  const sp = pendingSpot
+  const a = ACTS[sp.id]
   let gain = a.gain
   if (a.need === 'hunger' && sim.traits.includes('foodie')) gain *= 1.25
-  sim.activity = { id: spot.id, label: a.button, need: a.need, gain, dur: a.dur, t: 0 }
-  playerPos.value = [wx, playerPos.value[1], wz]
-  playerFacing.value = Math.atan2(fwx - wx, fwz - wz)
-  actAt = [wx, wz]
-  pose.value = a.sit ? 'sit' : 'idle'
+  sim.activity = { id: sp.id, label: a.button, need: a.need, gain, dur: a.dur, t: 0 }
+  standAt = [sp.wx, sp.wz]
+  if (sp.seat) {
+    // onto the furniture: body on the seat, facing the way it faces
+    playerPos.value = [sp.seat.x, playerPos.value[1], sp.seat.z]
+    playerFacing.value = sp.seat.yaw
+    seatH.value = sp.seat.h
+    seated = true
+  } else {
+    playerPos.value = [sp.wx, playerPos.value[1], sp.wz]
+    playerFacing.value = Math.atan2(sp.fwx - sp.wx, sp.fwz - sp.wz)
+  }
+  actAt = [playerPos.value[0], playerPos.value[2]]
+  pose.value = a.pose ?? 'idle'
   sleptSkips = 0
   doorPrompt.value = null
 }
-function endUse() {
+/** activity over; seats you can stay on keep you seated until you move */
+function endUse(keepSeat = false) {
+  const id = sim.activity?.id as keyof typeof ACTS | undefined
   sim.activity = null
+  sim.save()
+  if (keepSeat && seated && id && ACTS[id].stay) {
+    pose.value = 'sit'
+    return
+  }
+  standUp()
+}
+function standUp() {
+  sim.activity = null
+  if (seated && standAt) playerPos.value = [standAt[0], playerPos.value[1], standAt[1]]
+  seated = false
   pose.value = null
   actAt = null
-  sim.save()
+  standAt = null
+  seatH.value = 0.45
+}
+function onStandUp() {
+  if (seated || sim.activity) {
+    sim.activity = null
+    standUp()
+  }
 }
 
 function exit() {
@@ -260,6 +467,16 @@ function exit() {
   doorPrompt.value = null
   root.remove(active.holder)
   active.room.dispose()
+  if (active.home) {
+    for (const o of objs.values()) {
+      furnGroup.remove(o.obj)
+      o.obj.traverse((c) => (c as THREE.Mesh).geometry?.dispose())
+    }
+    objs.clear()
+    furnColliders = []
+    furnSpots = []
+    home.build = false
+  }
   active = null
   const [fx, fz] = doorFront(h)
   playerPos.value = [fx + h.nx * 0.8, 0, fz + h.nz * 0.8]
@@ -285,13 +502,16 @@ onBeforeRender(({ delta }) => {
     const dt = Math.min(delta || 0.016, 0.25)
     act.t += dt
     sim.bump(act.need, (act.gain / act.dur) * dt)
-    // sleeping passes the night: 6 in-game hours over the action
-    if (ACTS[act.id as Hotspot['id']]?.sleep && sleptSkips < 3 && act.t > ((sleptSkips + 1) * act.dur) / 4) {
+    // sleeping passes the night (2 in-game hours per skip)
+    const def = ACTS[act.id as keyof typeof ACTS]
+    const skips = def?.skips ?? 0
+    if (skips && sleptSkips < skips && act.t > ((sleptSkips + 1) * act.dur) / (skips + 1)) {
       sleptSkips++
       fireKkEvent('kk-time-skip')
     }
-    const moved = actAt && Math.hypot(playerPos.value[0] - actAt[0], playerPos.value[2] - actAt[1]) > 0.35
-    if (act.t >= act.dur || moved) endUse()
+    const moved = !seated && actAt && Math.hypot(playerPos.value[0] - actAt[0], playerPos.value[2] - actAt[1]) > 0.35
+    if (act.t >= act.dur) endUse(true)
+    else if (moved) standUp()
   }
   scanTimer += delta || 0
   if (scanTimer < 0.18) return
@@ -329,6 +549,21 @@ onBeforeRender(({ delta }) => {
       return
     }
     pending = null
+    // street seats: kiosk chairs, bus-shelter benches
+    if (seated && !sim.activity) {
+      doorPrompt.value = { label: 'Stand up', action: 'use', slot: 0, button: 'Stand up' }
+      return
+    }
+    if (sim.activity) {
+      doorPrompt.value = null
+      return
+    }
+    const st = nearestSeat(px, pz, 1.2)
+    if (st) {
+      pendingSpot = { id: 'street', wx: px, wz: pz, fwx: st.x, fwz: st.z, seat: { x: st.x, z: st.z, h: st.h, yaw: st.yaw }, label: st.label }
+      doorPrompt.value = { label: st.label, action: 'use', slot: 0, button: 'Sit down' }
+      return
+    }
     doorPrompt.value = null
   } else if (active) {
     const h = active.door.house
@@ -344,20 +579,29 @@ onBeforeRender(({ delta }) => {
       doorPrompt.value = null
       return
     }
-    // appliances: fridge, cooker, bed, TV, toilet, shower
+    if (seated) {
+      doorPrompt.value = { label: 'Stand up', action: 'use', slot: 0, button: 'Stand up' }
+      return
+    }
+    // appliances + furniture: fridge, cooker, bed, sofa, TV, dining, toilet, shower
     let best: typeof pendingSpot = null
     let bd = 1.25
-    for (const spot of active.room.hotspots) {
+    for (const spot of allSpots()) {
       const [wx, wz] = toWorld(spot.x, spot.z)
       const d = Math.hypot(px - wx, pz - wz)
       if (d < bd) {
         const [fwx, fwz] = toWorld(spot.fx, spot.fz)
         bd = d
-        best = { spot, wx, wz, fwx, fwz }
+        let seat: Pending['seat']
+        if (spot.seat) {
+          const [sx, sz] = toWorld(spot.seat.x, spot.seat.z)
+          seat = { x: sx, z: sz, h: spot.seat.h, yaw: active.rot + spot.seat.yaw }
+        }
+        best = { id: spot.id, wx, wz, fwx, fwz, seat }
       }
     }
     pendingSpot = best
-    doorPrompt.value = best ? { label: ACTS[best.spot.id].label, action: 'use', slot: 0, button: ACTS[best.spot.id].button } : null
+    doorPrompt.value = best ? { label: ACTS[best.id].label, action: 'use', slot: 0, button: ACTS[best.id].button } : null
   }
 })
 
@@ -366,21 +610,23 @@ function onDoorUse() {
   if (!p) return
   if (p.action === 'enter' && pending) enter(pending)
   else if (p.action === 'exit') exit()
-  else if (p.action === 'use') startUse()
+  else if (p.action === 'use') (p.label === 'Stand up' ? standUp() : startUse())
 }
 
 onMounted(() => {
   window.addEventListener('kk-door-use', onDoorUse)
   window.addEventListener('kk-go-home', goHome)
+  window.addEventListener('kk-stand-up', onStandUp)
   if (import.meta.dev) {
     ;(window as any).__kk_doors = () => named.map((d) => ({ name: d.house.name, door: doorFront(d.house).map((v) => +v.toFixed(1)) }))
     ;(window as any).__kk_interior = () => ({ ...interior.value, prompt: doorPrompt.value, activity: sim.activity })
-    ;(window as any).__kk_hotspots = () => (active ? active.room.hotspots.map((h) => ({ id: h.id, at: toWorld(h.x, h.z) })) : [])
+    ;(window as any).__kk_hotspots = () => (active ? allSpots().map((h) => ({ id: h.id, at: toWorld(h.x, h.z) })) : [])
   }
 })
 onBeforeUnmount(() => {
   window.removeEventListener('kk-door-use', onDoorUse)
   window.removeEventListener('kk-go-home', goHome)
+  window.removeEventListener('kk-stand-up', onStandUp)
   if (active) active.room.dispose()
 })
 </script>

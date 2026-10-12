@@ -77,6 +77,25 @@ class DSHLLMClient:
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             return LLMResult(ok=False, error=f"llm_unavailable: {type(exc).__name__}")
 
+    async def chat(self, messages: list[dict[str, str]], max_tokens: int = 350, temperature: float = 0.5) -> LLMResult:
+        """Plain multi-turn chat completion (used by the in-game Ask helper)."""
+        if not settings.llm_enabled:
+            return LLMResult(ok=False, error="llm_disabled_by_config")
+        try:
+            client = await self._get_client()
+            resp = await client.post(
+                "/chat/completions",
+                json={"model": settings.llm_model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+            if not content.strip():
+                return LLMResult(ok=False, error="empty_completion")
+            return LLMResult(ok=True, content=content.strip(), usage=data.get("usage") or {})
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+            return LLMResult(ok=False, error=f"llm_unavailable: {type(exc).__name__}")
+
     @staticmethod
     def extract_json(text: str) -> dict | None:
         """Robustly pull the first JSON object out of a possibly chatty reply."""

@@ -5,10 +5,13 @@
 //   top left   : "what now" goal chip from the most urgent need
 //   clean screen toggle hides everything but the world
 import { useSimStore, NEEDS } from '~/stores/sim'
+import { useWorkStore } from '~/stores/work'
 import { useClock, formatHour } from '~/composables/useTimeOfDay'
 import { fireKkEvent, useRide, useInterior } from '~/composables/useControlsState'
 
 const sim = useSimStore()
+const work = useWorkStore()
+const online = computed(() => Math.max(1, useState<{ online: number }>('kk_players', () => ({ online: 0, players: [] })).value.online))
 const player = usePlayerStore()
 const ui = useUiStore()
 const hour = useClock()
@@ -94,6 +97,10 @@ const initials = computed(() => (sim.name || player.profile?.display_name || '?'
         <button class="kk-seg-btn whitespace-nowrap" title="Change weather (Y)" @click="fireKkEvent('kk-weather')">
           <span aria-hidden="true">{{ weatherLabel.split(' ')[0] }}</span><span class="max-md:hidden">{{ weatherLabel.split(' ').slice(1).join(' ') }}</span>
         </button>
+        <span class="kk-seg-div" />
+        <span class="flex items-center gap-1.5 whitespace-nowrap px-2 text-sm font-bold text-leaf" :title="`${online} player${online === 1 ? '' : 's'} online right now`">
+          <span class="h-2 w-2 rounded-full bg-leaf" />{{ online.toLocaleString() }}<span class="max-md:hidden">online</span>
+        </span>
         <div data-tour="money" class="ml-1 flex items-center gap-1.5 rounded-full bg-paper py-1 pl-3.5 pr-1">
           <span class="whitespace-nowrap font-display text-[15px] font-semibold tabular-nums text-ink" title="Simulated naira (game money, not Bitcoin)">{{ player.ngnDisplay }}</span>
           <button class="flex h-8 w-8 items-center justify-center rounded-full bg-leaf text-lg font-bold text-white hover:bg-kadeep" title="Earn money (jobs)" aria-label="Earn money" @click="ui.open('jobs')">+</button>
@@ -103,7 +110,7 @@ const initials = computed(() => (sim.name || player.profile?.display_name || '?'
     </div>
 
     <!-- top left column: urgent-need goal chip + the story guide (slot) -->
-    <div class="pointer-events-none absolute left-3 top-[4.4rem] z-20 flex flex-col items-start gap-2 sm:left-4">
+    <div v-if="!work.commute?.active && !work.shift" class="pointer-events-none absolute left-3 top-[4.4rem] z-20 flex flex-col items-start gap-2 sm:left-4">
       <transition enter-active-class="transition duration-300" enter-from-class="-translate-x-4 opacity-0">
         <div v-if="urgentInfo" class="flex items-center gap-3 rounded-full bg-white/85 py-2 pl-2 pr-5 shadow-lg backdrop-blur">
           <span class="flex h-9 w-9 items-center justify-center rounded-full bg-leaf/90 text-lg">{{ urgentInfo.icon }}</span>

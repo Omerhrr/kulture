@@ -28,12 +28,14 @@ export interface LocalBox {
 }
 /** A spot where the player can stand and use something (local coords). */
 export interface Hotspot {
-  id: 'fridge' | 'cooker' | 'bed' | 'tv' | 'toilet' | 'shower'
+  id: 'fridge' | 'cooker' | 'bed' | 'tv' | 'toilet' | 'shower' | 'sofa' | 'dining' | 'chair'
   x: number
   z: number
   /** where the object is (the player turns to face it) */
   fx: number
   fz: number
+  /** sit / lie ON the furniture: body position, surface height, yaw */
+  seat?: { x: number; z: number; h: number; yaw: number }
 }
 export interface BuiltRoom {
   group: THREE.Group
@@ -118,7 +120,7 @@ const woodTex = () =>
       g.fillRect(((i * 97) % 5) * (s / 5), i * plank, 1.5, plank)
     }
   })
-const ankaraTex = (seed: number, a: string, b: string, c: string) =>
+export const ankaraTex = (seed: number, a: string, b: string, c: string) =>
   canvasTex(`ankara-${a}-${b}-${c}`, 256, (g, s) => {
     g.fillStyle = a
     g.fillRect(0, 0, s, s)
@@ -169,7 +171,7 @@ const artTex = (seed: number) =>
     g.arc(s * 0.63, s * 0.38, 16, 0, Math.PI * 2)
     g.fill()
   })
-const screenTex = () =>
+export const screenTex = () =>
   canvasTex('tv', 128, (g, s) => {
     const grd = g.createLinearGradient(0, 0, 0, s)
     grd.addColorStop(0, '#2a6ab0')
@@ -188,8 +190,8 @@ const screenTex = () =>
   })
 
 // ------------------------------------------------------------- builder
-type Part = [string, THREE.BufferGeometry]
-function merge(parts: Part[]): THREE.BufferGeometry {
+export type Part = [string, THREE.BufferGeometry]
+export function merge(parts: Part[]): THREE.BufferGeometry {
   const geos = parts.map(([hex, g]) => {
     let gg = g.index ? g.toNonIndexed() : g
     if (gg !== g) g.dispose()
@@ -227,15 +229,16 @@ function merge(parts: Part[]): THREE.BufferGeometry {
   return out
 }
 
-const box = (w: number, h: number, d: number, x: number, y: number, z: number) => new THREE.BoxGeometry(w, h, d).translate(x, y, z)
-const rbox = (w: number, h: number, d: number, x: number, y: number, z: number, r = 0.06) =>
+export const box = (w: number, h: number, d: number, x: number, y: number, z: number) => new THREE.BoxGeometry(w, h, d).translate(x, y, z)
+export const rbox = (w: number, h: number, d: number, x: number, y: number, z: number, r = 0.06) =>
   new RoundedBoxGeometry(w, h, d, 3, Math.min(r, w / 2 - 0.001, h / 2 - 0.001, d / 2 - 0.001)).translate(x, y, z)
-const cyl = (rt: number, rb: number, h: number, x: number, y: number, z: number, seg = 16) => new THREE.CylinderGeometry(rt, rb, h, seg).translate(x, y, z)
-const sph = (r: number, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1) => new THREE.SphereGeometry(r, 14, 10).scale(sx, sy, sz).translate(x, y, z)
+export const cyl = (rt: number, rb: number, h: number, x: number, y: number, z: number, seg = 16) => new THREE.CylinderGeometry(rt, rb, h, seg).translate(x, y, z)
+export const sph = (r: number, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1) => new THREE.SphereGeometry(r, 14, 10).scale(sx, sy, sz).translate(x, y, z)
 /** rotate a geometry around Y then place it */
-const rotY = (g: THREE.BufferGeometry, a: number, x: number, z: number) => g.rotateY(a).translate(x, 0, z)
+export const rotY = (g: THREE.BufferGeometry, a: number, x: number, z: number) => g.rotateY(a).translate(x, 0, z)
 
-export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
+export function buildRoom(W: number, D: number, seed: number, opts: { customFurniture?: boolean } = {}): BuiltRoom {
+  const custom = !!opts.customFurniture
   const r = rng(seed)
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length) % a.length]
   const group = new THREE.Group()
@@ -363,8 +366,10 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   const G: Part[] = [] // glossy bits (tv, glass, ceramics, metal)
   const lz0 = backZ + 0.2
   const lzMid = (lz0 + D / 2) / 2
-  // TV wall on the left: console + flat TV + wall shelf
   const tvX = -W / 2 + 0.32
+  const sx = tvX + 3.3
+  if (!custom) {
+  // TV wall on the left: console + flat TV + wall shelf
   P.push(['#5a3a24', rbox(0.45, 0.5, 2.2, tvX, 0.25, lzMid, 0.03)])
   P.push(['#3a2416', box(0.42, 0.03, 2.1, tvX + 0.02, 0.51, lzMid)])
   G.push(['#101114', rbox(0.06, 0.82, 1.42, tvX - 0.05, 1.3, lzMid, 0.02)])
@@ -375,7 +380,6 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   G.push(['#f2ede0', cyl(0.07, 0.05, 0.2, tvX - 0.02, 2.12, lzMid + 0.35, 10)])
   colliders.push({ x: tvX, z: lzMid, w: 0.6, d: 2.3 })
   // three-seat sofa facing the TV
-  const sx = tvX + 3.3
   const sofa: Part[] = [
     [sofaCol, rbox(0.95, 0.42, 2.4, sx, 0.21 + 0.08, lzMid, 0.08)],
     [sofaCol, rbox(0.25, 0.75, 2.4, sx + 0.42, 0.52, lzMid, 0.1)],
@@ -439,6 +443,7 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   }
   plant(W / 2 - 0.45, D / 2 - 0.45)
   plant(sx + 0.6, lzMid + 1.6, 0.9)
+  } // end movable living-room furniture
   // wall art above the sofa (on the right wall stays visible) + clock
   const art = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.75), std({ map: artTex(seed) }))
   art.position.set(W / 2 - T / 2 - 0.02, 1.75, lzMid + 0.6)
@@ -449,6 +454,7 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   G.push(['#f4f4f0', cyl(0.2, 0.2, 0.04, 0, 0, 0, 20).rotateX(Math.PI / 2).translate(0, 2.25, -D / 2 + T / 2 + 0.03)])
   P.push(['#1d1d20', box(0.02, 0.15, 0.01, 0.02, 2.28, -D / 2 + T / 2 + 0.06)])
   P.push(['#1d1d20', box(0.11, 0.02, 0.01, 0.05, 2.25, -D / 2 + T / 2 + 0.06)])
+  if (!custom) {
   // standing fan (Nigerian heat)
   const fx = sx + 0.9
   const fz = lz0 + 0.5
@@ -457,10 +463,12 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   G.push(['#cfd8dc', cyl(0.26, 0.26, 0.1, 0, 0, 0, 20).rotateX(Math.PI / 2).translate(fx, 1.12, fz + 0.05)])
   P.push(['#3f6fae', cyl(0.07, 0.07, 0.12, 0, 0, 0, 10).rotateX(Math.PI / 2).translate(fx, 1.12, fz + 0.05)])
   colliders.push({ x: fx, z: fz, w: 0.45, d: 0.45 })
+  }
 
   // ---------------------------------------------------------- dining
   const dx0 = W / 2 - 1.7
   const dz0 = lz0 + 1.3
+  if (!custom) {
   P.push(['#7a5232', rbox(1.5, 0.06, 0.95, dx0, 0.76, dz0, 0.02)])
   for (const [ex, ez] of [[-0.66, -0.4], [0.66, -0.4], [-0.66, 0.4], [0.66, 0.4]]) P.push(['#5a3a24', box(0.06, 0.74, 0.06, dx0 + ex, 0.37, dz0 + ez)])
   G.push(['#f4f4f0', cyl(0.2, 0.12, 0.1, dx0, 0.84, dz0, 16)])
@@ -481,6 +489,7 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   chair(dx0 - 0.35, dz0 + 0.75, Math.PI)
   chair(dx0 + 0.35, dz0 + 0.75, Math.PI)
   colliders.push({ x: dx0, z: dz0, w: 1.6, d: 2.0 })
+  }
 
   // ---------------------------------------------------------- kitchen
   const kx0 = xBath1
@@ -519,6 +528,7 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   // ---------------------------------------------------------- bedroom
   const bx = -W / 2 + 1.1
   const bz = -D / 2 + 1.3
+  if (!custom) {
   P.push(['#6a4428', rbox(1.6, 1.1, 0.1, bx, 0.55, -D / 2 + T / 2 + 0.06, 0.04)]) // headboard
   P.push(['#6a4428', box(1.6, 0.28, 2.1, bx, 0.2, bz + 0.05)])
   P.push(['#f4f2ec', rbox(1.5, 0.22, 2.0, bx, 0.45, bz + 0.05, 0.06)])
@@ -543,6 +553,7 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   colliders.push({ x: wx, z: wz, w: 0.65, d: 1.45 })
   const bedRug = new THREE.PlaneGeometry(1.2, 0.8).rotateX(-Math.PI / 2).translate(bx + 0.9, 0.012, bz + 1.35)
   add(bedRug, std({ map: rugTex, roughness: 0.95 }), false)
+  }
 
   // ---------------------------------------------------------- bathroom
   const tx = xBed1 + bathW / 2
@@ -595,8 +606,11 @@ export function buildRoom(W: number, D: number, seed: number): BuiltRoom {
   const hotspots: Hotspot[] = [
     { id: 'fridge', x: frX - 0.1, z: frZ + 0.85, fx: frX, fz: frZ },
     { id: 'cooker', x: ckX, z: kz + 0.8, fx: ckX, fz: kz },
-    { id: 'bed', x: bx + 1.2, z: bz + 0.3, fx: bx, fz: bz },
-    { id: 'tv', x: sx - 0.85, z: lzMid, fx: tvX, fz: lzMid },
+    ...(custom ? [] : [
+    { id: 'bed' as const, x: bx, z: bz + 1.55, fx: bx, fz: bz, seat: { x: bx, z: bz + 0.15, h: 0.52, yaw: 0 } },
+    { id: 'tv' as const, x: sx - 0.85, z: lzMid - 0.5, fx: tvX, fz: lzMid, seat: { x: sx - 0.04, z: lzMid - 0.55, h: 0.44, yaw: -Math.PI / 2 } },
+    { id: 'sofa' as const, x: sx - 0.85, z: lzMid + 0.6, fx: sx, fz: lzMid, seat: { x: sx - 0.02, z: lzMid, h: 0.42, yaw: 0 } },
+    { id: 'dining' as const, x: dx0 - 0.35, z: dz0 - 1.25, fx: dx0, fz: dz0, seat: { x: dx0 - 0.35, z: dz0 - 0.78, h: 0.48, yaw: 0 } }]),
     { id: 'toilet', x: tx - 0.55, z: -D / 2 + 1.2, fx: tx - 0.55, fz: -D / 2 + 0.5 },
     { id: 'shower', x: tx + 0.1, z: -D / 2 + BACK - 0.75, fx: tx + 0.3, fz: -D / 2 + BACK - 0.7 }
   ]

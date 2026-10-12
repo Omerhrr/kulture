@@ -70,6 +70,21 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek-chat"
     llm_timeout_seconds: float = 20.0
     llm_enabled: bool = True
+    # Ask (in-game help assistant): per-player request budget
+    ask_rate_per_minute: int = 8
+
+    # Work shifts: minimum real seconds on site before a shift pays
+    shift_seconds: int = 180
+
+    # Billboard adverts (paid with Lightning)
+    ad_price_sats_per_day: int = 1_000
+    ad_max_days: int = 7
+    ad_max_per_board: int = 4
+    # off = a moderator approves each paid ad before it airs (recommended
+    # for anything public: ads show other players a link)
+    ads_auto_approve: bool = False
+    # shared secret for the moderation endpoints (empty = moderation API off)
+    admin_token: str = ""
     agent_max_actions_per_run: int = 4
     agent_run_timeout_seconds: float = 45.0
 

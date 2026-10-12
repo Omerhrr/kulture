@@ -32,13 +32,14 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 async def _setup_db():
     from app.db.session import engine
     from app.models import Base
-    from app.seed.seed_data import seed_if_empty
+    from app.seed.seed_data import reconcile_content, seed_if_empty
     from app.db.session import AsyncSessionLocal
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
         await seed_if_empty(db)
+        await reconcile_content(db)  # district content, as on app boot
     yield
     await engine.dispose()
 

@@ -8,6 +8,7 @@ import { useSimStore } from '~/stores/sim'
 
 const open = useState<boolean>('kk_phone_open', () => false)
 const askOpen = useState<boolean>('kk_ask_open', () => false)
+const workOpen = useState<boolean>('kk_work_open', () => false)
 const ui = useUiStore()
 const sim = useSimStore()
 const mapOpen = useMapOpen()
@@ -22,7 +23,9 @@ function go(fn: () => void) {
   fn()
 }
 const apps = [
-  { id: 'jobs', icon: '💼', label: 'Jobs', bg: 'from-emerald-400 to-emerald-600', run: () => go(() => ui.open('jobs')) },
+  { id: 'work', icon: '💼', label: 'Work', bg: 'from-emerald-400 to-emerald-600', run: () => go(() => (workOpen.value = true)) },
+  { id: 'jobs', icon: '📦', label: 'Deliveries', bg: 'from-teal-400 to-cyan-600', run: () => go(() => ui.open('jobs')) },
+  { id: 'home', icon: '🚕', label: 'Ride home', bg: 'from-amber-300 to-yellow-500', run: () => go(() => window.dispatchEvent(new CustomEvent('kk-commute', { detail: { dest: 'home' } }))) },
   { id: 'bag', icon: '🎒', label: 'Bag', bg: 'from-amber-300 to-orange-500', run: () => go(() => ui.open('inventory')) },
   { id: 'wallet', icon: '⚡', label: 'Wallet', bg: 'from-yellow-300 to-amber-500', run: () => go(() => ui.open('ledger')) },
   { id: 'map', icon: '🗺️', label: 'Maps', bg: 'from-sky-400 to-blue-600', run: () => go(() => (mapOpen.value = true)) },

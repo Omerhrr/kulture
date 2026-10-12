@@ -52,3 +52,19 @@ export function registerCrash(strength: number) {
   impact.lastCrashAt = performance.now()
   addShake(0.25 + strength * 1.1)
 }
+
+/** Melee hits thrown by the player (punch / kick / push), consumed by the
+ *  crowd each frame: anyone in reach gets knocked back. */
+export interface MeleeHit {
+  x: number
+  z: number
+  dirX: number
+  dirZ: number
+  power: number
+  reach: number
+}
+export const meleeHits: MeleeHit[] = []
+export function throwMelee(h: MeleeHit) {
+  meleeHits.push(h)
+  if (meleeHits.length > 8) meleeHits.shift()
+}

@@ -95,7 +95,10 @@ async def test_delivery_job_full_loop(client, auth_headers, world_ctx):
     spawn = entities["spawn_roadside"]
     jobs = (await client.get("/api/v1/jobs/available", headers=auth_headers)).json()
     assert len(jobs) >= 1
-    job = jobs[0]
+    # the district content adds more jobs; this test is about the Musa ->
+    # Stonetech delivery specifically
+    job = next(j for j in jobs if (j.get("pickup_entity") or {}).get("code") == "musa_shop")
+    drop = job["dropoff_entity"]["position"]
 
     acc = await client.post(f"/api/v1/jobs/{job['id']}/accept", headers=auth_headers)
     assert acc.status_code == 200
@@ -126,12 +129,12 @@ async def test_delivery_job_full_loop(client, auth_headers, world_ctx):
     done = await client.post(
         f"/api/v1/jobs/{job['id']}/complete",
         headers=auth_headers,
-        json={"position": entities["stonetech_square"]["position"]},
+        json={"position": drop},
     )
     assert done.status_code == 200
     me_after = done.json()
-    assert me_after["ngn_balance_minor"] == me_before["ngn_balance_minor"] + 8_000_00
-    assert me_after["reputation"] == me_before["reputation"] + 5
+    assert me_after["ngn_balance_minor"] == me_before["ngn_balance_minor"] + job["reward_ngn_minor"]
+    assert me_after["reputation"] == me_before["reputation"] + job["reward_reputation"]
 
     # parcel consumed
     inv2 = (await client.get("/api/v1/players/me/inventory", headers=auth_headers)).json()

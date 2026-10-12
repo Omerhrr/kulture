@@ -57,6 +57,11 @@ if (import.meta.dev) {
     <RideSystem />
     <Interiors />
     <PlayerAvatar />
+    <RemotePlayers />
+    <CrowdLOD />
+    <AdScreens />
+    <MapProjector />
+    <Commute />
     <NpcAvatar v-for="n in npcs" :key="n.code" :x="n.x" :z="n.z" :name="n.code" :female="n.female" :shirt="n.shirt" :hair-style="n.hairStyle" :beard="n.beard" />
   </TresCanvas>
 </template>

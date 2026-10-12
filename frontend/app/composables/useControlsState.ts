@@ -92,7 +92,21 @@ export function useDoorPrompt() {
 
 /** Pose override for the player avatar while using furniture (sit on sofa...). */
 export function usePlayerPose() {
-  return useState<null | 'sit' | 'idle'>('kk_player_pose', () => null)
+  return useState<null | 'sit' | 'idle' | 'sleep' | 'eat'>('kk_player_pose', () => null)
+}
+
+// ------------------------------------------------------------------ city map
+/** 3D city map (tilted overview of the live city). focus = ground point the
+ *  map camera looks at; dist = zoom. */
+export interface CityMapState {
+  active: boolean
+  fx: number
+  fz: number
+  dist: number
+  yaw: number
+}
+export function useCityMap() {
+  return useState<CityMapState>('kk_citymap', () => ({ active: false, fx: 0, fz: 0, dist: 420, yaw: 0.35 }))
 }
 
 // ------------------------------------------------------------------ map

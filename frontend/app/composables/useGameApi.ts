@@ -52,6 +52,28 @@ export function useGameApi() {
       post<{ access_token: string; player_id: string }>('/auth/login', { username, password }),
 
     me: () => get<Player>('/players/me'),
+
+    // work shifts (server-authoritative pay)
+    workState: () => get<{ careers: any[]; shift: any | null }>('/work/state'),
+    clockIn: (career: string) => post<{ shift: any }>('/work/clock-in', { career }),
+    workTask: () => post<{ shift: any }>('/work/task'),
+    clockOut: () => post<{ shift: any }>('/work/clock-out'),
+
+    // home furniture (simulated naira)
+    home: () => get<{ items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home'),
+    homeInit: (items: Array<{ sku: string; x: number; z: number; rot: number }>) => post<{ items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home/init', { items }),
+    homeMove: (uid: string, x: number, z: number, rot: number) => req<any>(`/home/items/${uid}`, { method: 'PUT', body: JSON.stringify({ x, z, rot }) }),
+    homeBuy: (sku: string, x: number, z: number) => post<{ item: any; items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home/buy', { sku, x, z }),
+    homeSell: (uid: string) => post<{ refund_ngn_minor: number; items: any[]; catalog: any[]; balance_ngn_minor: number }>(`/home/items/${uid}/sell`),
+
+    // billboard adverts (paid with Lightning)
+    adBoards: () => get<{ boards: Record<string, any[]>; price_sats_per_day: number; max_days: number; auto_approve: boolean }>('/ads/boards'),
+    myAds: () => get<any[]>('/ads/mine'),
+    createAd: (ad: Record<string, unknown>) => post<{ ad: any; intent: PaymentIntent }>('/ads', ad),
+
+    // in-game help assistant (real LLM, offline fallback when answer is null)
+    ask: (question: string, history: Array<{ role: string; content: string }>, context: Record<string, unknown>) =>
+      post<{ answer: string | null; source: string }>('/ask', { question, history, context }),
     inventory: () => get<{ items: InventoryItem[] }>('/players/me/inventory'),
     transactions: () => get<LedgerEntry[]>('/players/me/transactions'),
 

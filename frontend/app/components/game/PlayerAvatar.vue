@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { useSimStore } from '~/stores/sim'
+import { useWorkStore } from '~/stores/work'
 import { usePlayerPose } from '~/composables/useControlsState'
+import { ACTION_DUR, type ActionName } from '~/utils/humanAnim'
+import { throwMelee } from '~/utils/impact'
 // PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
 // Inputs: WASD / arrow keys, the touch joystick (mobile), plus
@@ -23,8 +26,82 @@ const { onBeforeRender } = useLoop()
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const playerFacing = useState<number>('kk_player_facing', () => 0)
 const sim = useSimStore()
+const work = useWorkStore()
 const pose = usePlayerPose()
 const lookKey = computed(() => JSON.stringify(sim.look))
+const seat = useState<number>('kk_player_seat', () => 0.45)
+
+// ------------------------------------------------------------ actions
+// Space jump · F punch · G kick · R push · X wave (and the mobile buttons)
+const actName = ref<ActionName | null>(null)
+const actKey = ref(0)
+let actUntil = 0
+let jumpY = 0
+let jumpVy = 0
+let slideX = 0
+let slideZ = 0
+const MELEE: Partial<Record<ActionName, { delay: number; power: number; reach: number }>> = {
+  punch: { delay: 0.17, power: 4.5, reach: 1.25 },
+  kick: { delay: 0.27, power: 6.5, reach: 1.45 },
+  push: { delay: 0.2, power: 5.5, reach: 1.3 }
+}
+function doAction(a: ActionName) {
+  if (ride.value.active || work.commute?.active || impact.knock.active) return
+  const now = performance.now()
+  if (now < actUntil && a !== 'jump') return
+  if (a === 'jump') {
+    if (jumpY > 0.01) return
+    jumpVy = 4.7
+    kkAudio.init()
+  }
+  pose.value = null
+  actName.value = a
+  actKey.value++
+  actUntil = now + ACTION_DUR[a] * 1000 * 0.8
+  socketSend.value('player.emote', { action: a })
+  const m = MELEE[a]
+  if (m) {
+    setTimeout(() => {
+      const h = playerFacing.value
+      const fx = Math.sin(h)
+      const fz = Math.cos(h)
+      throwMelee({ x: playerPos.value[0] + fx * 0.7, z: playerPos.value[2] + fz * 0.7, dirX: fx, dirZ: fz, power: m.power, reach: m.reach })
+      kkAudio.impact(0.2)
+    }, m.delay * 1000)
+  }
+}
+const KEYS: Record<string, ActionName> = { Space: 'jump', KeyF: 'punch', KeyG: 'kick', KeyR: 'push', KeyX: 'wave' }
+function onKeyAct(e: KeyboardEvent) {
+  const t = e.target as HTMLElement | null
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+  const a = KEYS[e.code]
+  if (a && !e.repeat) {
+    e.preventDefault()
+    doAction(a)
+  }
+}
+const onActEvent = (e: Event) => doAction((e as CustomEvent).detail as ActionName)
+// hit by another player (server-validated): stagger and slide back
+function onHit(e: Event) {
+  const d = (e as CustomEvent).detail as { dir: [number, number]; action: string }
+  actName.value = 'stagger'
+  actKey.value++
+  const p = d.action === 'kick' ? 3.2 : d.action === 'push' ? 3.6 : 2.2
+  slideX = d.dir[0] * p
+  slideZ = d.dir[1] * p
+  impact.shake = Math.min(1.6, impact.shake + 0.35)
+  kkAudio.impact(0.5)
+}
+onMounted(() => {
+  window.addEventListener('keydown', onKeyAct)
+  window.addEventListener('kk-action', onActEvent)
+  window.addEventListener('kk-player-hit', onHit)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyAct)
+  window.removeEventListener('kk-action', onActEvent)
+  window.removeEventListener('kk-player-hit', onHit)
+})
 const proximity = useState<{ entityId: string; name: string; code: string } | null>(
   'kk_proximity',
   () => null
@@ -87,7 +164,7 @@ onBeforeRender(({ delta }) => {
 
   // riding: the vehicle drives (RideSystem owns the position); this avatar
   // disappears - the vehicle renders a seated driver in outer view
-  if (ride.value.active) {
+  if (ride.value.active || work.commute?.active) {
     g.visible = false
     if (targetRing.value) targetRing.value.visible = false
     return
@@ -175,6 +252,13 @@ onBeforeRender(({ delta }) => {
     ix /= len2
     iy /= len2
   }
+  // sitting / lying on something: any move input stands you up first
+  if (pose.value && pose.value !== 'idle') {
+    if (ix !== 0 || iy !== 0 || moveTarget.value) window.dispatchEvent(new Event('kk-stand-up'))
+    ix = 0
+    iy = 0
+    moveTarget.value = null
+  }
   const keyMoving = ix !== 0 || iy !== 0
   if (keyMoving) moveTarget.value = null // direct input always wins over click-to-move
 
@@ -182,7 +266,8 @@ onBeforeRender(({ delta }) => {
   const mag = Math.hypot(ix, iy)
   const shift = isDown('ShiftLeft', 'ShiftRight')
   sprinting.value = shift || (touchMove.value.active && mag > 0.92)
-  const speed = sprinting.value ? SPRINT_SPEED : WALK_SPEED
+  const busy = performance.now() < actUntil && actName.value !== 'jump' && actName.value !== 'wave'
+  const speed = (sprinting.value ? SPRINT_SPEED : WALK_SPEED) * (busy ? 0.25 : 1)
 
   // map screen intent onto the world via the camera basis
   const dx = fx * iy + rx * ix
@@ -282,7 +367,26 @@ onBeforeRender(({ delta }) => {
 
   // the CharacterAvatar runs the gait cycle; keep the group on the floor
   bobT.value = moving ? bobT.value + dt : 0
-  g.position.set(playerPos.value[0], floorY, playerPos.value[2])
+  // jump arc
+  if (jumpVy !== 0 || jumpY > 0) {
+    jumpVy -= 14 * dt
+    jumpY = Math.max(0, jumpY + jumpVy * dt)
+    if (jumpY === 0 && jumpVy < 0) {
+      jumpVy = 0
+      kkAudio.footstep(true)
+    }
+  }
+  // pushed back by a hit: slide with friction, never into walls
+  if (Math.abs(slideX) + Math.abs(slideZ) > 0.05) {
+    const nx = playerPos.value[0] + slideX * dt
+    const nz = playerPos.value[2] + slideZ * dt
+    if (!collides(nx, playerPos.value[2])) playerPos.value[0] = nx
+    if (!collides(playerPos.value[0], nz)) playerPos.value[2] = nz
+    const fr = Math.exp(-5 * dt)
+    slideX *= fr
+    slideZ *= fr
+  }
+  g.position.set(playerPos.value[0], floorY + jumpY, playerPos.value[2])
   g.rotation.y = playerFacing.value
 
   // proximity check (~8/s)
@@ -321,7 +425,10 @@ onBeforeRender(({ delta }) => {
       :outfit="sim.look.outfit"
       :beard="sim.look.body === 'man' && sim.look.hair !== 'braids'"
       :mode="pose ?? (walking ? 'walk' : 'idle')"
-      :gait-speed="sprinting ? 15 : 10.5"
+      :gait-speed="sprinting ? 15.5 : 10.5"
+      :action="actName"
+      :action-key="actKey"
+      :seat="seat"
     />
     </TresGroup>
     <!-- soft shadow blob -->

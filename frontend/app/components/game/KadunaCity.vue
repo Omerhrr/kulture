@@ -24,6 +24,8 @@ import { buildHouseSystem, makeHouseMaterial, type HouseSystem } from '~/utils/h
 import { buildTowerMeshes } from '~/utils/towers'
 import { addWindSway } from '~/utils/weather'
 import { getQuality } from '~/utils/quality'
+import { registerBillboard, BILLBOARDS } from '~/utils/billboards'
+import { registerSeat, clearSeats } from '~/utils/seats'
 import { buildCivic } from '~/utils/civic'
 import { addColliders, type Box } from '~/utils/collision'
 import { crosswalks, roadMedians } from '~/utils/kadunaLighting'
@@ -566,6 +568,8 @@ function buildCity(): {
     }
   }
   // ---------------------------------------------------------------- street life
+  clearSeats()
+  BILLBOARDS.length = 0 // rebuilt with the city (stable ids in build order)
   // the things that make a Nigerian street: container kiosks with plastic
   // chairs and umbrellas, generators, bus shelters, billboards, wheelbarrow
   // water vendors, bins. Placed in the gaps between compounds.
@@ -573,6 +577,7 @@ function buildCity(): {
     const KIOSK = ['#2f6fae', '#d8262e', '#2f7d5b', '#e8b84b', '#f2f2ee']
     const at = (x: number, z: number, a: number, lx: number, lz: number): [number, number] => [x + lx * Math.cos(a) + lz * Math.sin(a), z - lx * Math.sin(a) + lz * Math.cos(a)]
     const chair = (x: number, z: number, a: number, col: string) => {
+      registerSeat({ x, z, yaw: a, h: 0.45, label: 'Plastic chair' })
       box('white', 0.45, 0.06, 0.45, x, 0.45, z, a, col)
       const [bx2, bz2] = at(x, z, a, 0, -0.22)
       box('white', 0.45, 0.45, 0.05, bx2, 0.7, bz2, a, col)
@@ -605,7 +610,8 @@ function buildCity(): {
       box('gold', 0.8, 0.55, 0.55, gx, 0.3, gz, a, '#e0b020')
       box('dark', 0.82, 0.12, 0.57, gx, 0.6, gz, a, '#2a2d33')
     }
-    const billboard = (x: number, z: number, a: number, k: number) => {
+    const billboard = (x: number, z: number, a: number, k: number, road = '') => {
+      registerBillboard(x, z, a, road)
       const [p1x, p1z] = at(x, z, a, -2.4, 0)
       const [p2x, p2z] = at(x, z, a, 2.4, 0)
       solids.push({ x: p1x, z: p1z, w: 0.4, d: 0.4 }, { x: p2x, z: p2z, w: 0.4, d: 0.4 })
@@ -625,6 +631,10 @@ function buildCity(): {
       box('glass', 3.8, 1.6, 0.05, glx, 1.5, glz, a, '#9fc0cc')
       const [bx3, bz3] = at(x, z, a, 0, -0.5)
       box('trunk', 3.2, 0.08, 0.45, bx3, 0.5, bz3, a)
+      for (const lx of [-0.8, 0.8]) {
+        const [sx3, sz3] = at(x, z, a, lx, -0.5)
+        registerSeat({ x: sx3, z: sz3, yaw: a, h: 0.5, label: 'Bus shelter bench' })
+      }
     }
     const waterCart = (x: number, z: number, a: number) => {
       solids.push({ x, z, w: 1.3, d: 1.3 })
@@ -665,7 +675,7 @@ function buildCity(): {
           const a = Math.atan2(fz * side, -fx * side)
           const h = rng()
           k++
-          if (main && r.class === 'trunk' && h < 0.18) billboard(x - fz * side * 1.5, z + fx * side * 1.5, a, k)
+          if (main && r.class === 'trunk' && h < 0.18) billboard(x - fz * side * 1.5, z + fx * side * 1.5, a, k, r.name)
           else if (main && h < 0.32) shelter(x, z, a)
           else if (h < 0.7) kiosk(x, z, a, k)
           else if (h < 0.85) waterCart(x, z, a)
@@ -1279,13 +1289,16 @@ const meshRefs = ref<THREE.Mesh[]>([])
 let cullTimer = 0
 const nightFactor = useState<number>('kk_night', () => 0)
 const CULL = 2600
+const cityMap = useCityMap()
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta, elapsed }) => {
   cullTimer += delta || 0
   if (cullTimer > 0.2 && cityRef.value) {
     cullTimer = 0
-    const px = playerPos.value[0]
-    const pz = playerPos.value[2]
+    // the map camera looks far from the player: anchor culling/LOD on it
+    const cm = cityMap.value
+    const px = cm.active ? cm.fx : playerPos.value[0]
+    const pz = cm.active ? cm.fz : playerPos.value[2]
     for (const m of meshRefs.value) {
       const g = m.geometry as THREE.BufferGeometry
       const bb = g.boundingBox

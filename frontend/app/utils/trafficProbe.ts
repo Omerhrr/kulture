@@ -16,6 +16,8 @@ export interface ProbeVehicle {
 
 export const trafficProbe = {
   cars: [] as ProbeVehicle[],
+  /** pedestrians near the player (x, z pairs), refreshed by the crowd */
+  peds: [] as Array<{ x: number; z: number }>,
   /** the player's active vehicle (or null on foot) */
   player: null as ProbeVehicle | null,
   /** true when the player rides something fast enough to dodge from */

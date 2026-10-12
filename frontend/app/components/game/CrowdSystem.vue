@@ -16,10 +16,12 @@ import { collidesRadius } from '~/utils/collision'
 import { laneBlocked, threatNear, trafficProbe } from '~/utils/trafficProbe'
 import { pedRegistry, pedRegistryPush, pedRegistryReset, pedName, pedLine, pedClock, type PedKind } from '~/utils/peds'
 import { useIsTouch } from '~/composables/useControlsState'
-import { registerCrash } from '~/utils/impact'
+import { registerCrash, meleeHits } from '~/utils/impact'
 import { weather } from '~/utils/weather'
 import { kkAudio } from '~/utils/audio'
 import { sunState } from '~/composables/useTimeOfDay'
+import { crowd, routineLine } from '~/utils/crowdShared'
+import { nearestSeat } from '~/utils/seats'
 
 const isTouch = useIsTouch()
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
@@ -142,6 +144,15 @@ interface Ped {
   homeAt?: number
   /** stays out after dark (night owls, about a quarter of the city) */
   nightOwl?: boolean
+  /** colours (for the high-detail renderer) */
+  look?: { shirt: string; trouser: string; skin: string; hair: string }
+  /** drawn by the high-detail LOD renderer instead of the instanced crowd */
+  hd?: boolean
+  /** street seat they are heading to / sitting on (lunch, evening rest) */
+  rest?: { x: number; z: number; yaw: number; h: number; until: number; stuck: number }
+  /** seat height for a seated pose (default: Rigasa platform bench) */
+  seatH?: number
+  restCheck?: number
 }
 
 const N_WALK = isTouch.value ? 20 : 36
@@ -156,6 +167,8 @@ const CROSSWALKS = crosswalks()
 const SIDEWALK = 1.4 // walk line out from the asphalt edge (sidewalk is 2.6 m)
 
 const peds: Ped[] = []
+crowd.peds = peds
+const takenSeats = new Set<number>()
 const tmp = { x: 0, z: 0, fx: 0, fz: 0 }
 
 function seedWalker(p: Ped, kind: Kind) {
@@ -580,6 +593,7 @@ onMounted(() => {
     const trouser = pick(colors.trousers)
     const skin = pick(colors.skins)
     const hair = pick(colors.hair)
+    p.look = { shirt, trouser, skin, hair }
     c.set(shirt)
     torsoM!.setColorAt(i, c)
     c.set(skin)
@@ -752,6 +766,17 @@ onBeforeRender(({ delta, elapsed }) => {
   // ------------------------------------------------- behavior per ped
   const nightNow = sunState(clockHour.value).night
   const pv = trafficProbe.player
+  const hits = meleeHits.splice(0) // this frame's punches / kicks / pushes
+  // publish pedestrians near the player so drivers brake for them
+  {
+    const pp = playerPos.value
+    const out = trafficProbe.peds
+    out.length = 0
+    for (const q of peds) {
+      if (q.sleep || out.length >= 160) continue
+      if (Math.abs(q.x - pp[0]) < 220 && Math.abs(q.z - pp[2]) < 220) out.push(q)
+    }
+  }
   for (const p of peds) {
     // night rhythm: past their home hour they head in; waking re-seeds
     // them cleanly (fresh route, fresh stall-side target)
@@ -768,6 +793,23 @@ onBeforeRender(({ delta, elapsed }) => {
       }
     }
     if (p.sleep) continue
+    // punched / kicked / pushed by the player: thrown back, fall, get up
+    if (hits.length && (p.knock ?? -1) < 0) {
+      for (const h of hits) {
+        const dx = p.x - h.x
+        const dz = p.z - h.z
+        const d = Math.hypot(dx, dz)
+        if (d < h.reach && dx * h.dirX + dz * h.dirZ > -0.2) {
+          p.knock = 0
+          p.kvx = (h.dirX * 0.8 + (dx / (d || 1)) * 0.4) * h.power
+          p.kvz = (h.dirZ * 0.8 + (dz / (d || 1)) * 0.4) * h.power
+          p.heading = Math.atan2(-h.dirX, -h.dirZ)
+          p.talking = 0
+          kkAudio.impact(Math.min(1, h.power / 8))
+          break
+        }
+      }
+    }
     // run over by the player's vehicle: thrown, fall, lie, get up
     if (pv && trafficProbe.playerSpeed > 3 && (p.knock ?? -1) < 0) {
       const dx = p.x - pv.x
@@ -831,9 +873,63 @@ onBeforeRender(({ delta, elapsed }) => {
       continue
     }
 
+    if (p.kind === 'walker' && p.rest) {
+      // daily routine: walk to a street seat, sit a while, carry on
+      const r = p.rest
+      if (!p.sit) {
+        const dx = r.x - p.x
+        const dz = r.z - p.z
+        const d = Math.hypot(dx, dz)
+        if (d < 0.4) {
+          p.x = r.x
+          p.z = r.z
+          p.heading = r.yaw
+          p.sit = true
+          p.seatH = r.h
+          p.swing = 0
+          r.until = elapsed + 25 + Math.random() * 40
+        } else {
+          if (!slideMove(p, (dx / d) * p.speed * dt, (dz / d) * p.speed * dt)) r.stuck += dt
+          p.heading = Math.atan2(dx, dz)
+          p.swing += dt * p.speed * 5.6
+          if (r.stuck > 6) {
+            takenSeats.delete(r.x * 1e4 + r.z)
+            p.rest = undefined
+          }
+        }
+        continue
+      }
+      if (elapsed > r.until) {
+        takenSeats.delete(r.x * 1e4 + r.z)
+        p.sit = false
+        p.seatH = undefined
+        p.rest = undefined
+        p.restCheck = elapsed + 60
+        seedWalker(p, 'walker')
+        p.x = r.x
+        p.z = r.z
+      }
+      continue
+    }
+    if (p.kind === 'walker' && p.stage === 'walk' && elapsed > (p.restCheck ?? 0)) {
+      p.restCheck = elapsed + 4 + Math.random() * 6
+      const h = pedClock.hour
+      const breakTime = (h >= 12 && h < 14.5) || (h >= 17.5 && h < 21)
+      if (breakTime && Math.random() < 0.35) {
+        const st = nearestSeat(p.x, p.z, 45)
+        if (st && !takenSeats.has(st.x * 1e4 + st.z)) {
+          takenSeats.add(st.x * 1e4 + st.z)
+          p.rest = { x: st.x, z: st.z, yaw: st.yaw, h: st.h, until: 0, stuck: 0 }
+          continue
+        }
+      }
+    }
     if (p.kind === 'walker' || p.kind === 'hawker') {
       if (p.stage === 'walk') {
-        p.s += p.speed * p.dir * dt
+        // rush hour: commuters walk faster
+        const h = pedClock.hour
+        const rush = p.kind === 'walker' && ((h >= 6.5 && h < 9) || (h >= 16.5 && h < 19)) ? 1.3 : 1
+        p.s += p.speed * rush * p.dir * dt
         if (p.route) {
           if (p.s >= p.route.total) {
             p.s = p.route.total - 0.1
@@ -981,8 +1077,8 @@ onBeforeRender(({ delta, elapsed }) => {
     const bobY = walking ? Math.abs(Math.cos(p.swing)) * 0.035 - 0.012 : 0
 
     const kt = p.knock ?? -1
-    if (p.sleep) {
-      // gone home: parked far below the city until dawn
+    if (p.sleep || p.hd) {
+      // gone home (or drawn in high detail by CrowdLOD): parked below the city
       rootM.compose(posV.set(p.x, -420, p.z), q.identity(), scaleV.set(s, s, s))
     } else if (kt >= 0) {
       const lie = kt < 2.5 ? Math.min(1, kt / 0.3) : Math.max(0, 1 - (kt - 2.5) / 0.6)
@@ -994,7 +1090,7 @@ onBeforeRender(({ delta, elapsed }) => {
       eul.order = 'XYZ'
     } else if (sitting) {
       // hips on the bench top, shins hanging to the platform
-      rootM.compose(posV.set(p.x, SIT_TOP - 0.94 * s, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
+      rootM.compose(posV.set(p.x, (p.seatH ?? SIT_TOP) - 0.94 * s, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
     } else {
       rootM.compose(posV.set(p.x, bobY, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
     }
@@ -1137,7 +1233,10 @@ function onTalk() {
   p.heading = Math.atan2(playerPos.value[0] - p.x, playerPos.value[2] - p.z)
   ui.dialogue = {
     npcName: pedName(p.female, p.id * 7 + 3),
-    text: pedLine(p.kind, pedClock.hour),
+    text:
+      p.kind === 'walker'
+        ? routineLine(p.id, pedClock.hour, p.sit ? 'seated' : (pedClock.hour >= 6.5 && pedClock.hour < 9) || (pedClock.hour >= 16.5 && pedClock.hour < 19) ? 'commute' : 'walk')
+        : pedLine(p.kind, pedClock.hour),
     engine: 'street_chat'
   }
 }

@@ -267,6 +267,13 @@ async def process_settlement(
     inv.status = "settled"
     inv.settled_at = event.settled_at
 
+    # paid billboard advert: put it on air (or into review) in this same
+    # transaction, so it happens exactly once with the settlement
+    if (intent.metadata_json or {}).get("kind") == "ad":
+        from app.services import ads_service
+
+        await ads_service.on_paid(db, intent)
+
     await emit(
         db, "payment.status", intent.id,
         {

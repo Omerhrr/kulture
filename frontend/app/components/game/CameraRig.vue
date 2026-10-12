@@ -20,6 +20,8 @@ const followTarget = new THREE.Vector3()
 const desired = new THREE.Vector3()
 // occlusion: shortened boom length when a building sits between player and camera
 let occl = 99
+const cityMap = useCityMap()
+let mapWasActive = false
 if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_cam = () => ({ occl, smooth: { ...smooth }, hit: (x: number, z: number) => hitsBuilding(x, z, 0.35) })
 
 // smoothed orbit values so the view glides instead of jumping
@@ -99,6 +101,22 @@ onBeforeRender(({ delta }) => {
     smooth.yaw += (orbit.value.yaw - smooth.yaw) * k
     smooth.pitch += (orbit.value.pitch - smooth.pitch) * k
     smooth.dist += (orbit.value.dist - smooth.dist) * k
+  }
+  // 3D city map: a tilted overview of the live city around the map focus
+  const cm = cityMap.value
+  if (cm.active) {
+    const pitch = 0.95
+    const h = Math.cos(pitch) * cm.dist
+    desired.set(cm.fx + Math.sin(cm.yaw) * h, Math.sin(pitch) * cm.dist, cm.fz + Math.cos(cm.yaw) * h)
+    if (!mapWasActive) cam.position.copy(desired)
+    else cam.position.lerp(desired, Math.min(1, k * 2))
+    mapWasActive = true
+    cam.lookAt(cm.fx, 0, cm.fz)
+    return
+  }
+  if (mapWasActive) {
+    mapWasActive = false
+    snapNext = true
   }
   // cockpit view: camera rides inside the vehicle, looking forward
   if (ride.value.active && ride.value.inner && ridePose.active) {

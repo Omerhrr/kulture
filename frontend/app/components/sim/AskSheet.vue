@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useSimStore, NEEDS } from '~/stores/sim'
 // AskSheet - "Ask Kaduna Kulture": quick answers about the game. Answers
 // come from a local FAQ (works offline on venue Wi-Fi); free text is
 // matched by keywords.
@@ -13,12 +14,11 @@ const FAQ: QA[] = [
   { q: 'How do I drive?', k: ['drive', 'car', 'keke', 'okada', 'bus', 'ride', 'vehicle'], a: 'Walk up to a parked keke, car, okada or bus and press E (or tap BOARD). Use WASD to drive, V for the inside view, E again to get out.' },
   { q: 'Is the naira real money?', k: ['naira', 'ngn', 'real', 'withdraw'], a: 'No. Naira (₦) is game money you earn from jobs. Only Lightning sats are real Bitcoin, and the two are never converted.' }
 ]
-const thread = ref<Array<{ from: 'me' | 'bot'; text: string }>>([{ from: 'bot', text: 'Sannu! ✨ Ask me anything about Kaduna Kulture.' }])
+const thread = ref<Array<{ from: 'me' | 'bot'; text: string; ai?: boolean }>>([{ from: 'bot', text: 'Sannu! ✨ Ask me anything about Kaduna Kulture.' }])
 const input = ref('')
-function ask(text: string) {
-  const t = text.trim()
-  if (!t) return
-  thread.value.push({ from: 'me', text: t })
+const sim = useSimStore()
+const thinking = ref(false)
+function offline(t: string): string {
   const low = t.toLowerCase()
   let best: QA | null = FAQ.find((f) => f.q.toLowerCase() === low) ?? null
   if (!best) {
@@ -28,8 +28,24 @@ function ask(text: string) {
       if (s > score) (score = s), (best = f)
     }
   }
-  thread.value.push({ from: 'bot', text: best ? best.a : "I'm not sure about that one yet. Try: jobs, Lightning, needs, driving, or going home." })
+  return best ? best.a : "I'm not sure about that one yet. Try: work, jobs, Lightning, needs, driving, or going home."
+}
+async function ask(text: string) {
+  const t = text.trim()
+  if (!t || thinking.value) return
+  const history = thread.value.slice(1).map((m) => ({ role: m.from === 'me' ? 'user' : 'assistant', content: m.text }))
+  thread.value.push({ from: 'me', text: t })
   input.value = ''
+  thinking.value = true
+  try {
+    const low = NEEDS.filter((n) => sim.needs[n.key] < 35).map((n) => n.label)
+    const r = await useGameApi().ask(t, history, { mood: sim.mood.label, low_needs: low })
+    thread.value.push({ from: 'bot', text: r.answer ?? offline(t), ai: !!r.answer })
+  } catch (e: any) {
+    thread.value.push({ from: 'bot', text: e?.status === 429 ? e.message : offline(t) })
+  } finally {
+    thinking.value = false
+  }
 }
 </script>
 
@@ -42,21 +58,25 @@ function ask(text: string) {
           <span class="flex h-12 w-12 items-center justify-center rounded-full bg-paper text-2xl">✨</span>
           <div class="flex-1">
             <div class="font-display text-xl font-semibold text-ink">Ask Kaduna Kulture</div>
-            <div class="text-sm text-ink/55">Quick answers about the game</div>
+            <div class="text-sm text-ink/55">AI guide · knows the game and your Sim</div>
           </div>
           <button class="kk-close" aria-label="Close" @click="open = false">✕</button>
         </div>
         <div class="kk-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto px-6 pb-3">
           <div v-for="(m, i) in thread" :key="i" class="flex" :class="m.from === 'me' ? 'justify-end' : ''">
-            <div class="max-w-[85%] rounded-3xl px-4 py-2.5 text-[15px] leading-relaxed" :class="m.from === 'me' ? 'bg-leaf text-white' : 'bg-paper text-ink'">{{ m.text }}</div>
+            <div class="max-w-[85%] rounded-3xl px-4 py-2.5 text-[15px] leading-relaxed" :class="m.from === 'me' ? 'bg-leaf text-white' : 'bg-paper text-ink'">
+              {{ m.text }}
+              <div v-if="m.ai" class="mt-1 text-[10px] font-bold uppercase tracking-wider text-ink/35">✨ AI answer</div>
+            </div>
           </div>
+          <div v-if="thinking" class="flex"><div class="rounded-3xl bg-paper px-4 py-2.5 text-[15px] text-ink/50">Thinking<span class="animate-pulse">...</span></div></div>
           <div class="flex flex-wrap gap-2 pt-1">
             <button v-for="f in FAQ" :key="f.q" class="rounded-full border border-ink/15 px-4 py-2 text-sm font-semibold text-ink hover:border-ink/30" @click="ask(f.q)">{{ f.q }}</button>
           </div>
         </div>
         <form class="flex gap-2 p-4" @submit.prevent="ask(input)">
           <input v-model="input" class="kk-input !rounded-full" placeholder="Ask a question..." />
-          <button class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-leaf text-xl text-white disabled:opacity-40" :disabled="!input.trim()" aria-label="Send">↑</button>
+          <button class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-leaf text-xl text-white disabled:opacity-40" :disabled="!input.trim() || thinking" aria-label="Send">↑</button>
         </form>
       </div>
     </div>

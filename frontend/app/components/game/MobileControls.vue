@@ -27,6 +27,16 @@ onMounted(() => {
   window.addEventListener('orientationchange', check)
 })
 
+const MOVES = [
+  { id: 'jump', icon: '⤴', label: 'Jump' },
+  { id: 'push', icon: '🤚', label: 'Push' },
+  { id: 'punch', icon: '👊', label: 'Punch' },
+  { id: 'kick', icon: '🦵', label: 'Kick' }
+]
+function fireAction(a: string) {
+  window.dispatchEvent(new CustomEvent('kk-action', { detail: a }))
+}
+
 function fireInteract() {
   window.dispatchEvent(new CustomEvent('kk-do-interact'))
 }
@@ -62,6 +72,18 @@ function tryLandscape() {
   <template v-if="isTouch">
     <TouchJoystick />
 
+    <!-- move set: jump / punch / kick / push (arc left of the main button) -->
+    <div v-if="!ride.active" class="fixed bottom-9 right-[6.6rem] z-40 grid grid-cols-2 gap-2">
+      <button
+        v-for="a in MOVES"
+        :key="a.id"
+        class="pointer-events-auto flex h-12 w-12 touch-none select-none flex-col items-center justify-center rounded-full border-2 border-white/40 bg-ink/30 text-lg text-white shadow-lg backdrop-blur-sm active:scale-95"
+        :aria-label="a.label"
+        @pointerdown.stop="fireAction(a.id)"
+      >
+        {{ a.icon }}<span class="text-[8px] font-extrabold leading-none">{{ a.label.toUpperCase() }}</span>
+      </button>
+    </div>
     <!-- side action buttons -->
     <div class="fixed bottom-8 right-5 z-40 flex flex-col items-center gap-3">
       <!-- (map lives on the dock now) -->

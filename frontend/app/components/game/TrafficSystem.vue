@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useWorkStore } from '~/stores/work'
+const workStore = useWorkStore()
 // TrafficSystem v2 - ambient traffic that behaves like real street traffic:
 //   - vehicles keep their lane, follow the car ahead and never overlap
 //   - they stop at the new traffic signals (market front, the square, the
@@ -13,8 +15,9 @@ import { BAKE, roadW } from '~/utils/kaduna'
 import { vehicleSpec, type VehicleKind } from '~/utils/vehicles'
 import { signals, signalPhase, marketFront, type Signal } from '~/utils/kadunaLighting'
 import { probeReset, probePush, trafficProbe } from '~/utils/trafficProbe'
+import { hitsBuilding } from '~/utils/collision'
 import { kkAudio } from '~/utils/audio'
-import { knockPlayer, registerCrash } from '~/utils/impact'
+import { knockPlayer, registerCrash, throwMelee } from '~/utils/impact'
 import { useRide, useInterior } from '~/composables/useControlsState'
 import { useIsTouch } from '~/composables/useControlsState'
 
@@ -50,6 +53,102 @@ function makeRoutes(classes: string[]): Route[] {
 }
 const mainRoutes = makeRoutes(['trunk', 'primary'])
 const allRoutes = makeRoutes(['trunk', 'primary', 'residential', 'secondary', 'unclassified'])
+
+// ---------------------------------------------------------------- road network
+// Junctions: where a road ends (or is cut by a building), vehicles turn
+// onto a road that passes close by instead of U-turning in place, so
+// traffic flows across the whole connected network.
+interface Exit {
+  route: Route
+  s: number
+  dirs: number[]
+}
+const JUNCTION_R = 11
+const junctionCache = new Map<Route, Map<number, Exit[]>>()
+function routeIndexFor(routes: Route[]) {
+  const CELL = 24
+  const grid = new Map<string, Array<[Route, number, number, number]>>() // route, s, x, z
+  for (const rt of routes) {
+    for (let s = 0; s <= rt.total; s += 8) {
+      routePoint(rt, s, tmpJ)
+      const k = `${Math.floor(tmpJ.x / CELL)},${Math.floor(tmpJ.z / CELL)}`
+      let a = grid.get(k)
+      if (!a) grid.set(k, (a = []))
+      a.push([rt, s, tmpJ.x, tmpJ.z])
+    }
+    routePoint(rt, rt.total, tmpJ)
+    const k = `${Math.floor(tmpJ.x / CELL)},${Math.floor(tmpJ.z / CELL)}`
+    let a = grid.get(k)
+    if (!a) grid.set(k, (a = []))
+    a.push([rt, rt.total, tmpJ.x, tmpJ.z])
+  }
+  return (rt: Route, x: number, z: number): Exit[] => {
+    const best = new Map<Route, { s: number; d: number }>()
+    const cx = Math.floor(x / CELL)
+    const cz = Math.floor(z / CELL)
+    for (let i = -1; i <= 1; i++)
+      for (let j = -1; j <= 1; j++)
+        for (const [r2, s2, x2, z2] of grid.get(`${cx + i},${cz + j}`) ?? []) {
+          if (r2 === rt) continue
+          const d = Math.hypot(x2 - x, z2 - z)
+          if (d > JUNCTION_R) continue
+          const b = best.get(r2)
+          if (!b || d < b.d) best.set(r2, { s: s2, d })
+        }
+    const out: Exit[] = []
+    for (const [r2, { s: s2 }] of best) {
+      const dirs: number[] = []
+      if (s2 < r2.total - 12) dirs.push(1)
+      if (s2 > 12) dirs.push(-1)
+      if (dirs.length) out.push({ route: r2, s: s2, dirs })
+    }
+    return out
+  }
+}
+const tmpJ = { x: 0, z: 0, fx: 0, fz: 1 }
+const finders = new Map<Route[], ReturnType<typeof routeIndexFor>>()
+function exitsAt(routes: Route[], rt: Route, s: number): Exit[] {
+  let f = finders.get(routes)
+  if (!f) finders.set(routes, (f = routeIndexFor(routes)))
+  const key = Math.round(s / 6)
+  let m = junctionCache.get(rt)
+  if (!m) junctionCache.set(rt, (m = new Map()))
+  let hit = m.get(key)
+  if (!hit) {
+    routePoint(rt, s, tmpJ)
+    hit = f(rt, tmpJ.x, tmpJ.z)
+    m.set(key, hit)
+  }
+  return hit
+}
+// stretches of a road that run into a building (procedural city overlap):
+// sampled lazily once the collision grid exists
+const blockedCache = new Map<Route, Uint8Array>()
+function blockedAt(rt: Route, s: number): boolean {
+  let b = blockedCache.get(rt)
+  if (!b) {
+    b = new Uint8Array(Math.ceil(rt.total / 4) + 1)
+    for (let i = 0; i < b.length; i++) {
+      routePoint(rt, Math.min(rt.total, i * 4), tmpJ)
+      b[i] = hitsBuilding(tmpJ.x, tmpJ.z, 0.6) ? 1 : 0
+    }
+    blockedCache.set(rt, b)
+  }
+  return b[Math.max(0, Math.min(b.length - 1, Math.round(s / 4)))] === 1
+}
+/** at a dead end: take a connected road (not straight back) if there is one */
+function turnAtJunction(car: Car, routes: Route[]) {
+  const exits = exitsAt(routes, car.route, car.s).filter((e) => !blockedAt(e.route, e.s))
+  if (exits.length) {
+    const e = exits[Math.floor(Math.random() * exits.length)]
+    car.route = e.route
+    car.s = e.s
+    car.dir = e.dirs[Math.floor(Math.random() * e.dirs.length)] as 1 | -1
+    car.v *= 0.55 // slow for the turn
+    return
+  }
+  car.dir = (car.dir === 1 ? -1 : 1) as 1 | -1
+}
 
 function routePoint(rt: Route, s: number, out: { x: number; z: number; fx: number; fz: number }) {
   const cum = rt.cum
@@ -421,8 +520,10 @@ function respawnNear(car: Car, ci: number) {
     if (d > 320) continue
     // appear 220-420 m away along the road, never right next to you
     const off = (220 + Math.random() * 200) * (Math.random() < 0.5 ? -1 : 1)
+    const ns = Math.max(0.5, Math.min(rt.total - 0.5, s + off))
+    if (blockedAt(rt, ns)) continue
     car.route = rt
-    car.s = Math.max(0.5, Math.min(rt.total - 0.5, s + off))
+    car.s = ns
     car.dir = Math.random() < 0.5 ? 1 : -1
     car.v = car.base * 0.8
     break
@@ -479,14 +580,18 @@ onBeforeRender(({ delta, elapsed }) => {
         continue
       }
       if (!wasActive) respawnNear(car, ci)
-      // route position + heading
+      // route position + heading; at a road end (or a building across the
+      // road) turn onto a connected road instead of driving into it
+      if (blockedAt(car.route, car.s)) respawnNear(car, ci) // spawned inside a building
+      const ahead = car.s + car.dir * 3.5
+      if (blockedAt(car.route, ahead)) turnAtJunction(car, CLASSES[ci].routes)
       car.s += car.v * car.dir * dt
       if (car.s >= car.route.total) {
         car.s = car.route.total - 0.1
-        car.dir = -1
+        turnAtJunction(car, CLASSES[ci].routes)
       } else if (car.s <= 0) {
         car.s = 0.1
-        car.dir = 1
+        turnAtJunction(car, CLASSES[ci].routes)
       }
       routePoint(car.route, car.s, tmp)
       const off = car.route.rw * 0.26
@@ -533,6 +638,18 @@ onBeforeRender(({ delta, elapsed }) => {
         target = Math.min(target, Math.max(0, (gap / 5.5) * other.v))
       }
 
+      // pedestrians: brake for anyone on the road ahead; a car that still
+      // runs into someone knocks them over
+      for (const pd of trafficProbe.peds) {
+        const dx = pd.x - car.x
+        const dz = pd.z - car.z
+        if (dx * dx + dz * dz > 196) continue
+        const along = dx * car.fx + dz * car.fz
+        const lat = Math.abs(dx * -car.fz + dz * car.fx)
+        if (along > 0.2 && along < 13 && lat < 1.6) target = Math.min(target, Math.max(0, (along - 3.2) * 1.4))
+        if (car.v > 3 && Math.abs(along) < 2.2 && lat < 1.0) throwMelee({ x: car.x, z: car.z, dirX: car.fx, dirZ: car.fz, power: 2 + car.v * 0.5, reach: 2.4 })
+      }
+
       // the player's vehicle is an obstacle too
       const pv = trafficProbe.player
       if (pv) {
@@ -548,7 +665,7 @@ onBeforeRender(({ delta, elapsed }) => {
       // the player on foot: drivers brake if they see you in time; step out
       // right in front of a moving car and it hits you
       car.hitCd = Math.max(0, car.hitCd - dt)
-      if (!rideRef.value.active && !interiorRef.value.inside) {
+      if (!rideRef.value.active && !interiorRef.value.inside && !workStore.commute?.active) {
         const pp = playerPosState.value
         const dx = pp[0] - car.x
         const dz = pp[2] - car.z

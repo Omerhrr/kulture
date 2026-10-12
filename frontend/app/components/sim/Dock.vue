@@ -1,15 +1,23 @@
 <script setup lang="ts">
+import { useHomeStore } from '~/stores/home'
 // Dock - the four big verbs of the life sim, always one tap away.
-import { fireKkEvent, useMapOpen, useInterior } from '~/composables/useControlsState'
+import { fireKkEvent, useMapOpen, useInterior, useCityMap } from '~/composables/useControlsState'
 
 const ui = useUiStore()
 const world = useWorldStore()
 const payments = usePaymentsStore()
 const mapOpen = useMapOpen()
+const cityMap = useCityMap()
 const interior = useInterior()
 const phoneOpen = useState<boolean>('kk_phone_open', () => false)
 
+const home = useHomeStore()
 async function buy() {
+  // in your own home, Buy is build mode (furniture); outside it's the shop
+  if (interior.value.inside && interior.value.name === 'Your home') {
+    home.build = !home.build
+    return
+  }
   // the nearest thing to "Buy mode": Musa's store catalogue, paid in sats
   const shop = world.entities.find((e) => e.code === 'musa_shop' && e.business_id)
   if (!shop?.business_id) return ui.showToast('No shop open right now', 'info')
@@ -22,8 +30,8 @@ async function buy() {
 }
 const items = computed(() => [
   { id: 'home', icon: '🏠', label: 'Home', on: interior.value.inside, run: () => fireKkEvent('kk-go-home') },
-  { id: 'buy', icon: '🛋️', label: 'Buy', on: ui.openPanel === 'shop', run: buy },
-  { id: 'map', icon: '🗺️', label: 'Map', on: mapOpen.value, run: () => (mapOpen.value = !mapOpen.value) },
+  { id: 'buy', icon: '🛋️', label: 'Buy', on: ui.openPanel === 'shop' || home.build, run: buy },
+  { id: 'map', icon: '🗺️', label: 'Map', on: cityMap.value.active || mapOpen.value, run: () => ((mapOpen.value = false), (cityMap.value.active = !cityMap.value.active)) },
   { id: 'phone', icon: '📱', label: 'Phone', on: phoneOpen.value, run: () => (phoneOpen.value = !phoneOpen.value) }
 ])
 </script>

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { useSimStore } from '~/stores/sim'
+import { useWorkStore } from '~/stores/work'
+import { useAdsStore } from '~/stores/ads'
 // Game page - auth gate, world bootstrap, socket wiring, panel orchestration.
 
 import { unstick } from '~/utils/collision'
@@ -26,6 +28,10 @@ const authBusy = ref(false)
 
 const ready = ref(false)
 const sim = useSimStore()
+const work = useWorkStore()
+const ads = useAdsStore()
+const cityMap = useCityMap()
+const nearBoard = useState<string | null>('kk_billboard_near', () => null)
 const phoneOpen = useState<boolean>('kk_phone_open', () => false)
 // true until we know whether a saved session exists (avoids login flash)
 const booting = ref(true)
@@ -68,13 +74,17 @@ function onKey(e: KeyboardEvent) {
     const ask = useState<boolean>('kk_ask_open')
     if (ask.value) return void (ask.value = false)
     if (phoneOpen.value) return void (phoneOpen.value = false)
+    if (ads.sheetBoard) return void (ads.sheetBoard = null)
+    if (cityMap.value.active) return void (cityMap.value.active = false)
+    const wk = useState<boolean>('kk_work_open')
+    if (wk.value) return void (wk.value = false)
     if (mapOpen.value) mapOpen.value = false
     else ui.closeAll()
   }
   if (e.key === 'i' || e.key === 'I') ui.open('inventory')
   if (e.key === 'j' || e.key === 'J') ui.open('jobs')
   if (e.key === 't' || e.key === 'T') ui.open('ledger')
-  if (e.key === 'm' || e.key === 'M') mapOpen.value = !mapOpen.value
+  if (e.key === 'm' || e.key === 'M') cityMap.value.active = !cityMap.value.active
   if (e.key === 'v' || e.key === 'V') fireKkEvent('kk-ride-view')
   if (e.key === 'n' || e.key === 'N') fireKkEvent('kk-time-skip')
   if (e.key === 'y' || e.key === 'Y') fireKkEvent('kk-weather')
@@ -131,7 +141,41 @@ onMounted(async () => {
     }
   })
   socket.onMessage((ev) => {
+    // other players nearby + the real online count (1 Hz from the server)
+    if (ev.type === 'players.snapshot') {
+      useState('kk_players').value = ev.payload
+      return
+    }
+    // the server granted a commute skip: land where it says
+    if (ev.type === 'commute.arrived' && Array.isArray(ev.payload?.position)) {
+      window.dispatchEvent(new CustomEvent('kk-commute-arrived', { detail: ev.payload.position }))
+      return
+    }
+    // someone nearby jumped / punched / waved: animate their avatar
+    if (ev.type === 'player.emote') {
+      window.dispatchEvent(new CustomEvent('kk-remote-emote', { detail: ev.payload }))
+      return
+    }
+    // another player's punch / kick / push landed on us (server-validated)
+    if (ev.type === 'player.hit') {
+      window.dispatchEvent(new CustomEvent('kk-player-hit', { detail: ev.payload }))
+      ui.showToast(`@${ev.payload?.from} ${ev.payload?.action === 'push' ? 'pushed' : ev.payload?.action === 'kick' ? 'kicked' : 'punched'} you!`, 'info')
+      return
+    }
+    // a billboard ad went on air somewhere: repaint the boards
+    if (ev.type === 'ads.updated') {
+      ads.refresh().catch(() => {})
+      return
+    }
+    // shift pay landed in the ledger: pull the fresh balance
+    if (ev.type === 'player.balance') {
+      socket.send('state.resync', {})
+      return
+    }
     if (ev.type === 'player.state' && ev.payload?.reason === 'connected') {
+      // tell everyone what we look like (validated server-side)
+      socket.send('player.look', { look: sim.look, name: sim.name })
+      work.refresh().catch(() => {})
       // resync after (re)connect - authoritative snapshot
       world.load().catch(() => {})
     }
@@ -146,6 +190,10 @@ onMounted(async () => {
     }
   })
   socket.connect()
+  watch(
+    () => [sim.name, JSON.stringify(sim.look)],
+    () => socket.send('player.look', { look: sim.look, name: sim.name })
+  )
 
   try {
     await bootstrap()
@@ -279,15 +327,29 @@ function fmtNgn(minor: number) {
       <SimHud @settings="phoneOpen = true">
         <ObjectiveTracker />
       </SimHud>
-      <Minimap v-show="!ui.openPanel && !sim.cleanScreen" />
+      <Minimap v-show="!ui.openPanel && !sim.cleanScreen && !cityMap.active" />
       <Dock v-show="!sim.cleanScreen" />
+      <CityMap />
+      <BillboardSheet />
+      <BuildPanel />
+      <!-- near a billboard: see what's on air / book it -->
+      <button
+        v-if="nearBoard && !cityMap.active && !ads.sheetBoard && !ui.anyBlocking"
+        class="pointer-events-auto absolute bottom-28 right-3 z-20 flex items-center gap-2 rounded-full bg-white/95 py-2 pl-2 pr-4 text-sm font-bold text-ink shadow-xl sm:right-4"
+        @click="ads.open(nearBoard)"
+      >
+        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100">📢</span>View ads · book this board
+      </button>
       <Phone />
+      <WorkApp />
+      <CommuteCard />
+      <ShiftCard v-if="!work.commute?.active" />
       <AskSheet />
       <Tour v-if="sim.created && !sim.tourDone" />
       <CharacterCreator v-if="!sim.created" />
       <MapOverlay />
       <MobileControls />
-      <InteractionPrompt />
+      <InteractionPrompt v-show="!cityMap.active" />
       <AudioSystem />
       <ShopPanel v-if="ui.openPanel === 'shop'" />
       <InventoryPanel v-if="ui.openPanel === 'inventory'" />
