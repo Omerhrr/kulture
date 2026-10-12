@@ -316,6 +316,40 @@ with sync_playwright() as pw:
     except Exception as e:  # noqa: BLE001
         ok("district content API reachable", False, str(e)[:120])
 
+    # ---------- district occupancy: stalls, benches, queues are staffed
+    occ = page.evaluate("window.__kk_occupants && window.__kk_occupants()")
+    inhabited = (
+        bool(occ)
+        and occ.get("textile", 0) >= 6
+        and occ.get("rigasa", 0) >= 4
+        and occ.get("kasu", 0) >= 2
+        and occ.get("kawo", 0) >= 2
+        and occ.get("sabon", 0) >= 1
+    )
+    ok("districts are inhabited", inhabited, occ)
+    ok("bench sitters at Rigasa", bool(occ) and occ.get("sitters", 0) >= 4, occ and occ.get("sitters"))
+
+    # ---------- night rhythm: the city thins out after dark, wakes at dawn
+    for _ in range(10):
+        page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
+        page.wait_for_timeout(500)
+        t3 = page.evaluate("window.__kk_time && window.__kk_time()")
+        if t3 and t3.get("night", 0) > 0.85:
+            break
+    asleep = poll(page, "window.__kk_crowd && window.__kk_crowd().asleep >= 20", 12)
+    crowd_n = page.evaluate("window.__kk_crowd && window.__kk_crowd()")
+    ok("the city sleeps at night", asleep, crowd_n and {k: crowd_n.get(k) for k in ("total", "asleep")})
+    page.screenshot(path="/tmp/kk-night-empty.png")
+    for _ in range(10):
+        page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
+        page.wait_for_timeout(500)
+        t4 = page.evaluate("window.__kk_time && window.__kk_time()")
+        if t4 and t4.get("night", 1) < 0.3:
+            break
+    woke = poll(page, "window.__kk_crowd && window.__kk_crowd().asleep === 0", 12)
+    crowd_d = page.evaluate("window.__kk_crowd && window.__kk_crowd()")
+    ok("the city wakes at dawn", woke, crowd_d and {k: crowd_d.get(k) for k in ("total", "asleep")})
+
     ok("no page errors at the end", len(errors) == 0, errors[:4])
     browser.close()
 

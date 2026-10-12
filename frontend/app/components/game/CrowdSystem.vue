@@ -9,7 +9,7 @@
 // brows, nose, mouth), hair, hijabs and wrappers, so the crowd reads human
 // at street distance while costing a couple of dozen draw calls.
 import * as THREE from 'three'
-import { BAKE, roadW } from '~/utils/kaduna'
+import { BAKE, roadW, PLAYABLE_POS } from '~/utils/kaduna'
 import { SITES, hash01 } from '~/utils/kadunaExtras'
 import { crosswalks, type Crosswalk } from '~/utils/kadunaLighting'
 import { collidesRadius } from '~/utils/collision'
@@ -19,6 +19,7 @@ import { useIsTouch } from '~/composables/useControlsState'
 import { registerCrash } from '~/utils/impact'
 import { weather } from '~/utils/weather'
 import { kkAudio } from '~/utils/audio'
+import { sunState } from '~/composables/useTimeOfDay'
 
 const isTouch = useIsTouch()
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
@@ -129,6 +130,18 @@ interface Ped {
   umbrella?: boolean
   kvx?: number
   kvz?: number
+  /** zone tag for district occupants (textile, kawo, rigasa, kasu, sabon) */
+  zone?: string
+  /** anchored pose: seated on a bench */
+  sit?: boolean
+  /** standing gossip pair (KASU campus walk) */
+  gossip?: boolean
+  /** gone home for the night (parked below the city until dawn) */
+  sleep?: boolean
+  /** night factor at which this person goes home (2 = never) */
+  homeAt?: number
+  /** stays out after dark (night owls, about a quarter of the city) */
+  nightOwl?: boolean
 }
 
 const N_WALK = isTouch.value ? 20 : 36
@@ -168,6 +181,23 @@ for (let r = 0; r < 4 && vendorSpots.length < N_VEND; r++) {
 const park = BAKE.landmarks.find((l) => l.kind === 'park')!
 const PITCH = [park.x - 24, park.z + 4]
 
+// district occupants: stall keepers, drivers, sitters and a queue at the
+// five new spots. Anchors mirror the WorldScene build grids (the Textile
+// stall rows, the Kawo keke line, the Rigasa benches, the KASU platform
+// walk, the Sabon shop front).
+const PP = PLAYABLE_POS
+const rel = (code: string, pts: Array<[number, number]>): Array<[number, number]> =>
+  pts.map(([x, z]) => [PP[code][0] + x, PP[code][1] + z] as [number, number])
+const TEXTILE_VENDORS = rel('textile_market', [
+  [-7, -0.8], [0, -0.8], [7, -0.8],
+  [-7, 7.2], [0, 7.2], [7, 7.2]
+])
+const KAWO_DRIVERS = rel('kawo_motor_park', [[-3.3, 5.3], [1.7, 5.6], [6.4, 5.0]])
+const RIGASA_SITTERS = rel('rigasa_station', [[-6.8, 1.4], [-5.2, 1.4], [5.2, 1.4], [6.8, 1.4]])
+const KASU_PAIR = rel('kasu_gate', [[-2.4, 1.7], [-1.1, 2.3]])
+const SABON_QUEUE = rel('sabon_tasha_shop', [[1.8, 6.9]])
+const SIT_TOP = 1.5 // Rigasa bench seat height above the street
+
 let seedIdx = 0
 for (let i = 0; i < TOTAL; i++) {
   seedIdx++
@@ -199,22 +229,57 @@ for (let i = 0; i < TOTAL; i++) {
     flee: 0,
     id: i
   }
+  const nightOwl = hash01(i, 9.17) < 0.28
+  p.nightOwl = nightOwl
   if (i < N_WALK + N_HAWK) {
     seedWalker(p, i < N_WALK ? 'walker' : 'hawker')
+    p.homeAt = nightOwl ? 2 : 0.78
   } else if (i < N_WALK + N_HAWK + N_VEND) {
     const k = i - N_WALK - N_HAWK
-    const [vx, vz] = vendorSpots[k % vendorSpots.length]
     p.kind = 'vendor'
-    p.ax = vx
-    p.az = vz
-    p.heading = Math.PI + hash01(vx, vz) - 0.5
+    if (k < 8) {
+      // the central market sheds (floodlit, staffed round the clock)
+      const [vx, vz] = vendorSpots[k % vendorSpots.length]
+      p.ax = vx
+      p.az = vz
+      p.heading = Math.PI + hash01(vx, vz) - 0.5
+      p.homeAt = 2
+    } else {
+      // stall keepers at the Textile Market (go home after dark)
+      const [vx, vz] = TEXTILE_VENDORS[(k - 8) % TEXTILE_VENDORS.length]
+      p.ax = vx
+      p.az = vz
+      p.heading = Math.PI + hash01(vx, vz) - 0.5
+      p.item = k % 2 ? 1 : 0
+      p.zone = 'textile'
+      p.homeAt = 0.72
+    }
   } else if (i < N_WALK + N_HAWK + N_VEND + N_WORK) {
     const k = i - N_WALK - N_HAWK - N_VEND
-    const site = SITES[k % Math.max(1, SITES.length)]
     p.kind = 'worker'
-    p.ax = site.x - 5 + (k % 3) * 4
-    p.az = site.z + 6.6
-    p.heading = Math.PI
+    if (k < 3) {
+      const site = SITES[k % Math.max(1, SITES.length)]
+      p.ax = site.x - 5 + (k % 3) * 4
+      p.az = site.z + 6.6
+      p.heading = Math.PI
+      p.homeAt = 2
+    } else if (k < 5) {
+      // drivers waiting by the Kawo keke line (transport runs all night)
+      const [wx, wz] = KAWO_DRIVERS[k - 3]
+      p.ax = wx
+      p.az = wz
+      p.heading = Math.PI + (k - 3) * 0.35
+      p.zone = 'kawo'
+      p.homeAt = 2
+    } else {
+      // the queue under the Sabon Tasha shop awning
+      const [qx, qz] = SABON_QUEUE[k - 5]
+      p.ax = qx
+      p.az = qz
+      p.heading = Math.PI
+      p.zone = 'sabon'
+      p.homeAt = 0.72
+    }
   } else if (i < N_WALK + N_HAWK + N_VEND + N_WORK + N_KID) {
     const k = i - N_WALK - N_HAWK - N_VEND - N_WORK
     p.kind = 'kid'
@@ -223,14 +288,45 @@ for (let i = 0; i < TOTAL; i++) {
     p.orbit = 4 + k * 1.4
     p.speed = 2.6 + k * 0.35
     p.phase = (k / N_KID) * Math.PI * 2
+    p.homeAt = 0.6
   } else {
+    const k = i - N_WALK - N_HAWK - N_VEND - N_WORK - N_KID
     p.kind = 'shopper'
     p.speed = 1.1 + Math.random() * 0.6
-    p.tx = market.x + (Math.random() - 0.5) * 44
-    p.tz = market.z + (Math.random() - 0.5) * 30
-    p.x = p.tx
-    p.z = p.tz
-    pickShopperTarget(p)
+    p.homeAt = nightOwl ? 2 : 0.78
+    if (k < 4) {
+      // browsing the central market
+      p.tx = market.x + (Math.random() - 0.5) * 44
+      p.tz = market.z + (Math.random() - 0.5) * 30
+      p.x = p.tx
+      p.z = p.tz
+      pickShopperTarget(p)
+    } else if (k < 8) {
+      // waiting on a Rigasa bench, facing the platform edge
+      const [bx, bz] = RIGASA_SITTERS[k - 4]
+      p.sit = true
+      p.zone = 'rigasa'
+      p.homeAt = 2
+      p.x = bx
+      p.z = bz
+      p.tx = bx
+      p.tz = bz
+      p.heading = 0
+    } else {
+      // a gossip pair on the KASU campus walk
+      const [gx, gz] = KASU_PAIR[k - 8]
+      p.gossip = true
+      p.zone = 'kasu'
+      p.homeAt = 0.72
+      p.x = gx
+      p.z = gz
+      p.tx = gx
+      p.tz = gz
+      p.heading =
+        k === 8
+          ? Math.atan2(KASU_PAIR[1][0] - KASU_PAIR[0][0], KASU_PAIR[1][1] - KASU_PAIR[0][1])
+          : Math.atan2(KASU_PAIR[0][0] - KASU_PAIR[1][0], KASU_PAIR[0][1] - KASU_PAIR[1][1])
+    }
   }
   peds.push(p)
 }
@@ -654,8 +750,24 @@ onBeforeRender(({ delta, elapsed }) => {
   }
 
   // ------------------------------------------------- behavior per ped
+  const nightNow = sunState(clockHour.value).night
   const pv = trafficProbe.player
   for (const p of peds) {
+    // night rhythm: past their home hour they head in; waking re-seeds
+    // them cleanly (fresh route, fresh stall-side target)
+    const wantSleep = nightNow >= (p.homeAt ?? 2)
+    if (wantSleep !== !!p.sleep) {
+      p.sleep = wantSleep || undefined
+      if (!wantSleep) {
+        if (p.kind === 'walker' || p.kind === 'hawker') seedWalker(p, p.kind)
+        else if (p.kind === 'shopper' && !p.sit && !p.gossip) {
+          p.x = p.tx
+          p.z = p.tz
+          pickShopperTarget(p)
+        }
+      }
+    }
+    if (p.sleep) continue
     // run over by the player's vehicle: thrown, fall, lie, get up
     if (pv && trafficProbe.playerSpeed > 3 && (p.knock ?? -1) < 0) {
       const dx = p.x - pv.x
@@ -824,7 +936,9 @@ onBeforeRender(({ delta, elapsed }) => {
   // keep people out of each other and let them step aside for you
   for (let i = 0; i < peds.length; i++) {
     const a = peds[i]
+    if (a.sleep) continue
     for (let j = i + 1; j < peds.length; j++) {
+      if (peds[j].sleep) continue
       const b = peds[j]
       const dx = b.x - a.x
       const dz = b.z - a.z
@@ -834,8 +948,8 @@ onBeforeRender(({ delta, elapsed }) => {
       const push = (0.75 - d) * 0.5
       const ux = dx / d
       const uz = dz / d
-      const aStatic = a.kind === 'vendor' || a.kind === 'worker'
-      const bStatic = b.kind === 'vendor' || b.kind === 'worker'
+      const aStatic = a.kind === 'vendor' || a.kind === 'worker' || a.sit || a.gossip
+      const bStatic = b.kind === 'vendor' || b.kind === 'worker' || b.sit || b.gossip
       if (!aStatic) slideMove(a, -ux * push, -uz * push)
       if (!bStatic) slideMove(b, ux * push, uz * push)
     }
@@ -843,11 +957,11 @@ onBeforeRender(({ delta, elapsed }) => {
     const pdx = a.x - px
     const pdz = a.z - pz
     const pd2 = pdx * pdx + pdz * pdz
-    if (pd2 < 1.44 && pd2 > 1e-6) {
+    if (pd2 < 1.44 && pd2 > 1e-6 && !a.sleep) {
       const pd = Math.sqrt(pd2)
       const push = (1.2 - pd) * 0.85
       slideMove(a, (pdx / pd) * push, (pdz / pd) * push)
-      if (a.kind !== 'vendor' && a.kind !== 'worker') a.heading = Math.atan2(pdx, pdz)
+      if (a.kind !== 'vendor' && a.kind !== 'worker' && !a.sit && !a.gossip) a.heading = Math.atan2(pdx, pdz)
     }
   }
 
@@ -855,8 +969,11 @@ onBeforeRender(({ delta, elapsed }) => {
   const rainNow = weather.cur.rain
   for (let i = 0; i < peds.length; i++) {
     const p = peds[i]
+    const sitting = !!p.sit
+    const still = sitting || !!p.gossip
     const walking =
-      p.kind === 'walker' || p.kind === 'hawker' || p.kind === 'kid' || (p.kind === 'shopper' && Math.hypot(p.tx - p.x, p.tz - p.z) > 0.8)
+      !still &&
+      (p.kind === 'walker' || p.kind === 'hawker' || p.kind === 'kid' || (p.kind === 'shopper' && Math.hypot(p.tx - p.x, p.tz - p.z) > 0.8))
     const wk = walking ? 1 : 0
     const sw = walking ? Math.sin(p.swing) : 0
     const s = p.height
@@ -864,7 +981,10 @@ onBeforeRender(({ delta, elapsed }) => {
     const bobY = walking ? Math.abs(Math.cos(p.swing)) * 0.035 - 0.012 : 0
 
     const kt = p.knock ?? -1
-    if (kt >= 0) {
+    if (p.sleep) {
+      // gone home: parked far below the city until dawn
+      rootM.compose(posV.set(p.x, -420, p.z), q.identity(), scaleV.set(s, s, s))
+    } else if (kt >= 0) {
       const lie = kt < 2.5 ? Math.min(1, kt / 0.3) : Math.max(0, 1 - (kt - 2.5) / 0.6)
       rootM.compose(
         posV.set(p.x, lie * 0.16 * s, p.z),
@@ -872,6 +992,9 @@ onBeforeRender(({ delta, elapsed }) => {
         scaleV.set(s, s, s)
       )
       eul.order = 'XYZ'
+    } else if (sitting) {
+      // hips on the bench top, shins hanging to the platform
+      rootM.compose(posV.set(p.x, SIT_TOP - 0.94 * s, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
     } else {
       rootM.compose(posV.set(p.x, bobY, p.z), q.setFromEuler(eul.set(0, p.heading, 0)), scaleV.set(s, s, s))
     }
@@ -882,14 +1005,20 @@ onBeforeRender(({ delta, elapsed }) => {
     const kneeAmp = p.female ? 0.5 : 0.72
     const kneeL = 0.08 + Math.max(0, Math.sin(p.swing - 1.2)) * kneeAmp * wk
     const kneeR = 0.08 + Math.max(0, Math.sin(p.swing - 1.2 + Math.PI)) * kneeAmp * wk
-    twoSeg(legM, legM2, i * 2, rootM, -0.1, 0.94, 0, -sw * stride, -0.47, kneeL)
-    twoSeg(legM, legM2, i * 2 + 1, rootM, 0.1, 0.94, 0, sw * stride, -0.47, kneeR)
+    if (sitting) {
+      // thighs forward on the seat, shins down to the platform
+      twoSeg(legM, legM2, i * 2, rootM, -0.1, 0.94, 0, -1.5, -0.47, 1.45)
+      twoSeg(legM, legM2, i * 2 + 1, rootM, 0.1, 0.94, 0, -1.5, -0.47, 1.45)
+    } else {
+      twoSeg(legM, legM2, i * 2, rootM, -0.1, 0.94, 0, -sw * stride, -0.47, kneeL)
+      twoSeg(legM, legM2, i * 2 + 1, rootM, 0.1, 0.94, 0, sw * stride, -0.47, kneeR)
+    }
     // arms counter-swing the legs like the player rig, elbows bent
-    const hammer = p.kind === 'worker' ? -0.9 + Math.sin(elapsed * 6 + p.phase) * 0.55 : 0
-    const shL = p.kind === 'worker' ? hammer : sw * 0.42
-    const shR = p.kind === 'worker' ? hammer : -sw * 0.42
-    const elL = p.kind === 'worker' ? -0.5 : -(0.22 + Math.max(0, sw) * 0.25) * wk - 0.12
-    const elR = p.kind === 'worker' ? -0.5 : -(0.22 + Math.max(0, -sw) * 0.25) * wk - 0.12
+    const hammer = p.kind === 'worker' && !sitting ? -0.9 + Math.sin(elapsed * 6 + p.phase) * 0.55 : 0
+    const shL = sitting ? -0.62 : p.kind === 'worker' ? hammer : sw * 0.42
+    const shR = sitting ? -0.62 : p.kind === 'worker' ? hammer : -sw * 0.42
+    const elL = sitting ? -0.5 : p.kind === 'worker' ? -0.5 : -(0.22 + Math.max(0, sw) * 0.25) * wk - 0.12
+    const elR = sitting ? -0.5 : p.kind === 'worker' ? -0.5 : -(0.22 + Math.max(0, -sw) * 0.25) * wk - 0.12
     // face follows the head; hide per kind
     eyesM.setMatrixAt(i, rootM)
     pupilsM.setMatrixAt(i, rootM)
@@ -954,6 +1083,7 @@ onBeforeRender(({ delta, elapsed }) => {
   // ------------------------------------------------- registry + prompt
   pedRegistryReset()
   for (const p of peds) {
+    if (p.sleep) continue
     pedRegistryPush({
       id: p.id,
       x: p.x,
@@ -972,7 +1102,7 @@ onBeforeRender(({ delta, elapsed }) => {
     let best: { id: number; name: string; kind: PedKind } | null = null
     let bestD = 2.7
     for (const p of peds) {
-      if (p.talking > 0) continue
+      if (p.talking > 0 || p.sleep) continue
       const d = Math.hypot(p.x - px, p.z - pz)
       if (d < bestD) {
         bestD = d
@@ -1017,6 +1147,7 @@ void lastElapsed
 if (import.meta.dev) {
   ;(window as any).__kk_crowd = () => ({
     total: peds.length,
+    asleep: peds.filter((p) => p.sleep).length,
     walkers: peds.filter((p) => p.kind === 'walker' || p.kind === 'hawker').length,
     crossing: peds.filter((p) => p.stage === 'cross').length,
     waiting: peds.filter((p) => p.stage === 'wait').length,
@@ -1036,6 +1167,7 @@ if (import.meta.dev) {
     let best: Ped | null = null
     let bestD = Infinity
     for (const p of peds) {
+      if (p.sleep) continue
       if (kind && p.kind !== kind) continue
       const d = Math.hypot(p.x - px, p.z - pz)
       if (d < bestD) {
@@ -1044,6 +1176,15 @@ if (import.meta.dev) {
       }
     }
     return best ? [+best.x.toFixed(2), +best.z.toFixed(2), best.kind, +bestD.toFixed(1)] : null
+  }
+  ;(window as any).__kk_occupants = () => {
+    const c: Record<string, number> = {}
+    for (const p of peds) {
+      if (!p.zone) continue
+      c[p.zone] = (c[p.zone] || 0) + 1
+    }
+    c.sitters = peds.filter((p) => p.sit).length
+    return c
   }
 }
 </script>
