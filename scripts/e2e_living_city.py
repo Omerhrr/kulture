@@ -208,17 +208,25 @@ with sync_playwright() as pw:
     ok("street chat line appears", chat)
     page.screenshot(path="/tmp/kk-chat.png")
 
-    # ---------- interiors: teleport to the first open house door and enter
+    # ---------- interiors: teleport to the first open house door and enter.
+    # Wait for the door scan to actually publish action==='enter' before
+    # firing the one-shot event (the exit path below does the same; firing
+    # blind races the render loop at software-GL pace).
     page.evaluate(
         """() => {
       const doors = window.__kk_doors && window.__kk_doors();
       if (doors && doors[0]) window.__kk_teleport(doors[0].door[0], doors[0].door[1]);
     }"""
     )
-    page.wait_for_timeout(1400)
-    prompt_visible = page.evaluate("document.body.innerText.includes('Enter')")
-    ok("door prompt visible at the entrance", prompt_visible)
-    page.evaluate("window.dispatchEvent(new CustomEvent('kk-door-use'))")
+    prompt_ready = poll(
+        page,
+        "window.__kk_interior && window.__kk_interior().prompt && window.__kk_interior().prompt.action === 'enter'",
+        30,
+    )
+    ok("door prompt visible at the entrance", prompt_ready, page.evaluate("window.__kk_interior && window.__kk_interior()"))
+    if prompt_ready:
+        page.evaluate("window.dispatchEvent(new CustomEvent('kk-door-use'))"
+    )
     entered = poll(page, "window.__kk_interior && window.__kk_interior().inside", 30)
     interior = page.evaluate("window.__kk_interior && window.__kk_interior()")
     ok("interior entered", entered, interior)

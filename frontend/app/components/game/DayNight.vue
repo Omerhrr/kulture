@@ -177,6 +177,9 @@ onBeforeUnmount(() => {
 
 function onSkip() {
   hour.value = (hour.value + 2) % 24
+  // publish the new night factor immediately (the render loop would
+  // otherwise leave the old value visible until the next frame lands)
+  nightFactor.value = sunState(hour.value).night
 }
 
 // moon + sun disc textures (soft radial gradients, drawn once)
