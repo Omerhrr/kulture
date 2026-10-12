@@ -5,7 +5,7 @@
 // the four point lights that follow you), the stars and the moon.
 // Press N (or tap the clock chip) to jump two hours.
 import * as THREE from 'three'
-import { useClock, useClockSpeed, sunState, skyPalette, mixHex } from '~/composables/useTimeOfDay'
+import { useClock, useClockSpeed, sunState, skyPalette, mixHex, clockSpeedAt } from '~/composables/useTimeOfDay'
 import { streetlights, windowLights } from '~/utils/kadunaLighting'
 import { weather } from '~/utils/weather'
 
@@ -207,9 +207,11 @@ onMounted(() => {
 
 // ---------------------------------------------------------------- loop
 onBeforeRender(({ delta, elapsed }) => {
-  // 1) advance the clock
+  // 1) advance the clock (night hours slip by ~2.2x faster: long days,
+  //    short nights - see clockSpeedAt)
   const dt = Math.min(delta || 0.016, 0.1)
-  hour.value = (hour.value + (dt * 24) / Math.max(30, daySeconds.value)) % 24
+  hour.value =
+    (hour.value + (dt * 24 * clockSpeedAt(hour.value)) / Math.max(30, daySeconds.value)) % 24
 
   const s = sunState(hour.value)
   nightFactor.value = s.night

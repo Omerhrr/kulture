@@ -36,10 +36,11 @@ export function formatHour(hour: number): string {
 /** Sky / fog / light parameters for a given hour. */
 export function sunState(hour: number): SunState {
   const h = ((hour % 24) + 24) % 24
-  // sun rises at 6, sets at 18: elevation follows a half sine
-  const dayT = (h - 6) / 12 // 0 at sunrise, 1 at sunset
+  // long tropical day: the sun rises at 6 and sets at 19 (13 h of daylight,
+  // the night hours also tick by faster - see DayNight)
+  const dayT = (h - 6) / 13 // 0 at sunrise, 1 at sunset
   const elev = Math.sin(dayT * Math.PI) * (Math.PI * 0.42) // noon ~75 deg
-  const azimuth = (h / 24) * Math.PI * 2 - Math.PI / 2 // east at 6, west at 18
+  const azimuth = (h / 24) * Math.PI * 2 - Math.PI / 2 // east at 6, west at 19
   const cosE = Math.cos(elev)
   const sx = Math.cos(azimuth) * cosE
   const sy = Math.sin(elev)
@@ -50,8 +51,15 @@ export function sunState(hour: number): SunState {
   const night = 1 - daylight
   // dusk glow peaks when the sun is near the horizon (sy in 0..0.22)
   const duskRaw = Math.max(0, 1 - Math.abs(sy - 0.1) / 0.16)
-  const dusk = duskRaw * (h > 4 && h < 20 ? 1 : 0)
+  const dusk = duskRaw * (h > 4 && h < 21 ? 1 : 0)
   return { elev, daylight, night, dusk, sx, sy, sz }
+}
+
+/** Real-time pace multiplier for the clock: the night hours slip by
+ *  ~2.2x faster, so the day feels long and the night short. */
+export function clockSpeedAt(hour: number): number {
+  const h = ((hour % 24) + 24) % 24
+  return h >= 20 || h < 6.5 ? 2.2 : 1
 }
 
 /** Palette shared by the sky, the fog and every tinted light. */

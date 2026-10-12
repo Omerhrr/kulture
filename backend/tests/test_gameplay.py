@@ -156,3 +156,29 @@ async def test_job_cannot_be_double_accepted(client, auth_headers, world_ctx):
         f"/api/v1/jobs/{job['id']}/accept",
         headers={"Authorization": f"Bearer {other.json()['access_token']}"},
     )).status_code == 422
+
+
+async def test_district_job_board_restocks(client, auth_headers):
+    """A played-out board restocks on the next boot: when every copy of a
+    district route is taken, reconcile_content mints one fresh available
+    instance per route (numbered suffix), so the board never drains forever."""
+    from sqlalchemy import select, update
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.jobs import Job
+    from app.seed.seed_data import JOB_DEFS, reconcile_content
+
+    codes = [j[0] for j in JOB_DEFS]
+    async with AsyncSessionLocal() as db:
+        # everyone played: no copy of any route is available
+        await db.execute(update(Job).values(status="assigned"))
+        await db.commit()
+        added = await reconcile_content(db)
+        assert added == len(codes)
+        rows = (await db.execute(select(Job).where(Job.status == "available"))).scalars().all()
+        avail = {j.code for j in rows}
+        for code in codes:
+            assert any(a == code or a.startswith(code + "-") for a in avail), code
+        # idempotent while instances are available
+        again = await reconcile_content(db)
+        assert again == 0

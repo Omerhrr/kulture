@@ -15,8 +15,8 @@ import { crosswalks, type Crosswalk } from '~/utils/kadunaLighting'
 import { collidesRadius } from '~/utils/collision'
 import { laneBlocked, threatNear, trafficProbe } from '~/utils/trafficProbe'
 import { pedRegistry, pedRegistryPush, pedRegistryReset, pedName, pedLine, pedClock, type PedKind } from '~/utils/peds'
-import { useIsTouch } from '~/composables/useControlsState'
-import { registerCrash, meleeHits } from '~/utils/impact'
+import { useIsTouch, useInterior } from '~/composables/useControlsState'
+import { registerCrash, meleeHits, hitNamed } from '~/utils/impact'
 import { weather } from '~/utils/weather'
 import { kkAudio } from '~/utils/audio'
 import { sunState } from '~/composables/useTimeOfDay'
@@ -24,6 +24,7 @@ import { crowd, routineLine } from '~/utils/crowdShared'
 import { nearestSeat } from '~/utils/seats'
 
 const isTouch = useIsTouch()
+const interiorRef = useInterior()
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const clockHour = useState<number>('kk_hour', () => 8.4)
 const pedPrompt = useState<{ id: number; name: string; kind: PedKind } | null>('kk_ped_prompt', () => null)
@@ -126,6 +127,10 @@ interface Ped {
   id: number
   /** knocked down by a vehicle: seconds since the hit (-1 = standing) */
   knock?: number
+  /** punched and ANGRY: seconds left chasing the player to swing back */
+  grudge?: number
+  /** seconds until the next swing while holding a grudge */
+  swingCd?: number
   /** what they carry: 0 none, 1 shopping bag, 2 phone, 3 basin on the head, 4 backpack, 5 briefcase */
   item?: number
   /** opens an umbrella when it rains */
@@ -668,6 +673,13 @@ function twoSeg(
   lower.setMatrixAt(i, chainM)
 }
 
+/** Back to a normal routine after a fight / fright: fresh route or fresh
+ *  shopping target, matching what waking from sleep does. */
+function reseedRoutine(p: Ped) {
+  if (p.kind === 'walker' || p.kind === 'hawker') seedWalker(p, p.kind)
+  else if (p.kind === 'shopper' && !p.sit && !p.gossip) pickShopperTarget(p)
+}
+
 /** Move with wall + vehicle sliding; returns false when fully blocked.
  *  The current position is passed as the origin so a pedestrian caught
  *  under a car can always walk out, but never walk into one. */
@@ -767,14 +779,27 @@ onBeforeRender(({ delta, elapsed }) => {
   const nightNow = sunState(clockHour.value).night
   const pv = trafficProbe.player
   const hits = meleeHits.splice(0) // this frame's punches / kicks / pushes
-  // publish pedestrians near the player so drivers brake for them
+  const interiorNow = interiorRef.value.inside
+  // the player's vehicle answers for named characters too (Musa, Mama
+  // Chidi, ...): same knockdown treatment as the instanced crowd
+  if (pv && trafficProbe.playerSpeed > 3 && !interiorNow) {
+    hitNamed(
+      pv.x,
+      pv.z,
+      Math.sin(pv.h),
+      Math.cos(pv.h),
+      2 + trafficProbe.playerSpeed * 0.5,
+      pv.r + 0.9
+    )
+  }
+  // publish ALL awake pedestrians so every driver brakes for them (and is
+  // accountable when they still hit someone), not just the ones near you
   {
-    const pp = playerPos.value
     const out = trafficProbe.peds
     out.length = 0
     for (const q of peds) {
-      if (q.sleep || out.length >= 160) continue
-      if (Math.abs(q.x - pp[0]) < 220 && Math.abs(q.z - pp[2]) < 220) out.push(q)
+      if (q.sleep || out.length >= 200) continue
+      out.push(q)
     }
   }
   for (const p of peds) {
@@ -793,7 +818,8 @@ onBeforeRender(({ delta, elapsed }) => {
       }
     }
     if (p.sleep) continue
-    // punched / kicked / pushed by the player: thrown back, fall, get up
+    // punched / kicked / pushed by the player: thrown back, fall, get up.
+    // People nearby scatter - a street fight draws a crowd that runs.
     if (hits.length && (p.knock ?? -1) < 0) {
       for (const h of hits) {
         const dx = p.x - h.x
@@ -806,6 +832,13 @@ onBeforeRender(({ delta, elapsed }) => {
           p.heading = Math.atan2(-h.dirX, -h.dirZ)
           p.talking = 0
           kkAudio.impact(Math.min(1, h.power / 8))
+          for (const q of peds) {
+            if (q === p || q.sleep || (q.knock ?? -1) >= 0) continue
+            if (Math.abs(q.x - p.x) < 11 && Math.abs(q.z - p.z) < 11) {
+              q.flee = Math.max(q.flee, 2.6)
+              q.talking = 0
+            }
+          }
           break
         }
       }
@@ -837,9 +870,49 @@ onBeforeRender(({ delta, elapsed }) => {
       p.swing = 0
       if (p.knock! > 3.2) {
         p.knock = -1
-        p.flee = 1.2 // get up and hurry away
+        // agency: some get up ANGRY and come back at you, the rest hurry
+        // away and pick their routine back up
+        if (hash01(p.id, 3.7) < 0.45) {
+          p.grudge = 9
+        } else {
+          p.flee = 2.5
+          reseedRoutine(p)
+        }
       }
       continue
+    }
+    // holding a grudge: chase the player and swing back - on their own
+    // accord, until you get far away or go indoors
+    if ((p.grudge ?? 0) > 0) {
+      p.grudge! -= dt
+      const dx = px - p.x
+      const dz = pz - p.z
+      const d = Math.hypot(dx, dz) || 1
+      if (interiorNow || d > 22) {
+        p.grudge = 0
+        reseedRoutine(p)
+      } else {
+        p.heading = Math.atan2(dx, dz)
+        p.swing += dt * 15
+        if (d > 1.2) {
+          const sp = 3.3
+          slideMove(p, (dx / d) * sp * dt, (dz / d) * sp * dt)
+        } else {
+          p.swingCd = (p.swingCd ?? 0) - dt
+          if (p.swingCd <= 0) {
+            p.swingCd = 1.5
+            // the player staggers from the blow (same path remote players use)
+            window.dispatchEvent(
+              new CustomEvent('kk-player-hit', {
+                detail: { dir: [dx / d, dz / d], action: 'punch', from: p.id }
+              })
+            )
+            kkAudio.init()
+            kkAudio.impact(0.45)
+          }
+        }
+        continue
+      }
     }
     // talking people stand still and face you
     if (p.talking > 0) {
@@ -1252,6 +1325,10 @@ if (import.meta.dev) {
     waiting: peds.filter((p) => p.stage === 'wait').length,
     toCross: peds.filter((p) => p.stage === 'toCross').length,
     talking: peds.filter((p) => p.talking > 0).length,
+    knocked: peds.filter((p) => (p.knock ?? -1) >= 0).length,
+    grudges: peds.filter((p) => (p.grudge ?? 0) > 0).length,
+    fleeing: peds.filter((p) => p.flee > 0).length,
+    probePeds: trafficProbe.peds.length,
     firstPos: peds.length ? [+peds[0].x.toFixed(1), +peds[0].z.toFixed(1)] : null,
     probeCars: trafficProbe.cars.length,
     crosswalks: CROSSWALKS.map((c) => [+c.x.toFixed(0), +c.z.toFixed(0)]),

@@ -3,7 +3,7 @@ import { useSimStore } from '~/stores/sim'
 import { useWorkStore } from '~/stores/work'
 import { usePlayerPose } from '~/composables/useControlsState'
 import { ACTION_DUR, type ActionName } from '~/utils/humanAnim'
-import { throwMelee } from '~/utils/impact'
+import { throwMelee, hitNamed } from '~/utils/impact'
 // PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
 // Inputs: WASD / arrow keys, the touch joystick (mobile), plus
@@ -41,9 +41,9 @@ let jumpVy = 0
 let slideX = 0
 let slideZ = 0
 const MELEE: Partial<Record<ActionName, { delay: number; power: number; reach: number }>> = {
-  punch: { delay: 0.17, power: 4.5, reach: 1.25 },
-  kick: { delay: 0.27, power: 6.5, reach: 1.45 },
-  push: { delay: 0.2, power: 5.5, reach: 1.3 }
+  punch: { delay: 0.17, power: 5.2, reach: 1.6 },
+  kick: { delay: 0.27, power: 7, reach: 1.8 },
+  push: { delay: 0.2, power: 6, reach: 1.65 }
 }
 function doAction(a: ActionName) {
   if (ride.value.active || work.commute?.active || impact.knock.active) return
@@ -65,7 +65,12 @@ function doAction(a: ActionName) {
       const h = playerFacing.value
       const fx = Math.sin(h)
       const fz = Math.cos(h)
-      throwMelee({ x: playerPos.value[0] + fx * 0.7, z: playerPos.value[2] + fz * 0.7, dirX: fx, dirZ: fz, power: m.power, reach: m.reach })
+      const px = playerPos.value[0] + fx * 0.7
+      const pz = playerPos.value[2] + fz * 0.7
+      // one swing threatens both the instanced crowd and the named
+      // characters; each side tests reach against its own bodies
+      throwMelee({ x: px, z: pz, dirX: fx, dirZ: fz, power: m.power, reach: m.reach })
+      hitNamed(px, pz, fx, fz, m.power, m.reach)
       kkAudio.impact(0.2)
     }, m.delay * 1000)
   }

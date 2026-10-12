@@ -114,6 +114,8 @@ onMounted(() => {
         d: vehicleSpec(p.kind).radius * 2.4
       }))
     )
+    // ...and ambient traffic brakes for them instead of driving through
+    trafficProbe.parked = fleet.map((p) => ({ x: p.x, z: p.z, r: vehicleSpec(p.kind).radius }))
     window.addEventListener('kk-ride-toggle', onToggle)
     window.addEventListener('kk-ride-view', toggleView)
     window.addEventListener('kk-horn', onHorn)

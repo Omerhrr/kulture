@@ -18,6 +18,9 @@ export const trafficProbe = {
   cars: [] as ProbeVehicle[],
   /** pedestrians near the player (x, z pairs), refreshed by the crowd */
   peds: [] as Array<{ x: number; z: number }>,
+  /** parked / boardable vehicles (static, registered once by RideSystem):
+   *  ambient traffic brakes for these instead of driving through them */
+  parked: [] as Array<{ x: number; z: number; r: number }>,
   /** the player's active vehicle (or null on foot) */
   player: null as ProbeVehicle | null,
   /** true when the player rides something fast enough to dodge from */

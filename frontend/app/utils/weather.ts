@@ -37,13 +37,25 @@ export const WEATHER_LABEL: Record<WeatherKind, string> = {
   harmattan: '🌫️ Harmattan'
 }
 
-// which weather can follow which (no storm straight out of harmattan)
-const NEXT: Record<WeatherKind, Array<[WeatherKind, number]>> = {
-  sunny: [['sunny', 3], ['cloudy', 4], ['harmattan', 2]],
-  cloudy: [['sunny', 3], ['rain', 3], ['storm', 1], ['cloudy', 1]],
-  rain: [['cloudy', 3], ['storm', 1], ['sunny', 1]],
-  storm: [['rain', 3], ['cloudy', 2]],
-  harmattan: [['harmattan', 1], ['sunny', 3], ['cloudy', 1]]
+// AUTO mode never cycles "seasons": the city stays sunny and only a short
+// rain shower rolls through now and then (see pickAuto / stepWeather). The
+// full set (cloudy, storm, harmattan) remains available through the manual
+// demo cycle (Y / the weather chip).
+
+/** Auto-weather: sunny stretches with rare, brief showers. No seasons. */
+function pickAuto(k: WeatherKind): WeatherKind {
+  if (k === 'sunny') return Math.random() < 0.55 ? 'rain' : 'cloudy'
+  return 'sunny'
+}
+/** How long a kind lasts on its own (seconds) before the auto switch. */
+function autoDwell(k: WeatherKind): number {
+  switch (k) {
+    case 'sunny': return 300 + Math.random() * 300 // 5-10 min of clear sky
+    case 'cloudy': return 45 + Math.random() * 45 // passing shade
+    case 'rain': return 35 + Math.random() * 45 // a quick shower
+    case 'storm': return 45 + Math.random() * 40
+    default: return 90 + Math.random() * 90
+  }
 }
 
 export const weather = {
@@ -62,7 +74,7 @@ export const weather = {
 export function setWeather(kind: WeatherKind, snap = false) {
   weather.kind = kind
   if (snap) Object.assign(weather.cur, PRESETS[kind])
-  weather.timer = 100 + Math.random() * 140
+  weather.timer = autoDwell(kind)
   for (const l of weather.listeners) l(kind)
 }
 
@@ -92,11 +104,11 @@ let flashTimer = 6
 /** Advance the weather (call once per frame). */
 export function stepWeather(dt: number, elapsed: number) {
   weather.timer -= dt
-  if (weather.timer <= 0) setWeather(pickNext(weather.kind))
+  if (weather.timer <= 0) setWeather(pickAuto(weather.kind))
   const target = PRESETS[weather.kind]
-  // ~6 s transitions; rain eases in a little slower than clouds
-  const k = 1 - Math.exp(-dt / 6)
-  const kr = 1 - Math.exp(-dt / 9)
+  // quick transitions: showers roll in and clear fast
+  const k = 1 - Math.exp(-dt / 3.5)
+  const kr = 1 - Math.exp(-dt / 5)
   const c = weather.cur
   c.cloud += (target.cloud - c.cloud) * k
   c.rain += (target.rain - c.rain) * kr

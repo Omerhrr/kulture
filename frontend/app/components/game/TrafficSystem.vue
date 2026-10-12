@@ -17,7 +17,7 @@ import { signals, signalPhase, marketFront, type Signal } from '~/utils/kadunaLi
 import { probeReset, probePush, trafficProbe } from '~/utils/trafficProbe'
 import { hitsBuilding } from '~/utils/collision'
 import { kkAudio } from '~/utils/audio'
-import { knockPlayer, registerCrash, throwMelee } from '~/utils/impact'
+import { knockPlayer, registerCrash, throwMelee, hitNamed } from '~/utils/impact'
 import { useRide, useInterior } from '~/composables/useControlsState'
 import { useIsTouch } from '~/composables/useControlsState'
 
@@ -195,6 +195,8 @@ interface Car {
   fz: number
   h: number
   stuck: number
+  /** seconds spent overlapping a solid footprint (respawn when it persists) */
+  overlapT: number
   /** cooldown after hitting something */
   hitCd: number
   /** false once the night factor passes offAt: the vehicle is parked out of sight */
@@ -231,6 +233,7 @@ function spawnCar(routes: Route[], min: number, max: number, kind: VehicleKind):
     fz: 1,
     h: 0,
     stuck: 0,
+    overlapT: 0,
     hitCd: 0,
     active: true,
     offAt: serviceEnd(kind)
@@ -487,6 +490,7 @@ function buildPlane(): THREE.Group {
 
 // ---------------------------------------------------------------- update
 const tmp = { x: 0, z: 0, fx: 0, fz: 0 }
+const tmpA = { x: 0, z: 0, fx: 0, fz: 0 }
 const m4 = new THREE.Matrix4()
 const posV = new THREE.Vector3()
 const q = new THREE.Quaternion()
@@ -581,10 +585,20 @@ onBeforeRender(({ delta, elapsed }) => {
       }
       if (!wasActive) respawnNear(car, ci)
       // route position + heading; at a road end (or a building across the
-      // road) turn onto a connected road instead of driving into it
-      if (blockedAt(car.route, car.s)) respawnNear(car, ci) // spawned inside a building
+      // road) turn onto a connected road instead of driving into it.
+      // The test uses the LANE position (drivers ride rw*0.26 off the
+      // centerline), not the centerline itself: on narrow roads the lane
+      // clips a building edge the centerline clears.
       const ahead = car.s + car.dir * 3.5
-      if (blockedAt(car.route, ahead)) turnAtJunction(car, CLASSES[ci].routes)
+      routePoint(car.route, ahead, tmpA)
+      const offA = car.route.rw * 0.26 * car.dir
+      if (
+        blockedAt(car.route, ahead) ||
+        hitsBuilding(tmpA.x + -tmpA.fz * offA, tmpA.z + tmpA.fz * offA, 0.8)
+      ) {
+        turnAtJunction(car, CLASSES[ci].routes)
+      }
+      if (blockedAt(car.route, car.s)) respawnNear(car, ci) // spawned inside a building
       car.s += car.v * car.dir * dt
       if (car.s >= car.route.total) {
         car.s = car.route.total - 0.1
@@ -600,6 +614,18 @@ onBeforeRender(({ delta, elapsed }) => {
       car.fx = tmp.fx * car.dir
       car.fz = tmp.fz * car.dir
       car.h = Math.atan2(car.fx, car.fz)
+      // solid walls: a car that still ends up overlapping a footprint
+      // (tight corner, bad spawn) brakes hard and respawns if it persists
+      if (hitsBuilding(car.x, car.z, 0.45)) {
+        car.v = Math.max(0, car.v - 26 * dt)
+        car.overlapT += dt
+        if (car.overlapT > 1.4) {
+          respawnNear(car, ci)
+          car.overlapT = 0
+        }
+      } else {
+        car.overlapT = 0
+      }
 
       // target speed: base, then constraints
       let target = car.base
@@ -639,7 +665,8 @@ onBeforeRender(({ delta, elapsed }) => {
       }
 
       // pedestrians: brake for anyone on the road ahead; a car that still
-      // runs into someone knocks them over
+      // runs into someone knocks them over (and the driver slams the
+      // brakes - the car answers for the hit)
       for (const pd of trafficProbe.peds) {
         const dx = pd.x - car.x
         const dz = pd.z - car.z
@@ -647,7 +674,30 @@ onBeforeRender(({ delta, elapsed }) => {
         const along = dx * car.fx + dz * car.fz
         const lat = Math.abs(dx * -car.fz + dz * car.fx)
         if (along > 0.2 && along < 13 && lat < 1.6) target = Math.min(target, Math.max(0, (along - 3.2) * 1.4))
-        if (car.v > 3 && Math.abs(along) < 2.2 && lat < 1.0) throwMelee({ x: car.x, z: car.z, dirX: car.fx, dirZ: car.fz, power: 2 + car.v * 0.5, reach: 2.4 })
+        if (car.v > 3 && Math.abs(along) < 2.2 && lat < 1.0) {
+          const power = 2 + car.v * 0.5
+          // the crowd ped falls (melee queue) and the named characters react
+          throwMelee({ x: car.x, z: car.z, dirX: car.fx, dirZ: car.fz, power, reach: 2.4 })
+          hitNamed(car.x, car.z, car.fx, car.fz, power, 2.4)
+          if (car.hitCd <= 0) {
+            car.v *= 0.35
+            car.hitCd = 1.5
+          }
+        }
+      }
+
+      // parked / boardable vehicles are solid: queue behind them instead
+      // of ghosting through (the fleet is static, registered by RideSystem)
+      for (const pk of trafficProbe.parked) {
+        const dx = pk.x - car.x
+        const dz = pk.z - car.z
+        if (dx * dx + dz * dz > 144) continue
+        const along = dx * car.fx + dz * car.fz
+        if (along < 0.3) continue
+        const lat = Math.abs(dx * -car.fz + dz * car.fx)
+        if (lat > pk.r + 1.1) continue
+        const gap = along - (1.3 + pk.r)
+        target = Math.min(target, Math.max(0, (gap / 5) * car.base))
       }
 
       // the player's vehicle is an obstacle too
@@ -724,7 +774,8 @@ onBeforeRender(({ delta, elapsed }) => {
       else car.v = Math.max(target, car.v - 14 * dt)
       if (target < 0.2 && car.v < 0.25) car.v = 0
 
-      // honk when stuck (only near the player)
+      // honk when stuck (only near the player); stuck too long means a
+      // real jam (a parked car across the lane): respawn somewhere free
       if (target < 0.3 && car.base > 8) {
         car.stuck += dt
         honkCooldown -= dt
@@ -737,6 +788,10 @@ onBeforeRender(({ delta, elapsed }) => {
             kkAudio.init()
             kkAudio.horn(CLASSES[ci].kind)
           }
+        }
+        if (car.stuck > 7) {
+          respawnNear(car, ci)
+          car.stuck = 0
         }
       } else {
         car.stuck = 0
@@ -861,7 +916,13 @@ if (import.meta.dev) {
       allCars.filter((c) => c.active).reduce((s, c) => s + c.v, 0) /
       Math.max(1, allCars.filter((c) => c.active).length)
     ).toFixed(1),
-    probe: trafficProbe.cars.length
+    probe: trafficProbe.cars.length,
+    posNear: (() => {
+      const pp = playerPosState.value
+      return allCars
+        .filter((c) => c.active && Math.abs(c.x - pp[0]) < 120 && Math.abs(c.z - pp[2]) < 120)
+        .map((c) => [Math.round(c.x), Math.round(c.z)])
+    })()
   })
 }
 </script>

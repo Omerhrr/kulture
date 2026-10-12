@@ -178,7 +178,7 @@ onMounted(() => {
   if (import.meta.dev) {
     ;(window as any).__kk_weather = (k?: WeatherKind) => {
       if (k) setWeather(k, true)
-      return { kind: weather.kind, ...weather.cur }
+      return { kind: weather.kind, ...weather.cur, timer: Math.round(weather.timer) }
     }
   }
 })

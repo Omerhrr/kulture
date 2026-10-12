@@ -68,3 +68,46 @@ export function throwMelee(h: MeleeHit) {
   meleeHits.push(h)
   if (meleeHits.length > 8) meleeHits.shift()
 }
+
+/** Named characters (Musa, Mama Chidi, ...) register a body here so melee
+ *  and vehicle impacts can land on them directly - no queues, no frame
+ *  sync: each impact sweeps the registry and those in reach react. */
+export interface NamedBody {
+  code: string
+  x: () => number
+  z: () => number
+  /** apply the impact; return false if already busy (down / mid-fight) */
+  hit: (dirX: number, dirZ: number, power: number) => boolean
+}
+const namedBodies: NamedBody[] = []
+export function registerNamed(b: NamedBody): () => void {
+  namedBodies.push(b)
+  return () => {
+    const i = namedBodies.indexOf(b)
+    if (i >= 0) namedBodies.splice(i, 1)
+  }
+}
+/** Sweep every named character with one melee impact (a punch, a car).
+ *  Returns true when at least one of them took it. */
+export function hitNamed(
+  x: number,
+  z: number,
+  dirX: number,
+  dirZ: number,
+  power: number,
+  reach: number
+): boolean {
+  let landed = false
+  for (const b of namedBodies) {
+    const dx = b.x() - x
+    const dz = b.z() - z
+    const d = Math.hypot(dx, dz)
+    if (d < reach && dx * dirX + dz * dirZ > -0.35) {
+      if (b.hit(dirX, dirZ, power)) landed = true
+    }
+  }
+  return landed
+}
+
+/** Live-state snapshots for headless tests (NpcAvatar pushes a getter). */
+export const namedDebug: Array<() => any> = []

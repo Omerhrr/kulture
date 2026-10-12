@@ -334,18 +334,40 @@ async def reconcile_content(db: AsyncSession) -> int:
         )
         added += 1
 
-    # 6) jobs
+    # 6) jobs - the district board is a fixture: when every instance of a
+    # route is taken (assigned / in progress / completed), mint ONE fresh
+    # instance so the board restocks on the next boot instead of draining
+    # forever. Instances carry a numbered suffix on the base code.
     job_codes = [j[0] for j in JOB_DEFS]
     jobs = {
         j.code: j
         for j in (await db.execute(select(Job).where(Job.code.in_(job_codes)))).scalars()
     }
     for code, title, desc, issuer_code, pickup_code, dropoff_code, ngn_minor, rep in JOB_DEFS:
-        if code in jobs:
+        if code not in jobs:
+            db.add(
+                Job(
+                    code=code, job_type="delivery", title=title, description=desc,
+                    issuer_business_id=businesses[issuer_code].id if issuer_code in businesses else None,
+                    status="available",
+                    pickup_entity_id=entities[pickup_code].id,
+                    dropoff_entity_id=entities[dropoff_code].id,
+                    reward_ngn_minor=ngn_minor, reward_reputation=rep,
+                )
+            )
+            added += 1
             continue
+        if jobs[code].status == "available":
+            continue
+        prior = (
+            (await db.execute(select(Job).where(Job.code.like(f"{code}-%")))).scalars().all()
+        )
+        if any(j.status == "available" for j in prior):
+            continue
+        n = len(prior) + 1
         db.add(
             Job(
-                code=code, job_type="delivery", title=title, description=desc,
+                code=f"{code}-{n:04d}", job_type="delivery", title=title, description=desc,
                 issuer_business_id=businesses[issuer_code].id if issuer_code in businesses else None,
                 status="available",
                 pickup_entity_id=entities[pickup_code].id,
