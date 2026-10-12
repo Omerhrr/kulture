@@ -7,8 +7,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
-
-pytestmark = pytest.mark.asyncio
+# NOTE: asyncio_mode = auto (pytest.ini) collects the async tests; no module
+# mark, or the sync tests below get stamped with asyncio and warn.
 
 
 async def _me(client, h):
