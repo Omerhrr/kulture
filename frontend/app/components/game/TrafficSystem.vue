@@ -98,8 +98,27 @@ interface Car {
   stuck: number
   /** cooldown after hitting something */
   hitCd: number
+  /** false once the night factor passes offAt: the vehicle is parked out of sight */
+  active: boolean
+  /** night factor at which this vehicle goes off duty (2 = runs all night) */
+  offAt: number
 }
-function spawnCar(routes: Route[], min: number, max: number): Car {
+// when the city goes to sleep each class keeps its own hours: bicycles
+// disappear first, then buses, kekes and okadas thin out; a third of the
+// cars and half the trucks keep moving all night
+function serviceEnd(kind: VehicleKind): number {
+  const h = Math.random()
+  switch (kind) {
+    case 'bicycle': return 0.42 + h * 0.26
+    case 'bus': return 0.55 + h * 0.3
+    case 'keke': return 0.58 + h * 0.32
+    case 'okada': return 0.6 + h * 0.3
+    case 'car': return h < 0.3 ? 2 : 0.72 + h * 0.33
+    case 'truck': return h < 0.5 ? 2 : 0.82 + h * 0.23
+    default: return 1.2
+  }
+}
+function spawnCar(routes: Route[], min: number, max: number, kind: VehicleKind): Car {
   const route = routes[Math.floor(Math.random() * routes.length)] ?? routes[0]
   return {
     route,
@@ -113,7 +132,9 @@ function spawnCar(routes: Route[], min: number, max: number): Car {
     fz: 1,
     h: 0,
     stuck: 0,
-    hitCd: 0
+    hitCd: 0,
+    active: true,
+    offAt: serviceEnd(kind)
   }
 }
 
@@ -135,7 +156,7 @@ const CLASSES: ClassDef[] = [
   { kind: 'bicycle', count: isTouch.value ? 2 : 4, routes: allRoutes, min: 6, max: 9 }
 ].filter((c) => c.routes.length > 0)
 
-const carsByClass: Car[][] = CLASSES.map((c) => Array.from({ length: c.count }, () => spawnCar(c.routes, c.min, c.max)))
+const carsByClass: Car[][] = CLASSES.map((c) => Array.from({ length: c.count }, () => spawnCar(c.routes, c.min, c.max, c.kind)))
 const allCars: Car[] = carsByClass.flat()
 
 const SIGNALS = signals()
@@ -390,24 +411,30 @@ function nearestS(rt: Route, px: number, pz: number): [number, number] {
   return [bestD, bestS]
 }
 let recycleTimer = 0
+/** put a vehicle back on a road stretch 220-420 m from the player, out of sight */
+function respawnNear(car: Car, ci: number) {
+  const p = playerPosState.value
+  const routes = CLASSES[ci].routes
+  for (let t = 0; t < 10; t++) {
+    const rt = routes[Math.floor(Math.random() * routes.length)]
+    const [d, s] = nearestS(rt, p[0], p[2])
+    if (d > 320) continue
+    // appear 220-420 m away along the road, never right next to you
+    const off = (220 + Math.random() * 200) * (Math.random() < 0.5 ? -1 : 1)
+    car.route = rt
+    car.s = Math.max(0.5, Math.min(rt.total - 0.5, s + off))
+    car.dir = Math.random() < 0.5 ? 1 : -1
+    car.v = car.base * 0.8
+    break
+  }
+}
 function recycleTraffic() {
   const p = playerPosState.value
   for (let ci = 0; ci < CLASSES.length; ci++) {
     for (const car of carsByClass[ci]) {
+      if (!car.active) continue
       if (Math.hypot(car.x - p[0], car.z - p[2]) < 650) continue
-      const routes = CLASSES[ci].routes
-      for (let t = 0; t < 10; t++) {
-        const rt = routes[Math.floor(Math.random() * routes.length)]
-        const [d, s] = nearestS(rt, p[0], p[2])
-        if (d > 320) continue
-        // appear 220-420 m away along the road, never right next to you
-        const off = (220 + Math.random() * 200) * (Math.random() < 0.5 ? -1 : 1)
-        car.route = rt
-        car.s = Math.max(0.5, Math.min(rt.total - 0.5, s + off))
-        car.dir = Math.random() < 0.5 ? 1 : -1
-        car.v = car.base * 0.8
-        break
-      }
+      respawnNear(car, ci)
     }
   }
 }
@@ -437,6 +464,21 @@ onBeforeRender(({ delta, elapsed }) => {
     const cars = carsByClass[ci]
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]
+      // duty cycle: past offAt the vehicle parks out of sight (gone home /
+      // locked up at the motor park); on wake it rejoins a road near you
+      const wasActive = car.active
+      car.active = nightFactor.value < car.offAt
+      if (!car.active) {
+        if (wasActive) {
+          car.x = -9000
+          car.z = -9000
+        }
+        m4.compose(posV.set(0, -420, 0), q.identity(), oneV)
+        mesh.setMatrixAt(i, m4)
+        if (headlightM) headlightM.setMatrixAt(classOffset[ci] + i, m4)
+        continue
+      }
+      if (!wasActive) respawnNear(car, ci)
       // route position + heading
       car.s += car.v * car.dir * dt
       if (car.s >= car.route.total) {
@@ -478,7 +520,7 @@ onBeforeRender(({ delta, elapsed }) => {
 
       // follow the vehicle ahead (any class, both directions considered)
       for (const other of allCars) {
-        if (other === car) continue
+        if (other === car || !other.active) continue
         const dx = other.x - car.x
         const dz = other.z - car.z
         const d2 = dx * dx + dz * dz
@@ -695,9 +737,13 @@ const classOffset: number[] = []
 if (import.meta.dev) {
   ;(window as any).__kk_traffic = () => ({
     cars: allCars.length,
-    stopped: allCars.filter((c) => c.v < 0.3).length,
+    active: allCars.filter((c) => c.active).length,
+    stopped: allCars.filter((c) => c.active && c.v < 0.3).length,
     signals: SIGNALS.length,
-    avgV: +(allCars.reduce((s, c) => s + c.v, 0) / Math.max(1, allCars.length)).toFixed(1),
+    avgV: +(
+      allCars.filter((c) => c.active).reduce((s, c) => s + c.v, 0) /
+      Math.max(1, allCars.filter((c) => c.active).length)
+    ).toFixed(1),
     probe: trafficProbe.cars.length
   })
 }

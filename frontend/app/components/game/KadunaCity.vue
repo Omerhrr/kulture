@@ -128,8 +128,19 @@ function buildCity(): {
   civic: THREE.Mesh | null
   houseMaterial: THREE.Material
   towers: ReturnType<typeof buildTowerMeshes>
+  lamps: {
+    count: number
+    lensMat: THREE.MeshLambertMaterial
+    poolMat: THREE.MeshBasicMaterial
+    poolMesh: THREE.InstancedMesh
+    sample: [number, number] | null
+    setNight: (n: number) => void
+  }
 } {
   const buckets: Buckets = {}
+  // streetlight head centers, collected while the lamp posts are built; the
+  // glowing lens + ground light pool hang off these at night
+  const lampHeads: { x: number; z: number }[] = []
   const waterGeos: THREE.BufferGeometry[] = []
   const sprites: { texture: THREE.CanvasTexture; x: number; y: number; z: number; w: number; h: number }[] = []
 
@@ -396,10 +407,18 @@ function buildCity(): {
         armG.rotateY(a)
         armG.translate(x + ox - Math.sin(a) * 1.1, 7.9, z + oz - Math.cos(a) * 1.1)
         push('metal', armG)
+        const headX = x + ox - Math.sin(a) * 2.2
+        const headZ = z + oz - Math.cos(a) * 2.2
+        lampHeads.push({ x: headX, z: headZ })
         const headG = new THREE.BoxGeometry(0.7, 0.14, 0.34)
         headG.rotateY(a)
-        headG.translate(x + ox - Math.sin(a) * 2.2, 7.85, z + oz - Math.cos(a) * 2.2)
+        headG.translate(headX, 7.85, headZ)
         push('dark', headG)
+        // warm LED lens under the housing; its material glows after dusk
+        const lensG = new THREE.BoxGeometry(0.56, 0.06, 0.24)
+        lensG.rotateY(a)
+        lensG.translate(headX, 7.76, headZ)
+        push('lamplens', lensG)
       }
     }
   }
@@ -1130,15 +1149,58 @@ function buildCity(): {
     opacity: 0.92
   })
 
-  // one material per bucket; foliage (and palm fronds) sway in the wind
+  // one material per bucket; foliage (and palm fronds) sway in the wind.
+  // The lamp lens bucket shares one material so the whole city lights up
+  // with a single emissiveIntensity write at dusk.
+  const lensMat = new THREE.MeshLambertMaterial({
+    color: '#4a463c',
+    vertexColors: true,
+    emissive: new THREE.Color('#ffd98a'),
+    emissiveIntensity: 0
+  })
   const mats: Record<string, THREE.Material> = {}
   for (const m of meshes) {
     if (mats[m.bucket]) continue
-    const mat = new THREE.MeshLambertMaterial({ color: m.color, vertexColors: true })
+    const mat = m.bucket === 'lamplens' ? lensMat : new THREE.MeshLambertMaterial({ color: m.color, vertexColors: true })
     if (m.bucket === 'leaf' || m.bucket === 'leaf2') addWindSway(mat as any, 1, 1.6)
     else if (m.bucket === 'trunk') addWindSway(mat as any, 0.35, 2.5)
     else if (m.bucket === 'crop1' || m.bucket === 'crop2' || m.bucket === 'crop3') addWindSway(mat as any, 2.2, 0.1)
     mats[m.bucket] = mat
+  }
+
+  // ground light pools: one additive radial-gradient quad per lamp head,
+  // faded in with the night factor (cheap: one instanced draw call)
+  const poolCv = document.createElement('canvas')
+  poolCv.width = poolCv.height = 128
+  const pctx = poolCv.getContext('2d')!
+  const pg = pctx.createRadialGradient(64, 64, 4, 64, 64, 62)
+  pg.addColorStop(0, 'rgba(255,222,150,0.95)')
+  pg.addColorStop(0.4, 'rgba(255,205,120,0.38)')
+  pg.addColorStop(1, 'rgba(255,190,90,0)')
+  pctx.fillStyle = pg
+  pctx.fillRect(0, 0, 128, 128)
+  const poolMat = new THREE.MeshBasicMaterial({
+    map: new THREE.CanvasTexture(poolCv),
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  })
+  const poolGeo = new THREE.PlaneGeometry(1, 1)
+  poolGeo.rotateX(-Math.PI / 2)
+  const poolMesh = new THREE.InstancedMesh(poolGeo, poolMat, Math.max(1, lampHeads.length))
+  poolMesh.frustumCulled = false
+  poolMesh.renderOrder = 2
+  {
+    const pm = new THREE.Matrix4()
+    const pv = new THREE.Vector3()
+    const pq = new THREE.Quaternion()
+    const ps = new THREE.Vector3(11, 1, 11)
+    for (let i = 0; i < lampHeads.length; i++) {
+      pm.compose(pv.set(lampHeads[i].x, 0.12, lampHeads[i].z), pq.identity(), ps)
+      poolMesh.setMatrixAt(i, pm)
+    }
+    poolMesh.instanceMatrix.needsUpdate = true
   }
 
   addColliders(solids)
@@ -1153,7 +1215,31 @@ function buildCity(): {
   const houses = buildHouseSystem(houseMaterial, touch || lowQ ? 150 : 230, touch || lowQ ? 1300 : 1800)
   const towers = buildTowerMeshes()
 
-  return { meshes, mats, civic: civic?.mesh ?? null, sprites, water: waterGeos, waterTexture, waterMaterial, houses, houseMaterial, towers }
+  return {
+    meshes,
+    mats,
+    civic: civic?.mesh ?? null,
+    sprites,
+    water: waterGeos,
+    waterTexture,
+    waterMaterial,
+    houses,
+    houseMaterial,
+    towers,
+    lamps: {
+      count: lampHeads.length,
+      lensMat,
+      poolMat,
+      poolMesh,
+      sample: lampHeads.length ? [lampHeads[Math.floor(lampHeads.length / 2)].x, lampHeads[Math.floor(lampHeads.length / 2)].z] : null,
+      setNight(n: number) {
+        const k = Math.max(0, (n - 0.25) / 0.75)
+        lensMat.emissiveIntensity = k * 1.5
+        poolMat.opacity = k * 0.55
+        poolMesh.visible = k > 0.02
+      }
+    }
+  }
 }
 
 // Built lazily on the client (label textures need the DOM; this component
@@ -1171,6 +1257,19 @@ onMounted(() => {
   } catch (e) {
     ;(window as any).__kk_city_err = String((e as Error)?.stack || e)
     throw e
+  }
+  if (import.meta.dev) {
+    ;(window as any).__kk_lamps = () => {
+      const l = cityRef.value?.lamps
+      if (!l) return null
+      return {
+        count: l.count,
+        glow: +l.lensMat.emissiveIntensity.toFixed(2),
+        pools: +l.poolMat.opacity.toFixed(2),
+        on: l.poolMesh.visible,
+        sample: l.sample
+      }
+    }
   }
 })
 
@@ -1199,8 +1298,9 @@ onBeforeRender(({ delta, elapsed }) => {
     }
     cityRef.value.houses.update(px, pz)
   }
-  // CBD windows light up after dusk
+  // CBD windows and streetlights light up after dusk
   cityRef.value?.towers.setNight(nightFactor.value)
+  cityRef.value?.lamps.setNight(nightFactor.value)
   // drift the water
   const wm = cityRef.value?.waterMaterial
   if (wm?.map) {
@@ -1224,6 +1324,7 @@ onBeforeRender(({ delta, elapsed }) => {
     <primitive v-for="(h, i) in cityRef.houses.objects" :key="'kh' + i" :object="h" />
     <primitive v-if="cityRef.civic" :object="cityRef.civic" />
     <primitive v-for="(t, i) in cityRef.towers.meshes" :key="'kt' + i" :object="t" />
+    <primitive :object="cityRef.lamps.poolMesh" />
     <TresMesh v-for="(w, i) in cityRef.water" :key="'kw' + i" :geometry="w" :material="cityRef.waterMaterial" />
     <TresSprite v-for="(s, i) in cityRef.sprites" :key="'ks' + i" :position="[s.x, s.y, s.z]" :scale="[s.w, s.h, 1]">
       <TresSpriteMaterial :map="s.texture" :transparent="true" :depth-write="false" />

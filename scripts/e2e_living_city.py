@@ -274,18 +274,27 @@ with sync_playwright() as pw:
     page.wait_for_timeout(1600)
     fleet = page.evaluate("window.__kk_fleet && window.__kk_fleet()")
     ok("boardable fleet exists", isinstance(fleet, list) and len(fleet) >= 9, len(fleet) if fleet else None)
+    # The proximity prompt scan only fires every 0.16s of GAME time, which is
+    # 2-4s of wall time at software-GL pace: poll for the prompt before
+    # dispatching the toggle (firing blind races the scan, same lesson as the
+    # door prompt above).
+    prompt_ready = poll(page, "window.__kk_ride && !!window.__kk_ride().prompt", 30)
+    ok("ride prompt appears near the fleet", prompt_ready, page.evaluate("window.__kk_ride && window.__kk_ride().prompt"))
     page.evaluate("window.dispatchEvent(new CustomEvent('kk-ride-toggle'))")
     boarded = poll(page, "window.__kk_ride && window.__kk_ride().active", 16)
     ride = page.evaluate("window.__kk_ride && window.__kk_ride()")
     ok("boards the nearest vehicle", boarded, ride and ride.get("kind"))
-    # drive: hold W, poll the speedo. Boarding plays a walk-to-door + climb
-    # animation worth ~3s of game time; at software-GL pace (dt clamped to
-    # 0.1s per frame) that is ~30 frames, so allow a long window.
+    # The walk-to-door + climb phase machine is time-based on clamped dt
+    # (0.1s per frame), so boarding takes 40-70s of wall time at
+    # software-GL pace. Wait for 'riding' first, then hold W.
+    seated = poll(page, "window.__kk_ride && window.__kk_ride().phase === 'riding'", 150)
     page.keyboard.down("KeyW")
-    drove = poll(page, "window.__kk_ride && window.__kk_ride().speed > 2", 80)
+    drove = poll(page, "window.__kk_ride && window.__kk_ride().speed > 2", 40)
     page.keyboard.up("KeyW")
     ride2 = page.evaluate("window.__kk_ride && window.__kk_ride()")
-    ok("vehicle drives", drove, f"speed {ride2 and ride2.get('speed')} km/h")
+    ok("vehicle drives", drove and seated, f"phase {ride2 and ride2.get('phase')}, speed {ride2 and ride2.get('speed')} km/h")
+    # let the car roll to a stop before exiting (exit refuses at speed)
+    poll(page, "window.__kk_ride && Math.abs(window.__kk_ride().speed) < 2", 24)
     page.evaluate("window.dispatchEvent(new CustomEvent('kk-ride-toggle'))")
     page.wait_for_timeout(900)
 
@@ -340,6 +349,32 @@ with sync_playwright() as pw:
     crowd_n = page.evaluate("window.__kk_crowd && window.__kk_crowd()")
     ok("the city sleeps at night", asleep, crowd_n and {k: crowd_n.get(k) for k in ("total", "asleep")})
     page.screenshot(path="/tmp/kk-night-empty.png")
+
+    # ---------- streetlights: lenses glow + ground pools fade in after dusk
+    lamps_on = poll(
+        page,
+        "window.__kk_lamps && window.__kk_lamps().glow > 0.9 && window.__kk_lamps().pools > 0.35",
+        12,
+    )
+    lamps = page.evaluate("window.__kk_lamps && window.__kk_lamps()")
+    ok("streetlights glow at night", bool(lamps_on and lamps and lamps.get("count", 0) > 40 and lamps.get("on")), lamps)
+
+    # ---------- traffic keeps night hours: off-duty vehicles park
+    thinned = poll(
+        page,
+        "window.__kk_traffic && window.__kk_traffic().active < window.__kk_traffic().cars * 0.6",
+        12,
+    )
+    tr_n = page.evaluate("window.__kk_traffic && window.__kk_traffic()")
+    ok("roads thin out at night", bool(thinned and tr_n and tr_n.get("active", 0) >= 4), tr_n and {k: tr_n.get(k) for k in ("cars", "active")})
+
+    # closeup of a lit streetlight (camera damping needs a beat after teleport)
+    samp = (lamps or {}).get("sample")
+    if samp:
+        page.evaluate(f"window.__kk_teleport && window.__kk_teleport({samp[0]}, {samp[1]})")
+        page.wait_for_timeout(2600)
+        page.screenshot(path="/tmp/kk-lamps.png")
+
     for _ in range(10):
         page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
         page.wait_for_timeout(500)
@@ -349,6 +384,16 @@ with sync_playwright() as pw:
     woke = poll(page, "window.__kk_crowd && window.__kk_crowd().asleep === 0", 12)
     crowd_d = page.evaluate("window.__kk_crowd && window.__kk_crowd()")
     ok("the city wakes at dawn", woke, crowd_d and {k: crowd_d.get(k) for k in ("total", "asleep")})
+    lamps_off = poll(page, "window.__kk_lamps && window.__kk_lamps().glow < 0.1", 12)
+    lamps_d = page.evaluate("window.__kk_lamps && window.__kk_lamps()")
+    ok("streetlights sleep at dawn", lamps_off, lamps_d)
+    refill = poll(
+        page,
+        "window.__kk_traffic && window.__kk_traffic().active >= window.__kk_traffic().cars",
+        12,
+    )
+    tr_d = page.evaluate("window.__kk_traffic && window.__kk_traffic()")
+    ok("roads refill at dawn", refill, tr_d and {k: tr_d.get(k) for k in ("cars", "active")})
 
     ok("no page errors at the end", len(errors) == 0, errors[:4])
     browser.close()

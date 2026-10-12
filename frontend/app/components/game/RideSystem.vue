@@ -501,7 +501,11 @@ onBeforeRender(({ delta }) => {
 
   if (!ride.value.active || !current) return
   if (phase.value !== 'riding') {
-    animatePhase(dt)
+    // Boarding/exit phases are pure cosmetic interpolation (no physics, no
+    // collision), so they can take big time steps: on a slow machine that
+    // clamps to 0.1s per frame the walk-in would otherwise take a minute of
+    // wall time. Driving below keeps the tight 0.1s clamp for tunneling.
+    animatePhase(Math.min(delta || 0.016, 0.45))
     placeAvatar()
     return
   }
