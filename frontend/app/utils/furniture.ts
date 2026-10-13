@@ -282,3 +282,61 @@ export function starterLayout(W: number, D: number): Array<Omit<Placed, 'uid'>> 
     { sku: 'wardrobe', x: xBed1 - 0.35, z: -D / 2 + 1.2, rot: 3 }
   ]
 }
+
+// ------------------------------------------------------------ variety
+/** Re-dye an item's upholstery / wood (vertex colours) for this home. */
+export function tintItem(obj: THREE.Object3D, map: Array<[string, string]>) {
+  const pairs = map.map(([a, b]) => [new THREE.Color(a), new THREE.Color(b)] as const)
+  obj.traverse((o: any) => {
+    const col = o.geometry?.attributes?.color
+    if (!col) return
+    const geo = o.geometry.clone()
+    o.geometry = geo
+    const c = geo.attributes.color
+    for (let i = 0; i < c.count; i++) {
+      for (const [from, to] of pairs) {
+        if (Math.abs(c.getX(i) - from.r) < 0.01 && Math.abs(c.getY(i) - from.g) < 0.01 && Math.abs(c.getZ(i) - from.b) < 0.01) {
+          c.setXYZ(i, to.r, to.g, to.b)
+          break
+        }
+      }
+    }
+    c.needsUpdate = true
+  })
+}
+
+const UPHOLSTERY = ['#7a3a3a', '#3f5a4a', '#4a5a72', '#8a7058', '#3a3a44', '#a85a3a', '#5a3a5a', '#2f5f7a', '#c9b78e']
+const WOODS = ['#6a4428', '#8a5a34', '#4a2e1a', '#a07a50', '#3a2a20']
+
+/** A lived-in layout for somebody else's home: same rooms, different
+ *  furniture choices, placement and colours, decided by the house seed. */
+export function homeLayout(W: number, D: number, seed: number): { items: Array<Omit<Placed, 'uid'>>; tints: Array<[string, string]> } {
+  let a = Math.floor(seed * 7919) | 1
+  const r = () => ((a = (a * 16807) % 2147483647) / 2147483647)
+  const base = starterLayout(W, D)
+  const items: Array<Omit<Placed, 'uid'>> = []
+  const backZ = -D / 2 + 4.2
+  const lz0 = backZ + 0.2
+  for (const it of base) {
+    // some homes skip a piece or swap it for something else
+    if (it.sku === 'armchair' && r() < 0.3) {
+      items.push({ ...it, sku: 'bookshelf', x: W / 2 - 0.4, z: (lz0 + D / 2) / 2, rot: 3 })
+      continue
+    }
+    if (it.sku === 'standing_fan' && r() < 0.4) continue
+    if (it.sku === 'floor_lamp' && r() < 0.3) continue
+    if (it.sku === 'rug' && r() < 0.2) continue
+    if (it.sku === 'snake_plant' && r() < 0.35) continue
+    // nudge things so no two living rooms line up the same
+    const j = it.sku === 'bed_double' || it.sku === 'wardrobe' || it.sku === 'tv_console' ? 0 : 0.35
+    items.push({ ...it, x: it.x + (r() - 0.5) * j, z: it.z + (r() - 0.5) * j })
+  }
+  if (r() < 0.5) items.push({ sku: 'plastic_chair', x: W / 2 - 0.7, z: D / 2 - 1.4, rot: 2 })
+  if (r() < 0.35) items.push({ sku: 'deep_freezer', x: W / 2 - 0.6, z: lz0 + 0.4, rot: 2 })
+  if (r() < 0.4) items.push({ sku: 'armchair', x: -W / 2 + 1.3, z: D / 2 - 1.4, rot: 1 })
+  const tints: Array<[string, string]> = [
+    [SOFA, UPHOLSTERY[Math.floor(r() * UPHOLSTERY.length)]],
+    [WOOD, WOODS[Math.floor(r() * WOODS.length)]]
+  ]
+  return { items, tints }
+}

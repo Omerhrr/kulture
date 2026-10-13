@@ -64,6 +64,7 @@ export function useGameApi() {
     homeInit: (items: Array<{ sku: string; x: number; z: number; rot: number }>) => post<{ items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home/init', { items }),
     homeMove: (uid: string, x: number, z: number, rot: number) => req<any>(`/home/items/${uid}`, { method: 'PUT', body: JSON.stringify({ x, z, rot }) }),
     homeBuy: (sku: string, x: number, z: number) => post<{ item: any; items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home/buy', { sku, x, z }),
+    venueSpend: (service: string) => post<{ ok: boolean; price_ngn_minor: number; balance_ngn_minor: number }>('/venues/spend', { service }),
     homeSell: (uid: string) => post<{ refund_ngn_minor: number; items: any[]; catalog: any[]; balance_ngn_minor: number }>(`/home/items/${uid}/sell`),
 
     // billboard adverts (paid with Lightning)

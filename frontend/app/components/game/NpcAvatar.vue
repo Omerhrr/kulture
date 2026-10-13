@@ -247,7 +247,7 @@ if (import.meta.dev) {
 
 <template>
   <TresGroup ref="group" :position="[props.x, 0, props.z]">
-    <CharacterAvatar
+    <CharacterAvatar real
       :shirt="props.shirt"
       trouser="#3a3f4a"
       :kufi="!props.female"

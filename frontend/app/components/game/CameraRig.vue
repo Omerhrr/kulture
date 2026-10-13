@@ -6,6 +6,7 @@
 
 import * as THREE from 'three'
 import { ridePose } from '~/utils/rideState'
+import { heightAt } from '~/utils/terrain'
 import { INTERIOR_DROP } from '~/utils/kadunaExtras'
 import { impact } from '~/utils/impact'
 import { hitsBuilding } from '~/utils/collision'
@@ -42,6 +43,7 @@ if (import.meta.dev) {
     orbit.value.pitch = pitch
     orbit.value.dist = dist
   }
+  ;(window as any).__kk_scene = () => ctxAny.scene?.value ?? ctxAny.scene
   ;(window as any).__kk_tres = () => {
     const r = ctxAny.renderer?.value ?? ctxAny.renderer?.instance
     const s = ctxAny.scene?.value ?? ctxAny.scene
@@ -133,7 +135,7 @@ onBeforeRender(({ delta }) => {
   const px = ride.value.active ? ridePose.x : playerPos.value[0]
   const pz = ride.value.active ? ridePose.z : playerPos.value[2]
   // chase view tracks the vehicle body (boats bob, planes climb)
-  const vy = ride.value.active ? ridePose.y : interior.value.inside ? -INTERIOR_DROP : 0
+  const vy = ride.value.active ? ridePose.y : interior.value.inside ? -INTERIOR_DROP : heightAt(px, pz)
   let dist = smooth.dist
   if (!ride.value.active && !interior.value.inside && smooth.pitch < 1.15) {
     // march the boom outwards; stop just before the first wall
@@ -173,13 +175,18 @@ onBeforeRender(({ delta }) => {
       orbit.value.yaw += (bestYaw - orbit.value.yaw) * step
     }
   } else occl = 99
-  const horiz = Math.cos(smooth.pitch) * dist
+  // driving a car/keke/okada: low chase camera just over the roof, looking
+  // down the road ahead (the road fills the frame, horizon high)
+  const lowChase = ride.value.active && !ride.value.inner && ridePose.cabin < 2.2
+  const pitchUse = lowChase ? Math.min(smooth.pitch, 0.17) : smooth.pitch
+  if (lowChase) dist = Math.min(dist, 6.4)
+  const horiz = Math.cos(pitchUse) * dist
   // squeezed against a wall: rise up over the shoulder and look down so
   // the street stays readable instead of filling the screen with wall
   const lift = dist < smooth.dist ? Math.max(0, 2.5 - dist) * 0.35 : 0
   desired.set(
     px + Math.sin(smooth.yaw) * horiz,
-    vy + 1.55 + Math.sin(smooth.pitch) * dist + lift,
+    vy + (lowChase ? 1.15 : 1.55) + Math.sin(pitchUse) * dist + lift,
     pz + Math.cos(smooth.yaw) * horiz
   )
   if (snapNext) {
@@ -188,7 +195,9 @@ onBeforeRender(({ delta }) => {
   } else {
     cam.position.lerp(desired, k)
   }
-  followTarget.set(px, vy + 1.45, pz)
+  if (lowChase) {
+    followTarget.set(px + Math.sin(ridePose.heading) * 5, vy + 1.05, pz + Math.cos(ridePose.heading) * 5)
+  } else followTarget.set(px, vy + 1.45, pz)
   // impact shake: a quick decaying jitter on the look target
   if (impact.shake > 0.01) {
     const t = performance.now() / 1000
@@ -222,7 +231,7 @@ watch(
   <TresPerspectiveCamera
     ref="camera"
     :position="[-294, 13, 184]"
-    :fov="55"
+    :fov="62"
     :near="0.25"
     :far="9000"
   />

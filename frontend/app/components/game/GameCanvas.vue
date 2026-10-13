@@ -38,19 +38,21 @@ if (import.meta.dev) {
 </script>
 
 <template>
-  <TresCanvas :shadows="!low" :shadow-map-type="2" :tone-mapping-exposure="1.05" :dpr="low ? 1 : [1, 1.5]" :clear-color="'#9ec7de'">
+  <TresCanvas :shadows="!low" :shadow-map-type="2" :tone-mapping="4" :tone-mapping-exposure="1.0" :output-color-space="'srgb'" :dpr="low ? 1 : [1, 1.5]" :clear-color="'#9ec7de'">
     <CameraRig />
     <PointerControls />
-    <TresFog :args="['#9ec7de', 550, 2600]" />
+    <TresFog :args="['#d3dfe6', 140, 4600]" />
+    <SkyDome />
     <EnvLight />
     <Weather />
 
     <DayNight />
     <TresAmbientLight :intensity="0.72" color="#fff4e0" />
     <SunLight />
-    <TresHemisphereLight :args="['#bfd9e8', '#8a7d5a', 0.5]" />
+    <TresHemisphereLight :args="['#d4e6f4', '#a89a72', 1.0]" />
 
     <KadunaCity />
+    <GrassField />
     <WorldScene />
     <CrowdSystem />
     <TrafficSystem />
@@ -59,6 +61,7 @@ if (import.meta.dev) {
     <PlayerAvatar />
     <RemotePlayers />
     <CrowdLOD />
+    <Parks />
     <AdScreens />
     <MapProjector />
     <Commute />

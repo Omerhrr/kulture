@@ -34,7 +34,7 @@ onBeforeRender(({ delta }) => {
     l.color.copy(sunColor)
     // clouds and rain dim the sun; harmattan dust softens it
     const w = weather.cur
-    l.intensity = (0.25 + s.daylight * 1.45) * (1 - Math.min(0.75, w.cloud * 0.6 + w.rain * 0.25)) * (1 - w.haze * 0.35)
+    l.intensity = (0.25 + s.daylight * 1.75) * (1 - Math.min(0.75, w.cloud * 0.6 + w.rain * 0.25)) * (1 - w.haze * 0.35)
   } else {
     // moon opposite the sun, fixed elevation
     l.position.set(px - s.sx * 130 + 40, 95, pz - s.sz * 130 - 25)

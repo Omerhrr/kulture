@@ -51,7 +51,7 @@ const BACK = 4.2 // depth of the bedroom / bath / kitchen strip
 
 // ------------------------------------------------------------- textures
 const texCache = new Map<string, THREE.Texture>()
-function canvasTex(key: string, size: number, draw: (g: CanvasRenderingContext2D, s: number) => void, repeat = 1): THREE.Texture {
+export function canvasTex(key: string, size: number, draw: (g: CanvasRenderingContext2D, s: number) => void, repeat = 1): THREE.Texture {
   const hit = texCache.get(key)
   if (hit) return hit
   const c = document.createElement('canvas')
@@ -66,7 +66,7 @@ function canvasTex(key: string, size: number, draw: (g: CanvasRenderingContext2D
   texCache.set(key, t)
   return t
 }
-function rng(seed: number) {
+export function rng(seed: number) {
   let a = Math.floor(seed * 9973) | 0
   return () => {
     a = (a + 0x6d2b79f5) | 0
@@ -75,7 +75,7 @@ function rng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
-const tileTex = (base: string, grout: string, n: number, key: string) =>
+export const tileTex = (base: string, grout: string, n: number, key: string) =>
   canvasTex(key, 256, (g, s) => {
     const r = rng(n)
     const cell = s / n
@@ -99,7 +99,7 @@ const tileTex = (base: string, grout: string, n: number, key: string) =>
       g.fillRect(0, i * cell - 1, s, 2)
     }
   })
-const woodTex = () =>
+export const woodTex = () =>
   canvasTex('wood', 256, (g, s) => {
     const r = rng(7)
     const plank = s / 6
@@ -246,7 +246,7 @@ export function buildRoom(W: number, D: number, seed: number, opts: { customFurn
   const colliders: LocalBox[] = []
   const disposables: Array<{ dispose: () => void }> = []
 
-  const paint = pick(['#efe4d0', '#e4ece6', '#f2e6d8', '#e8e0ee', '#e6eadc', '#f4ead6'])
+  const paint = pick(['#efe4d0', '#e4ece6', '#f2e6d8', '#e8e0ee', '#e6eadc', '#f4ead6', '#dfe8f0', '#f0dcd0', '#e0e8d0', '#d8d0c4', '#c8dce0'])
   const accent = pick(['#3f6a8a', '#8a4a3a', '#3f7a5a', '#b8863a', '#6a4a7a'])
   const sofaCol = pick(['#4a5a72', '#7a3a3a', '#3f5a4a', '#8a7058', '#3a3a44', '#a85a3a'])
   const duvet = pick(['#3f7d8b', '#b8433a', '#3f6fae', '#d8a23c', '#7a4a8a', '#2f7d5b'])
@@ -285,7 +285,19 @@ export function buildRoom(W: number, D: number, seed: number, opts: { customFurn
   const bathW = 2.4
   const xBed1 = -W / 2 + bedW
   const xBath1 = xBed1 + bathW
-  floor(W, D - BACK, 0, (backZ + D / 2) / 2, tileTex('#e8dcc4', '#b8ab92', 4, 'tile-main'), 2.4)
+  // living floor: every home picks its own finish
+  const finish = Math.floor(r() * 5)
+  const mainFloor =
+    finish === 0
+      ? tileTex('#e8dcc4', '#b8ab92', 4, 'tile-main')
+      : finish === 1
+        ? woodTex()
+        : finish === 2
+          ? tileTex('#d8d4cc', '#8a8680', 3, 'tile-grey')
+          : finish === 3
+            ? tileTex('#c9a27a', '#8a6a4a', 5, 'tile-terracotta')
+            : tileTex('#f2efe8', '#c8c2b4', 2, 'tile-marble')
+  floor(W, D - BACK, 0, (backZ + D / 2) / 2, mainFloor, finish === 1 ? 2.2 : 2.4)
   floor(bedW, BACK, -W / 2 + bedW / 2, -D / 2 + BACK / 2, woodTex(), 2.2)
   floor(bathW, BACK, xBed1 + bathW / 2, -D / 2 + BACK / 2, tileTex('#e8f0f2', '#9ab0b8', 8, 'tile-bath'), 1.2)
   floor(W / 2 - xBath1, BACK, (xBath1 + W / 2) / 2, -D / 2 + BACK / 2, tileTex('#d8d0c0', '#8a8070', 6, 'tile-kitchen'), 1.5)

@@ -19,8 +19,10 @@ import { useSimStore, type NeedKey } from '~/stores/sim'
 import { usePlayerPose, fireKkEvent, useMoveTarget } from '~/composables/useControlsState'
 import { PLAYABLE_POS } from '~/utils/kaduna'
 import { nearestSeat } from '~/utils/seats'
-import { ITEMS, rotLocal, starterLayout } from '~/utils/furniture'
+import { ITEMS, rotLocal, starterLayout, homeLayout, tintItem } from '~/utils/furniture'
 import { useHomeStore } from '~/stores/home'
+import { buildVenue, VENUE_INFO, VENUE_CYCLE, type VenueType, type VenueActor, type VenueAction, type VenueSpot } from '~/utils/venues'
+import { lookFor } from '~/utils/wardrobe'
 
 const ride = useRide()
 const interior = useInterior()
@@ -33,8 +35,8 @@ const pose = usePlayerPose()
 const playerFacing = useState<number>('kk_player_facing', () => 0)
 
 // what each appliance does (real seconds, need points)
-type Pose = 'sit' | 'sleep' | 'eat' | 'idle'
-const ACTS: Record<Hotspot['id'] | 'street', { label: string; button: string; need: NeedKey; gain: number; dur: number; pose?: Pose; skips?: number; stay?: boolean }> = {
+type Pose = string
+const ACTS: Record<string, { label: string; button: string; need: NeedKey; gain: number; dur: number; pose?: Pose; skips?: number; stay?: boolean; service?: string }> = {
   fridge: { label: 'Fridge', button: 'Grab a snack', need: 'hunger', gain: 30, dur: 3 },
   cooker: { label: 'Gas cooker', button: 'Cook jollof', need: 'hunger', gain: 70, dur: 7 },
   bed: { label: 'Bed', button: 'Sleep', need: 'energy', gain: 100, dur: 8, pose: 'sleep', skips: 3 },
@@ -46,8 +48,11 @@ const ACTS: Record<Hotspot['id'] | 'street', { label: string; button: string; ne
   chair: { label: 'Chair', button: 'Sit down', need: 'fun', gain: 12, dur: 6, pose: 'sit', stay: true },
   street: { label: 'Seat', button: 'Sit down', need: 'fun', gain: 12, dur: 6, pose: 'sit', stay: true }
 }
+/** venue spots carry their own action; homes use the ACTS table */
+const venueActs: Record<string, VenueAction> = {}
+const actOf = (id: string) => venueActs[id] ?? ACTS[id]
 interface Pending {
-  id: Hotspot['id'] | 'street'
+  id: string
   wx: number
   wz: number
   fwx: number
@@ -106,6 +111,8 @@ interface Door {
   house: OpenHouse
   seed: number
   named: boolean
+  /** public place: office, mosque, restaurant ... */
+  venue?: VenueType
 }
 
 /** Doorway dressing for the named open houses (awning, open door, mat). */
@@ -164,12 +171,76 @@ onMounted(() => {
     if (!a) doorGrid.set(k, (a = []))
     a.push([fx, fz, i])
   }
+  setupVenues()
   const hd = homeDoor()
   if (hd) {
     const [fx, fz] = doorFront(hd.house)
     useState<[number, number] | null>('kk_home_door').value = [fx + hd.house.nx * 0.8, fz + hd.house.nz * 0.8]
   }
 })
+
+// ---------------------------------------------------------------- venues
+// Shop-front plots along the main roads become the city's public places:
+// the nearest ones to where you start cycle through every type so there is
+// one of each close by, the rest repeat further out.
+const venueDoors: Door[] = []
+const venueByPlacement = new Map<number, number>()
+const landmarks = new THREE.Group()
+function setupVenues() {
+  const [sx, sz] = PLAYABLE_POS.spawn_roadside
+  const shops = housePlacements()
+    .map((pl, i) => ({ pl, i, d: Math.hypot(pl.x - sx, pl.z - sz) }))
+    .filter((o) => o.pl.type === 'shops')
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 40)
+  shops.forEach(({ pl, i }, k) => {
+    const type = VENUE_CYCLE[k % VENUE_CYCLE.length]
+    const info = VENUE_INFO[type]
+    const q = Math.round(pl.yaw / (Math.PI / 2))
+    const nx = Math.round(Math.sin(q * (Math.PI / 2)))
+    const nz = Math.round(Math.cos(q * (Math.PI / 2)))
+    const [VW, VD] = info.size
+    const depth = pl.sz * ND
+    const gx = pl.x + Math.sin(pl.yaw) * (depth / 2 + 0.6)
+    const gz = pl.z + Math.cos(pl.yaw) * (depth / 2 + 0.6)
+    const w = nz !== 0 ? VW : VD
+    const d = nz !== 0 ? VD : VW
+    const hx = gx - nx * (nz !== 0 ? d / 2 : w / 2)
+    const hz = gz - nz * (nz !== 0 ? d / 2 : w / 2)
+    const name = info.names[Math.floor(hash01(pl.x, pl.z, 17) * info.names.length) % info.names.length]
+    const door: Door = { house: { x: hx, z: hz, w, d, rot: 0, nx, nz, name }, seed: hash01(pl.x, pl.z, 63) * 1000, named: true, venue: type }
+    venueByPlacement.set(i, venueDoors.length)
+    venueDoors.push(door)
+    const [fx, fz] = doorFront(door.house)
+    signs.value.push({ tex: makeLabelTexture(`${info.icon} ${name.toUpperCase()}`, type === 'mosque' ? '#bff0c8' : type === 'church' ? '#e8e0ff' : '#ffe9a8'), x: fx + nx * 0.4, y: 4.2, z: fz + nz * 0.4 })
+    // landmarks so you can spot them from the road
+    const side = nz !== 0 ? [1, 0] : [0, 1]
+    const tx = fx + side[0] * 4.5 - nx * 1.5
+    const tz = fz + side[1] * 4.5 - nz * 1.5
+    if (type === 'mosque') {
+      const m = new THREE.Group()
+      const white = new THREE.MeshLambertMaterial({ color: '#f2efe6' })
+      const green = new THREE.MeshLambertMaterial({ color: '#1f7a4a' })
+      m.add(new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 16, 12).translate(0, 8, 0), white))
+      m.add(new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.4, 12).translate(0, 12.5, 0), white))
+      m.add(new THREE.Mesh(new THREE.SphereGeometry(0.95, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 16, 0), green))
+      m.add(new THREE.Mesh(new THREE.ConeGeometry(0.12, 1.2, 8).translate(0, 17.4, 0), new THREE.MeshLambertMaterial({ color: '#d8b84a' })))
+      m.position.set(tx, 0, tz)
+      landmarks.add(m)
+    } else if (type === 'church') {
+      const m = new THREE.Group()
+      const wall = new THREE.MeshLambertMaterial({ color: '#efe8d6' })
+      m.add(new THREE.Mesh(new THREE.BoxGeometry(2.4, 13, 2.4).translate(0, 6.5, 0), wall))
+      m.add(new THREE.Mesh(new THREE.ConeGeometry(1.9, 4, 4).rotateY(Math.PI / 4).translate(0, 15, 0), new THREE.MeshLambertMaterial({ color: '#8a3a2a' })))
+      const brown = new THREE.MeshLambertMaterial({ color: '#d8b84a' })
+      m.add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.2, 0.2).translate(0, 18, 0), brown))
+      m.add(new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 0.2).translate(0, 18.4, 0), brown))
+      m.position.set(tx, 0, tz)
+      landmarks.add(m)
+    }
+  })
+  root.add(landmarks)
+}
 
 function nearestHouseDoor(px: number, pz: number, r: number): number {
   const cx = Math.floor(px / 16)
@@ -210,7 +281,10 @@ function doorForPlacement(idx: number): Door | null {
 }
 
 // ---------------------------------------------------------------- active room
-let active: { door: Door; room: BuiltRoom; holder: THREE.Group; rot: number; W: number; D: number; home: boolean } | null = null
+let active: { door: Door; room: BuiltRoom; holder: THREE.Group; rot: number; W: number; D: number; home: boolean; vspots: VenueSpot[] } | null = null
+// the people inside a public place (rendered by the template)
+const actors = ref<Array<VenueActor & { look: ReturnType<typeof lookFor> }>>([])
+const actorFrame = ref<{ x: number; y: number; z: number; rot: number } | null>(null)
 
 // ---------------------------------------------------------------- your furniture
 const home = useHomeStore()
@@ -218,16 +292,53 @@ const furnGroup = new THREE.Group()
 const objs = new Map<string, { obj: THREE.Group; sku: string }>()
 let furnColliders: Array<{ x: number; z: number; w: number; d: number }> = []
 let furnSpots: Hotspot[] = []
+// someone else's home: furniture from the house seed (look, don't touch)
+const visitGroup = new THREE.Group()
+let visitColliders: Array<{ x: number; z: number; w: number; d: number }> = []
+let visitSpots: Hotspot[] = []
+function furnishVisit(W: number, D: number, seed: number) {
+  clearVisit()
+  const { items, tints } = homeLayout(W, D, seed)
+  for (const it of items) {
+    const def = ITEMS[it.sku]
+    if (!def) continue
+    const obj = def.build()
+    tintItem(obj, tints)
+    obj.position.set(it.x, 0, it.z)
+    obj.rotation.y = (it.rot * Math.PI) / 2
+    obj.traverse((c) => (c.userData.sku = it.sku))
+    visitGroup.add(obj)
+    const odd = it.rot % 2 === 1
+    if (def.solid) visitColliders.push({ x: it.x, z: it.z, w: (odd ? def.d : def.w) * 0.92, d: (odd ? def.w : def.d) * 0.92 })
+    for (const sp of def.spots ?? []) {
+      const [ax, az] = rotLocal(sp.x, sp.z, it.rot)
+      const spot: Hotspot = { id: sp.id, x: it.x + ax, z: it.z + az, fx: it.x, fz: it.z }
+      if (sp.seat) {
+        const [sx2, sz2] = rotLocal(sp.seat.x, sp.seat.z, it.rot)
+        spot.seat = { x: it.x + sx2, z: it.z + sz2, h: sp.seat.h, yaw: sp.seat.yaw + (it.rot * Math.PI) / 2 }
+      }
+      visitSpots.push(spot)
+    }
+  }
+}
+function clearVisit() {
+  for (const o of [...visitGroup.children]) {
+    visitGroup.remove(o)
+    o.traverse((c) => (c as THREE.Mesh).geometry?.dispose())
+  }
+  visitColliders = []
+  visitSpots = []
+}
 const selBox = new THREE.BoxHelper(new THREE.Object3D(), 0x2f9e6e)
 selBox.visible = false
 root.add(selBox) // BoxHelper works in world space
 
-function allSpots(): Hotspot[] {
-  return active ? [...active.room.hotspots, ...furnSpots] : []
+function allSpots(): Array<Hotspot | VenueSpot> {
+  return active ? [...active.room.hotspots, ...furnSpots, ...visitSpots, ...active.vspots] : []
 }
 function refreshColliders() {
   if (!active) return
-  const room = { ...active.room, colliders: [...active.room.colliders, ...furnColliders] }
+  const room = { ...active.room, colliders: [...active.room.colliders, ...furnColliders, ...visitColliders] }
   setInteriorWalls(roomColliders(active.door, room as BuiltRoom, active.rot))
 }
 function syncFurniture() {
@@ -308,6 +419,26 @@ function floorLocal(): [number, number] | null {
   const v = active.holder.worldToLocal(hitPt.clone())
   return [v.x, v.z]
 }
+// tap any piece of furniture: see what it is; in your own home it also
+// opens build mode with that piece selected (move / rotate / sell)
+function onInspect(e: PointerEvent) {
+  if (home.build || !active || (e.target as HTMLElement)?.tagName !== 'CANVAS' || !pointerRay(e)) return
+  const targets = active.home ? furnGroup.children : visitGroup.children
+  const hit = ray.intersectObjects(targets, true).find((h) => h.object.userData.uid || h.object.userData.sku)
+  if (!hit) return
+  if (active.home) {
+    const uid = hit.object.userData.uid as string
+    const it = home.items.find((i) => i.uid === uid)
+    if (!it) return
+    e.stopPropagation()
+    home.build = true
+    home.selected = uid
+    ui.showToast(`${ITEMS[it.sku]?.name ?? it.sku} · drag to move, Rotate or Sell below`, 'info')
+  } else {
+    const sku = hit.object.userData.sku as string
+    ui.showToast(`${ITEMS[sku]?.name ?? sku} · not yours to move`, 'info')
+  }
+}
 function onBuildDown(e: PointerEvent) {
   if (!home.build || !active?.home || (e.target as HTMLElement)?.tagName !== 'CANVAS' || !pointerRay(e)) return
   const hits = ray.intersectObjects(furnGroup.children, true)
@@ -347,11 +478,13 @@ function onBuildUp() {
 }
 onMounted(() => {
   window.addEventListener('pointerdown', onBuildDown, true)
+  window.addEventListener('pointerdown', onInspect, true)
   window.addEventListener('pointermove', onBuildMove, true)
   window.addEventListener('pointerup', onBuildUp, true)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onBuildDown, true)
+  window.removeEventListener('pointerdown', onInspect, true)
   window.removeEventListener('pointermove', onBuildMove, true)
   window.removeEventListener('pointerup', onBuildUp, true)
 })
@@ -374,17 +507,35 @@ function enter(door: Door) {
   const W = h.nz !== 0 ? h.w : h.d
   const D = h.nz !== 0 ? h.d : h.w
   const isHome = h.name === 'Your home'
-  const room = buildRoom(W, D, door.seed, { customFurniture: isHome })
+  const venue = door.venue ? buildVenue(door.venue, door.seed) : null
+  const room = venue ? venue.room : buildRoom(W, D, door.seed, { customFurniture: true })
   const holder = new THREE.Group()
   holder.add(room.group)
   if (isHome) {
     holder.add(furnGroup)
+  } else if (!venue) {
+    furnishVisit(W, D, door.seed)
+    holder.add(visitGroup)
   }
   holder.position.set(h.x, -INTERIOR_DROP, h.z)
   holder.rotation.y = rot
   root.add(holder)
-  active = { door, room, holder, rot, W, D, home: isHome }
-  setInteriorWalls(roomColliders(door, room, rot))
+  active = { door, room, holder, rot, W, D, home: isHome, vspots: venue?.spots ?? [] }
+  for (const sp of venue?.spots ?? []) venueActs[sp.id] = sp.act
+  actors.value = (venue?.actors ?? []).map((a) => {
+    const look = lookFor(a.id, !!a.female)
+    // uniforms for staff, prayer clothes in the mosque
+    if (a.staff === 'chef') Object.assign(look, { top: '#f2f2f0', bottom: '#2b2b2f', gadgets: [] })
+    else if (a.staff === 'waiter' || a.staff === 'bartender') Object.assign(look, { top: '#1d1f24', bottom: '#1d1f24', gadgets: [] })
+    else if (a.staff === 'reception' || a.staff === 'cashier' || a.staff === 'porter') Object.assign(look, { top: '#1f2a44', bottom: '#2b3440', gadgets: [] })
+    else if (a.staff === 'pastor') Object.assign(look, { top: '#2b2b2f', bottom: '#2b2b2f', gadgets: [] })
+    else if (a.staff === 'choir') Object.assign(look, { top: '#7a2a4a', bottom: '#7a2a4a', gadgets: [] })
+    if (door.venue === 'mosque') Object.assign(look, { top: ['#efe8d6', '#f2f2f0', '#c9b78e', '#3f6fae'][a.id % 4], bottom: '#efe8d6', gadgets: ['kufi'] })
+    if (a.mode === 'run' || a.mode === 'lift') look.gadgets = (look.gadgets ?? []).filter((g) => g === 'watch' || g === 'headphones')
+    return { ...a, look }
+  })
+  actorFrame.value = { x: h.x, y: -INTERIOR_DROP, z: h.z, rot }
+  refreshColliders()
   if (isHome) {
     home
       .load(() => starterLayout(W, D))
@@ -408,10 +559,24 @@ function toWorld(lx: number, lz: number): [number, number] {
   return [h.x + lx * c + lz * sn, h.z - lx * sn + lz * c]
 }
 
-function startUse() {
+const api = useGameApi()
+const playerStore = usePlayerStore()
+async function startUse() {
   if (!pendingSpot) return
   const sp = pendingSpot
-  const a = ACTS[sp.id]
+  const a = actOf(sp.id)
+  if (!a) return
+  if (a.service) {
+    // pay first (server prices and balance), then enjoy
+    try {
+      const r = await api.venueSpend(a.service)
+      if (playerStore.profile) playerStore.profile.ngn_balance_minor = r.balance_ngn_minor
+      ui.showToast(`Paid ₦${(r.price_ngn_minor / 100).toLocaleString()}`, 'success')
+    } catch (e: any) {
+      ui.showToast(e?.message || 'Payment failed', 'error')
+      return
+    }
+  }
   let gain = a.gain
   if (a.need === 'hunger' && sim.traits.includes('foodie')) gain *= 1.25
   sim.activity = { id: sp.id, label: a.button, need: a.need, gain, dur: a.dur, t: 0 }
@@ -433,10 +598,10 @@ function startUse() {
 }
 /** activity over; seats you can stay on keep you seated until you move */
 function endUse(keepSeat = false) {
-  const id = sim.activity?.id as keyof typeof ACTS | undefined
+  const id = sim.activity?.id as string | undefined
   sim.activity = null
   sim.save()
-  if (keepSeat && seated && id && ACTS[id].stay) {
+  if (keepSeat && seated && id && actOf(id)?.stay) {
     pose.value = 'sit'
     return
   }
@@ -477,7 +642,10 @@ function exit() {
     furnSpots = []
     home.build = false
   }
+  clearVisit()
   active = null
+  actors.value = []
+  actorFrame.value = null
   const [fx, fz] = doorFront(h)
   playerPos.value = [fx + h.nx * 0.8, 0, fz + h.nz * 0.8]
 }
@@ -503,7 +671,7 @@ onBeforeRender(({ delta }) => {
     act.t += dt
     sim.bump(act.need, (act.gain / act.dur) * dt)
     // sleeping passes the night (2 in-game hours per skip)
-    const def = ACTS[act.id as keyof typeof ACTS]
+    const def = actOf(act.id as string) as any
     const skips = def?.skips ?? 0
     if (skips && sleptSkips < skips && act.t > ((sleptSkips + 1) * act.dur) / (skips + 1)) {
       sleptSkips++
@@ -539,6 +707,14 @@ onBeforeRender(({ delta }) => {
       if (Math.hypot(px - fx, pz - fz) < 1.7) {
         pending = d
         doorPrompt.value = { label: `Enter ${d.house.name}`, action: 'enter', slot: 0 }
+        return
+      }
+    }
+    for (const d of venueDoors) {
+      const [fx, fz] = doorFront(d.house)
+      if (Math.abs(px - fx) < 3 && Math.abs(pz - fz) < 3 && Math.hypot(px - fx, pz - fz) < 2.0) {
+        pending = d
+        doorPrompt.value = { label: `${VENUE_INFO[d.venue!].icon} ${d.house.name}`, action: 'enter', slot: 0, button: `Enter ${VENUE_INFO[d.venue!].label.toLowerCase()}` }
         return
       }
     }
@@ -597,11 +773,12 @@ onBeforeRender(({ delta }) => {
           const [sx, sz] = toWorld(spot.seat.x, spot.seat.z)
           seat = { x: sx, z: sz, h: spot.seat.h, yaw: active.rot + spot.seat.yaw }
         }
-        best = { id: spot.id, wx, wz, fwx, fwz, seat }
+        best = { id: spot.id as string, wx, wz, fwx, fwz, seat }
       }
     }
     pendingSpot = best
-    doorPrompt.value = best ? { label: ACTS[best.id].label, action: 'use', slot: 0, button: ACTS[best.id].button } : null
+    const ba = best ? actOf(best.id) : null
+    doorPrompt.value = best && ba ? { label: ba.label, action: 'use', slot: 0, button: ba.button } : null
   }
 })
 
@@ -618,6 +795,7 @@ onMounted(() => {
   window.addEventListener('kk-go-home', goHome)
   window.addEventListener('kk-stand-up', onStandUp)
   if (import.meta.dev) {
+    ;(window as any).__kk_venues = () => venueDoors.map((d) => ({ type: d.venue, name: d.house.name, door: doorFront(d.house).map((v) => +v.toFixed(1)) }))
     ;(window as any).__kk_doors = () => named.map((d) => ({ name: d.house.name, door: doorFront(d.house).map((v) => +v.toFixed(1)) }))
     ;(window as any).__kk_interior = () => ({ ...interior.value, prompt: doorPrompt.value, activity: sim.activity })
     ;(window as any).__kk_hotspots = () => (active ? allSpots().map((h) => ({ id: h.id, at: toWorld(h.x, h.z) })) : [])
@@ -634,6 +812,27 @@ onBeforeUnmount(() => {
 <template>
   <TresGroup>
     <primitive :object="root" />
+    <TresGroup v-if="actorFrame" :position="[actorFrame.x, actorFrame.y, actorFrame.z]" :rotation-y="actorFrame.rot">
+      <TresGroup v-for="a in actors" :key="a.id" :position="[a.x, 0, a.z]" :rotation-y="a.yaw">
+        <CharacterAvatar
+          real
+          :female="a.female"
+          :skin="a.look.skin"
+          :shirt="a.look.top"
+          :trouser="a.look.bottom"
+          :hair-color="a.look.hair ?? '#141114'"
+          :hair-style="a.female ? 'braids' : 'cap'"
+          :kufi="false"
+          :hijab="false"
+          :outfit="a.female ? 'dress' : 'shirt'"
+          :gadgets="(a.look.gadgets ?? []) as any"
+          :mode="a.mode as any"
+          :seat="a.seat ?? 0.47"
+          :phase="(a.id % 17) * 0.37"
+          :gait-speed="a.mode === 'run' ? 14 : 9"
+        />
+      </TresGroup>
+    </TresGroup>
     <TresSprite v-for="(s, i) in signs" :key="'sig' + i" :position="[s.x, s.y, s.z]" :scale="[9, 1.7, 1]">
       <TresSpriteMaterial :map="s.tex" :transparent="true" :depth-write="false" />
     </TresSprite>

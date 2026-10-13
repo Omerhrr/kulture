@@ -235,7 +235,7 @@ onBeforeRender(({ delta, elapsed }) => {
     }
     if (scene.fog) {
       ;(scene.fog as THREE.Fog).color.copy(fogC)
-      const far = (2600 - s.night * 1000) * (1 - w.haze * 0.72) * (1 - w.rain * 0.45)
+      const far = (4600 - s.night * 2400) * (1 - w.haze * 0.72) * (1 - w.rain * 0.45)
       ;(scene.fog as THREE.Fog).far += (far - (scene.fog as THREE.Fog).far) * Math.min(1, dt * 2)
     }
   }
@@ -243,12 +243,12 @@ onBeforeRender(({ delta, elapsed }) => {
     renderer.setClearColor(skyC)
   }
   if (ambientLight) {
-    ambientLight.intensity = (0.32 + s.daylight * 0.48) * (1 - overcast * 0.22) + weather.flash * 1.6
+    ambientLight.intensity = (0.3 + s.daylight * 0.3) * (1 - overcast * 0.22) + weather.flash * 1.6
     ambientLight.color.set(pal.ambient)
   }
   if (hemiLight) {
-    hemiLight.intensity = 0.2 + s.daylight * 0.32
-    hemiLight.color.set(mixHex('#bfd9e8', '#2c3c66', s.night))
+    hemiLight.intensity = 0.2 + s.daylight * 0.85
+    hemiLight.color.set(mixHex('#d4e6f4', '#2c3c66', s.night))
   }
 
   // 3) stars + moon + sun disc ride with the camera x/z

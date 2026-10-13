@@ -128,7 +128,7 @@ if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_remot
   <TresGroup>
     <TresGroup v-for="s in shown" :key="s.id" :position="[s.x, 0, s.z]">
       <TresGroup :rotation="[0, s.h, 0]">
-        <CharacterAvatar
+        <CharacterAvatar real
           :key="s.lookKey"
           :shirt="s.look.top || '#3f6fae'"
           :trouser="s.look.bottom || '#2b3440'"

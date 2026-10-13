@@ -5,6 +5,7 @@
 // second; the instanced copy of a high-detail ped is hidden (ped.hd).
 import * as THREE from 'three'
 import { crowd } from '~/utils/crowdShared'
+import { lookFor, type Look } from '~/utils/wardrobe'
 
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const interior = useInterior()
@@ -17,6 +18,7 @@ interface Slot {
   kid: boolean
   look: { shirt: string; trouser: string; skin: string; hair: string }
   kaftan: boolean
+  real: Look
 }
 const slots = ref<Slot[]>([])
 const groups = new Map<number, THREE.Group>()
@@ -56,7 +58,8 @@ onBeforeRender(({ delta }) => {
         female: !!p.female,
         kid: !!p.kid,
         look: p.look ?? { shirt: '#3f6fae', trouser: '#2b3440', skin: '#7a4e33', hair: '#141114' },
-        kaftan: !p.female && p.id % 3 !== 0
+        kaftan: !p.female && p.id % 3 !== 0,
+        real: lookFor(p.id, !!p.female)
       }))
     }
   }
@@ -86,14 +89,16 @@ onBeforeUnmount(() => {
   <TresGroup>
     <TresGroup v-for="s in slots" :key="s.id" :ref="setRef(s.id)">
       <CharacterAvatar
-        :shirt="s.look.shirt"
-        :trouser="s.look.trouser"
-        :skin="s.look.skin"
-        :hair-color="s.look.hair"
+        real
+        :gadgets="s.real.gadgets"
+        :shirt="s.real.top"
+        :trouser="s.real.bottom"
+        :skin="s.real.skin"
+        :hair-color="s.real.hair ?? s.look.hair"
         :female="s.female"
-        :hijab="s.female && s.id % 4 !== 1"
+        :hijab="false"
         :outfit="s.female ? 'dress' : s.kaftan ? 'kaftan' : 'shirt'"
-        :kufi="!s.female && s.kaftan"
+        :kufi="false"
         :hair-style="s.female ? 'braids' : s.kaftan ? 'cap' : s.id % 2 ? 'afro' : 'bald'"
         :beard="!s.female && !s.kid && s.id % 3 === 1"
         :scale="s.kid ? 0.72 : 1"

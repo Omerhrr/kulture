@@ -18,10 +18,25 @@ const dream = ref(sim.dream)
 const birth = ref<string | null>(null)
 const rolling = ref(false)
 
-const SKINS = ['#4a2e1e', '#5e3a26', '#7a4e33', '#94603e', '#b07a52', '#c9946a']
-const HAIR_COLORS = ['#141114', '#3a2414', '#6b3e1e', '#9a9a9a']
-const TOPS = ['#2e7d5b', '#efe8d6', '#2f5fa8', '#b23a48', '#e0a020', '#5a3a7a', '#1d1c1f', '#e86a2c']
-const BOTTOMS = ['#2b3440', '#efe8d6', '#1d1c1f', '#6b4a2f', '#2f5fa8', '#7a2a2a']
+const SKINS = ['#3a2216', '#4a2e1e', '#5e3a26', '#6e4630', '#7a4e33', '#8a5a3a', '#94603e', '#b07a52', '#c9946a']
+const HAIR_COLORS = ['#141114', '#3a2414', '#6b3e1e', '#9a6a2a', '#9a9a9a', '#7a2a3a']
+const TOPS = ['#2e7d5b', '#efe8d6', '#2f5fa8', '#b23a48', '#e0a020', '#5a3a7a', '#1d1c1f', '#e86a2c', '#1f2a44', '#d86a8a', '#3a7d8a', '#8a6a3a', '#f2f2f0', '#6a8a2a']
+const BOTTOMS = ['#2b3440', '#efe8d6', '#1d1c1f', '#6b4a2f', '#2f5fa8', '#7a2a2a', '#5a5a5e', '#2e4a6e', '#c9b78e', '#3a3a2a']
+const GADGETS = [
+  { id: 'phone', label: '📱 Phone' },
+  { id: 'sunglasses', label: '🕶️ Shades' },
+  { id: 'cap', label: '🧢 Cap' },
+  { id: 'headphones', label: '🎧 Headphones' },
+  { id: 'watch', label: '⌚ Watch' },
+  { id: 'backpack', label: '🎒 Backpack' },
+  { id: 'bag', label: '👜 Bag' }
+]
+function toggleGadget(id: string) {
+  const g = (look.gadgets ??= [])
+  const i = g.indexOf(id)
+  if (i >= 0) g.splice(i, 1)
+  else g.push(id)
+}
 const HAIRS: Array<{ id: Look['hair']; label: string }> = [
   { id: 'cap', label: 'Kufi cap' },
   { id: 'afro', label: 'Afro' },
@@ -206,6 +221,10 @@ const previewKey = computed(() => JSON.stringify(look))
           <div class="kk-sec">Trousers / wrapper</div>
           <div class="flex flex-wrap gap-2">
             <button v-for="c in BOTTOMS" :key="c" class="kk-swatch" :class="{ on: look.bottom === c }" :style="{ background: c }" :aria-label="'Bottom ' + c" @click="look.bottom = c" />
+          </div>
+          <div class="kk-sec">Extras</div>
+          <div class="flex flex-wrap gap-2">
+            <button v-for="g in GADGETS" :key="g.id" class="kk-opt" :class="{ on: (look.gadgets ?? []).includes(g.id) }" @click="toggleGadget(g.id)">{{ g.label }}</button>
           </div>
         </template>
 

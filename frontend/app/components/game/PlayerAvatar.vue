@@ -4,6 +4,7 @@ import { useWorkStore } from '~/stores/work'
 import { usePlayerPose } from '~/composables/useControlsState'
 import { ACTION_DUR, type ActionName } from '~/utils/humanAnim'
 import { throwMelee, hitNamed } from '~/utils/impact'
+import { heightAt } from '~/utils/terrain'
 // PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
 // Inputs: WASD / arrow keys, the touch joystick (mobile), plus
@@ -175,7 +176,7 @@ onBeforeRender(({ delta }) => {
     return
   }
   g.visible = true
-  const floorY = interior.value.inside ? -INTERIOR_DROP : 0
+  const floorY = interior.value.inside ? -INTERIOR_DROP : heightAt(playerPos.value[0], playerPos.value[2])
 
   // knocked down by a vehicle: fly, tumble, lie on the ground, get up.
   // Input is ignored until the character is back on their feet.
@@ -417,7 +418,7 @@ onBeforeRender(({ delta }) => {
 <template>
   <TresGroup ref="group" :position="[playerPos[0], 0, playerPos[2]]">
     <TresGroup ref="bodyRef">
-    <CharacterAvatar
+    <CharacterAvatar real
       v-if="!ride.active"
       :key="lookKey"
       :shirt="sim.look.top"
@@ -428,8 +429,9 @@ onBeforeRender(({ delta }) => {
       :hair-style="sim.look.hair"
       :hair-color="sim.look.hairColor"
       :outfit="sim.look.outfit"
+      :gadgets="(sim.look.gadgets ?? []) as any"
       :beard="sim.look.body === 'man' && sim.look.hair !== 'braids'"
-      :mode="pose ?? (walking ? 'walk' : 'idle')"
+      :mode="(pose ?? (walking ? 'walk' : 'idle')) as any"
       :gait-speed="sprinting ? 15.5 : 10.5"
       :action="actName"
       :action-key="actKey"

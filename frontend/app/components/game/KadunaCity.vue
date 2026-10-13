@@ -41,6 +41,8 @@ import {
   waterHash
 } from '~/utils/kadunaExtras'
 import { makeLabelTexture } from '~/utils/sign'
+import { worldTexture } from '~/utils/surfaces'
+import { heightAt } from '~/utils/terrain'
 
 const rand = (() => {
   let a = 0x4d4144
@@ -64,10 +66,12 @@ const bucketColor: Record<string, string> = {
   sand: '#c9b78e',
   water: '#3f6f85',
   water_bank: '#c9b78e',
-  asphalt: '#43434a',
+  asphalt: '#6b6b6f',
+  grass: '#e8e8e0',
   trunk: '#7a5c3a',
-  leaf: '#4f7d3f',
-  leaf2: '#5d8a46',
+  leaf: '#5a8a42',
+  leaf2: '#67944a',
+  foliage: '#ffffff',
   gold: '#d8b13c',
   rust: '#8a5a3a',
   door: '#4a3524',
@@ -146,10 +150,13 @@ function buildCity(): {
   const waterGeos: THREE.BufferGeometry[] = []
   const sprites: { texture: THREE.CanvasTexture; x: number; y: number; z: number; w: number; h: number }[] = []
 
+  // vertical offset applied to everything pushed (trees on hillsides)
+  let yOff = 0
   function push(bucket: string, geo: THREE.BufferGeometry, color?: string, keepColor = false) {
+    if (yOff) geo.translate(0, yOff, 0)
     const g = geo.index ? geo.toNonIndexed() : geo
     if (g !== geo) geo.dispose()
-    if (g.attributes.uv) g.deleteAttribute('uv')
+    if (g.attributes.uv && bucket !== 'foliage') g.deleteAttribute('uv')
     if (!keepColor) {
       const c = new THREE.Color(color ?? bucketColor[bucket] ?? '#cccccc')
       const n = g.attributes.position.count
@@ -239,23 +246,30 @@ function buildCity(): {
   // ---------------------------------------------------------------- ground
   // subdivided savanna: base greens, dry patches, lush band near water
   {
-    const g = new THREE.PlaneGeometry(3600 * WORLD_SCALE, 3200 * WORLD_SCALE, 150, 130)
+    const g = new THREE.PlaneGeometry(3600 * WORLD_SCALE, 3200 * WORLD_SCALE, 230, 205)
     g.rotateX(-Math.PI / 2)
     g.translate(ws(-350), -0.12, ws(200))
     const pos = g.attributes.position
     const colors = new Float32Array(pos.count * 3)
-    const lush = new THREE.Color('#5d8a46')
-    const base1 = new THREE.Color('#84a55e')
-    const base2 = new THREE.Color('#6f9448')
-    const dry = new THREE.Color('#b0a870')
+    // muted savanna: olive greens, golden dry grass, bare laterite on crests
+    const lush = new THREE.Color('#6e8a48')
+    const base1 = new THREE.Color('#97a463')
+    const base2 = new THREE.Color('#84955a')
+    const dry = new THREE.Color('#c4b47c')
+    const soil = new THREE.Color('#a0805a')
     const c = new THREE.Color()
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i)
       const z = pos.getZ(i)
+      const h = heightAt(x, z)
+      pos.setY(i, -0.12 + h)
       const n = hash01(x * 0.037, z * 0.037) * 0.6 + hash01(x * 0.01, z * 0.01, 3) * 0.4
       c.copy(base1).lerp(base2, n)
       const dryN = hash01(x * 0.007, z * 0.007, 7)
-      if (dryN > 0.72) c.lerp(dry, Math.min(1, (dryN - 0.72) * 3))
+      if (dryN > 0.6) c.lerp(dry, Math.min(1, (dryN - 0.6) * 2.2))
+      // hillsides turn golden, a few crests are bare earth
+      if (h > 4) c.lerp(dry, Math.min(0.7, (h - 4) / 26))
+      if (h > 12 && hash01(x * 0.004, z * 0.004, 11) > 0.62) c.lerp(soil, Math.min(0.6, (h - 12) / 14))
       const wd = hashDist(waterHash(), x, z, 200)
       if (wd < 120) c.lerp(lush, 1 - wd / 120)
       colors[i * 3] = c.r
@@ -263,6 +277,7 @@ function buildCity(): {
       colors[i * 3 + 2] = c.b
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    g.computeVertexNormals()
     // toNonIndexed expands every attribute (color included) per face
     const flat = g.toNonIndexed()
     flat.deleteAttribute('uv')
@@ -339,12 +354,23 @@ function buildCity(): {
           const t = (k + 0.5) / n
           const x = ax + (bx - ax) * t
           const z = az + (bz - az) * t
-          if (!r.twin) flat('gold', 3.2, 0.16, x, 0.16, z, -a)
+          if (!r.twin && !main) flat('gold', 3.2, 0.16, x, 0.16, z, -a)
           if (main) {
             const lane = r.twin ? 0 : rw / 4
             for (const sd of r.twin ? [0] : [-1, 1]) {
               flat('line', 3.0, 0.14, x - fz * lane * sd, 0.16, z + fx * lane * sd, -a)
             }
+          }
+        }
+        if (main && !r.twin) {
+          // continuous double centre line (no overtaking), like real
+          // two-way highways
+          for (const sd of [-1, 1]) {
+            const g = new THREE.PlaneGeometry(len + 0.05, 0.12)
+            g.rotateX(-Math.PI / 2)
+            g.rotateY(-a)
+            g.translate((ax + bx) / 2 - fz * 0.14 * sd, 0.162, (az + bz) / 2 + fx * 0.14 * sd)
+            push('gold', g)
           }
         }
         if (main) {
@@ -476,21 +502,53 @@ function buildCity(): {
   // houses are instanced prefabs now (utils/housing.ts)
 
   // ---------------------------------------------------------------- trees
+  /** Leaf-card canopy: dozens of alpha-textured cards scattered over an
+   *  ellipsoid, normals pointing outward so the crown shades like a volume
+   *  (lit top, darker underside) with a ragged, see-through silhouette. */
+  const leafTints = ['#86b052', '#7aa64a', '#94b85a', '#6f9a42', '#a0b25a']
+  function canopy(x: number, y: number, z: number, rx: number, ry: number, n: number) {
+    const tint = leafTints[Math.floor(rng() * leafTints.length)]
+    for (let i = 0; i < n; i++) {
+      const u = rng() * Math.PI * 2
+      const v = Math.acos(1 - 2 * Math.pow(rng(), 0.8))
+      const rr = 0.72 + rng() * 0.32
+      const nx = Math.sin(v) * Math.cos(u)
+      const ny = Math.cos(v)
+      const nz = Math.sin(v) * Math.sin(u)
+      const sz = (rx + ry) * (0.42 + rng() * 0.22)
+      const g = new THREE.PlaneGeometry(sz, sz)
+      g.rotateZ(rng() * Math.PI * 2)
+      g.rotateX((rng() - 0.5) * 1.6)
+      g.rotateY(rng() * Math.PI * 2)
+      g.translate(x + nx * rx * rr, y + ny * ry * rr, z + nz * rx * rr)
+      const nrm = g.attributes.normal
+      for (let k = 0; k < nrm.count; k++) nrm.setXYZ(k, nx, ny * 1.2 + 0.25, nz)
+      push('foliage', g, tint)
+    }
+  }
   function tree(x: number, z: number, s: number, species: number) {
     if (inKeepClear(x, z)) return
+    yOff = heightAt(x, z)
+    treeBody(x, z, s, species)
+    yOff = 0
+  }
+  function treeBody(x: number, z: number, s: number, species: number) {
     solids.push({ x, z, w: (species === 3 ? 2.2 : 0.55) * s, d: (species === 3 ? 2.2 : 0.55) * s })
     if (species === 0) {
       // neem: dense round canopy
       cyl('trunk', 0.18 * s, 0.32 * s, 3.4 * s, 6, x, 1.7 * s, z)
-      sphere('leaf', 2.3 * s, x, 4.5 * s, z)
-      sphere('leaf2', 1.6 * s, x + 0.9 * s, 5.4 * s, z - 0.5 * s)
+      sphere('leaf', 1.5 * s, x, 4.5 * s, z)
+      sphere('leaf2', 1.0 * s, x + 0.9 * s, 5.4 * s, z - 0.5 * s)
+      canopy(x, 4.7 * s, z, 2.5 * s, 2.2 * s, 26)
+      canopy(x + 0.9 * s, 5.6 * s, z - 0.5 * s, 1.7 * s, 1.5 * s, 12)
     } else if (species === 1) {
       // mango: wide low crown
       cyl('trunk', 0.2 * s, 0.34 * s, 2.8 * s, 6, x, 1.4 * s, z)
       const g = new THREE.SphereGeometry(2.7 * s, 9, 7)
-      g.scale(1.15, 0.72, 1.15)
+      g.scale(0.8, 0.5, 0.8)
       g.translate(x, 3.9 * s, z)
       push('leaf2', g)
+      canopy(x, 4.0 * s, z, 3.1 * s, 2.0 * s, 32)
     } else if (species === 2) {
       // palm: tall curved stem + drooping fronds
       let px = x
@@ -514,8 +572,10 @@ function buildCity(): {
       cyl('trunk', 1.0 * s, 1.5 * s, 3.6 * s, 7, x, 1.8 * s, z)
       cyl('trunk', 0.22 * s, 0.3 * s, 1.6 * s, 5, x + 0.8 * s, 4.2 * s, z)
       cyl('trunk', 0.22 * s, 0.3 * s, 1.6 * s, 5, x - 0.7 * s, 4.3 * s, z + 0.4 * s)
-      sphere('leaf2', 1.4 * s, x + 1.0 * s, 5.2 * s, z)
-      sphere('leaf', 1.2 * s, x - 0.9 * s, 5.3 * s, z + 0.4 * s)
+      sphere('leaf2', 1.2 * s, x + 1.0 * s, 5.2 * s, z)
+      sphere('leaf', 1.0 * s, x - 0.9 * s, 5.3 * s, z + 0.4 * s)
+      canopy(x + 1.0 * s, 5.3 * s, z, 1.5 * s, 1.2 * s, 10)
+      canopy(x - 0.9 * s, 5.4 * s, z + 0.4 * s, 1.3 * s, 1.1 * s, 9)
     }
   }
 
@@ -1096,7 +1156,7 @@ function buildCity(): {
   // ---------------------------------------------------------------- merge into tiles
   const TILE = 768
   const meshes: TileMesh[] = []
-  const castBuckets = new Set(['wall', 'roof', 'stone', 'white', 'metal', 'dark', 'green', 'green2', 'glass', 'concrete', 'trunk', 'leaf', 'leaf2'])
+  const castBuckets = new Set(['wall', 'roof', 'stone', 'white', 'metal', 'dark', 'green', 'green2', 'glass', 'concrete', 'trunk', 'leaf', 'leaf2', 'foliage'])
   const tiles = new Map<string, Buckets>()
   for (const [bucket, geos] of Object.entries(buckets)) {
     for (const g of geos) {
@@ -1168,13 +1228,72 @@ function buildCity(): {
     emissive: new THREE.Color('#ffd98a'),
     emissiveIntensity: 0
   })
+  // leaf cluster texture for the canopy cards: overlapping leaves with
+  // light/dark variation, transparent gaps between them
+  function leafTexture() {
+    const S = 256
+    const cv = document.createElement('canvas')
+    cv.width = cv.height = S
+    const c = cv.getContext('2d')!
+    let seed = 99991
+    const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+    for (let i = 0; i < 520; i++) {
+      const a = rand() * Math.PI * 2
+      const r = Math.pow(rand(), 0.7) * S * 0.46
+      const x = S / 2 + Math.cos(a) * r
+      const y = S / 2 + Math.sin(a) * r
+      const l = 0.72 + rand() * 0.28
+      c.fillStyle = `rgb(${Math.round(235 * l)},${Math.round(250 * l)},${Math.round(215 * l)})`
+      c.save()
+      c.translate(x, y)
+      c.rotate(rand() * Math.PI * 2)
+      c.beginPath()
+      c.ellipse(0, 0, 11 + rand() * 8, 4.5 + rand() * 3.5, 0, 0, Math.PI * 2)
+      c.fill()
+      c.strokeStyle = 'rgba(40,60,30,0.35)'
+      c.lineWidth = 1
+      c.beginPath()
+      c.moveTo(-12, 0)
+      c.lineTo(12, 0)
+      c.stroke()
+      c.restore()
+    }
+    const t = new THREE.CanvasTexture(cv)
+    t.colorSpace = THREE.SRGBColorSpace
+    // no mipmaps: averaged alpha would fall under alphaTest and the
+    // leaves/blades would vanish a few metres away
+    t.generateMipmaps = false
+    t.minFilter = THREE.LinearFilter
+    return t
+  }
   const mats: Record<string, THREE.Material> = {}
   for (const m of meshes) {
     if (mats[m.bucket]) continue
-    const mat = m.bucket === 'lamplens' ? lensMat : new THREE.MeshLambertMaterial({ color: m.color, vertexColors: true })
+    const mat =
+      m.bucket === 'lamplens'
+        ? lensMat
+        : m.bucket === 'foliage'
+          ? new THREE.MeshLambertMaterial({ map: leafTexture(), alphaTest: 0.4, side: THREE.DoubleSide, vertexColors: true })
+          : new THREE.MeshLambertMaterial({ color: m.color, vertexColors: true })
+    if (m.bucket === 'foliage') addWindSway(mat as any, 1, 1.6)
     if (m.bucket === 'leaf' || m.bucket === 'leaf2') addWindSway(mat as any, 1, 1.6)
     else if (m.bucket === 'trunk') addWindSway(mat as any, 0.35, 2.5)
     else if (m.bucket === 'crop1' || m.bucket === 'crop2' || m.bucket === 'crop3') addWindSway(mat as any, 2.2, 0.1)
+    // world-space surface detail: grain, cracks, blades, slab joints
+    const SURF: Record<string, [any, number, number?, boolean?]> = {
+      grass: ['grass', 5],
+      asphalt: ['asphalt', 6],
+      concrete: ['concrete', 3.2],
+      curb: ['concrete', 2],
+      median: ['concrete', 3],
+      water_bank: ['dirt', 4],
+      soil: ['dirt', 3],
+      sand: ['dirt', 4],
+      wall: ['plaster', 4, 0.55, true],
+      stone: ['plaster', 3, 0.7, true]
+    }
+    const sf = SURF[m.bucket]
+    if (sf) worldTexture(mat, sf[0], sf[1], { strength: sf[2] ?? 1, vertical: sf[3] })
     mats[m.bucket] = mat
   }
 
@@ -1300,9 +1419,19 @@ onBeforeRender(({ delta, elapsed }) => {
     const px = cm.active ? cm.fx : playerPos.value[0]
     const pz = cm.active ? cm.fz : playerPos.value[2]
     for (const m of meshRefs.value) {
+      // alpha-cut shadows for leaf cards (not square blobs)
+      const mm = m.material as THREE.MeshLambertMaterial
+      if (mm?.alphaTest && !m.customDepthMaterial) {
+        m.customDepthMaterial = new THREE.MeshDepthMaterial({ map: mm.map, alphaTest: mm.alphaTest, depthPacking: THREE.RGBADepthPacking })
+      }
       const g = m.geometry as THREE.BufferGeometry
       const bb = g.boundingBox
       if (!bb) continue
+      // the terrain sheet spans the whole map: never distance-cull it
+      if (bb.max.x - bb.min.x > 3000) {
+        m.visible = true
+        continue
+      }
       const cx = (bb.min.x + bb.max.x) / 2
       const cz = (bb.min.z + bb.max.z) / 2
       const dx = cx - px

@@ -15,7 +15,7 @@ import { ridePose } from '~/utils/rideState'
 import { trafficProbe } from '~/utils/trafficProbe'
 import { kkAudio } from '~/utils/audio'
 import { registerCrash } from '~/utils/impact'
-import { vehicleSpec, buildInterior, type VehicleKind } from '~/utils/vehicles'
+import { vehicleMaterial, vehicleSpec, buildInterior, type VehicleKind } from '~/utils/vehicles'
 import { BAKE, ws, PLAYABLE_POS } from '~/utils/kaduna'
 import { useKeyboard } from '~/composables/useKeyboard'
 import { useRide } from '~/composables/useControlsState'
@@ -157,7 +157,7 @@ function mountFleet() {
     fleet.push({ kind: 'plane', x: ap.apron.x + 10, z: ap.apron.z + 9, heading: 0.4, mesh: null, interior: null, driver: null, door: null })
   }
 
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true })
+  const mat = vehicleMaterial()
   const tint: Partial<Record<VehicleKind, string>> = {
     car: '#3f6fae',
     bicycle: '#3a7d5b'
@@ -170,8 +170,16 @@ function mountFleet() {
       const c = new THREE.Color(tint.car!)
       const n = geo.attributes.position.count
       const base = spec.geo.attributes.color.array as Float32Array
+      const gloss = spec.geo.attributes.aGloss?.array as Float32Array | undefined
       const arr = new Float32Array(n * 3)
       for (let i = 0; i < n; i++) {
+        // paint only: glass, tyres, chrome and lamps keep their colour
+        if (gloss && Math.abs(gloss[i] - 0.7) > 0.01) {
+          arr[i * 3] = base[i * 3]
+          arr[i * 3 + 1] = base[i * 3 + 1]
+          arr[i * 3 + 2] = base[i * 3 + 2]
+          continue
+        }
         arr[i * 3] = base[i * 3] * c.r
         arr[i * 3 + 1] = base[i * 3 + 1] * c.g
         arr[i * 3 + 2] = base[i * 3 + 2] * c.b

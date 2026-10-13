@@ -24,6 +24,8 @@ export interface Look {
   outfit: 'kaftan' | 'dress' | 'shirt'
   top: string
   bottom: string
+  /** worn extras: phone, sunglasses, cap, headphones, backpack, bag, watch */
+  gadgets?: string[]
 }
 export interface Trait {
   id: string

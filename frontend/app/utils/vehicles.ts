@@ -10,6 +10,7 @@
 // canvas roof, an okada as a Bajaj-style motorbike, and so on. Doors are
 // separate parts so boarding can open them.
 import * as THREE from 'three'
+import { buildSaloon, CAR_DIMS } from '~/utils/carBody'
 
 export type VehicleKind = 'car' | 'keke' | 'okada' | 'bus' | 'truck' | 'bicycle' | 'boat' | 'plane'
 
@@ -43,6 +44,45 @@ export interface VehicleSpec {
 
 type Part = [string, THREE.BufferGeometry]
 
+/** Surface finish by part colour: 0 matte (tyres, plastics, cloth),
+ *  0.7 paint (clear-coat), 0.9 chrome / lamps, 1 glass. */
+function glossOf(hex: string): number {
+  const h = hex.toLowerCase()
+  if (h === '#ffffff') return 0.7
+  if (h === '#1d2730') return 1
+  if (h === '#c8ccd2' || h === '#c9ccd1' || h === '#e9eef4' || h === '#9fb3c6' || h === '#d0242e' || h === '#f6f1d8' || h === '#b8262e') return 0.9
+  return 0
+}
+
+/** Vehicle paint shader: PBR with per-vertex finish (aGloss) so one
+ *  material does glossy paint, mirror-dark glass, chrome and matte rubber.
+ *  Reflections come from scene.environment (EnvLight). */
+export function vehicleMaterial(extra: THREE.MeshStandardMaterialParameters = {}): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, envMapIntensity: 1.3, ...extra })
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float aGloss;\nvarying float vGloss;\nvarying vec3 vRaw;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGloss = aGloss;\nvRaw = color.rgb;')
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vGloss;\nvarying vec3 vRaw;')
+      // only the paint takes the per-car tint; glass, rubber, chrome and
+      // lamps keep their own colour
+      .replace('#include <color_fragment>', '#include <color_fragment>\nif (abs(vGloss - 0.7) > 0.01) diffuseColor.rgb = vRaw;')
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+  roughnessFactor = mix(0.82, 0.06, vGloss);`
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+  metalnessFactor = vGloss > 0.85 && vGloss < 0.95 ? 0.85 : vGloss * 0.25;`
+      )
+  }
+  m.customProgramCacheKey = () => 'kk-vehicle-paint'
+  return m
+}
+
 function build(parts: Part[]): THREE.BufferGeometry {
   const geos: THREE.BufferGeometry[] = []
   const col = new THREE.Color()
@@ -62,6 +102,8 @@ function build(parts: Part[]): THREE.BufferGeometry {
     }
     gg = gg.clone()
     gg.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+    const gl = glossOf(hex)
+    gg.setAttribute('aGloss', new THREE.BufferAttribute(new Float32Array(n).fill(gl), 1))
     geos.push(gg)
   }
   let total = 0
@@ -69,11 +111,15 @@ function build(parts: Part[]): THREE.BufferGeometry {
   const pos = new Float32Array(total * 3)
   const nrm = new Float32Array(total * 3)
   const ver = new Float32Array(total * 3)
+  const gls = new Float32Array(total)
+  let goff = 0
   let off = 0
   for (const g of geos) {
     pos.set(g.attributes.position.array as Float32Array, off)
     nrm.set(g.attributes.normal.array as Float32Array, off)
     ver.set(g.attributes.color.array as Float32Array, off)
+    gls.set(g.attributes.aGloss.array as Float32Array, goff)
+    goff += g.attributes.position.count
     off += g.attributes.position.count * 3
     g.dispose()
   }
@@ -81,6 +127,7 @@ function build(parts: Part[]): THREE.BufferGeometry {
   out.setAttribute('position', new THREE.BufferAttribute(pos, 3))
   out.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
   out.setAttribute('color', new THREE.BufferAttribute(ver, 3))
+  out.setAttribute('aGloss', new THREE.BufferAttribute(gls, 1))
   out.computeBoundingSphere()
   return out
 }
@@ -185,30 +232,13 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
   let meta: Omit<VehicleSpec, 'geo' | 'geoRider' | 'door'>
   switch (kind) {
     case 'car': {
-      // saloon: 4.5 m, boot, slanted screens, glasshouse with pillars
-      const W = 1.78
-      parts.push([BODY, profile([[-2.25, 0.3], [-2.25, 0.86], [-2.05, 0.98], [-1.3, 1.02], [1.05, 1.0], [2.0, 0.88], [2.25, 0.72], [2.25, 0.3]], W, 0.06)])
-      parts.push([GLASS, profile([[-1.32, 0.98], [-0.78, 1.42], [0.44, 1.44], [1.06, 0.98]], W - 0.18, 0.03)])
-      parts.push([BODY, profile([[-0.82, 1.39], [-0.74, 1.47], [0.42, 1.48], [0.52, 1.4]], W - 0.14, 0.03)])
-      parts.push([BODY, bx(W - 0.12, 0.42, 0.1, 0, 1.2, -0.16)]) // B pillar
-      parts.push([TRIM, bx(W + 0.02, 0.2, 0.18, 0, 0.42, 2.22)]) // bumpers
-      parts.push([TRIM, bx(W + 0.02, 0.2, 0.18, 0, 0.42, -2.22)])
-      parts.push(['#15181c', bx(0.8, 0.16, 0.06, 0, 0.68, 2.26)]) // grille
-      parts.push(['#e8e8e0', bx(0.42, 0.12, 0.03, 0, 0.46, 2.32)]) // plate
-      parts.push(['#e8e8e0', bx(0.42, 0.12, 0.03, 0, 0.62, -2.28)])
-      parts.push(...lights(2.26, -2.27, 0.8, W / 2))
-      for (const s of [-1, 1]) {
-        parts.push([TRIM, bx(0.12, 0.08, 0.18, s * (W / 2 + 0.06), 1.04, 0.95)]) // mirrors
-        parts.push([TRIM, bx(0.02, 0.55, 0.02, s * (W / 2 + 0.005), 0.72, -0.16)]) // door shut line
-        parts.push([TRIM, bx(0.02, 0.55, 0.02, s * (W / 2 + 0.005), 0.72, -1.2)])
-        parts.push([TRIM, bx(0.03, 0.04, 0.16, s * (W / 2 + 0.01), 0.82, 0.35)]) // handles
-        parts.push([TRIM, bx(0.03, 0.04, 0.16, s * (W / 2 + 0.01), 0.82, -0.75)])
-      }
-      for (const z of [1.4, -1.38]) for (const s of [-1, 1]) parts.push(...wheel(0.33, 0.23, s * 0.8, 0.33, z))
+      // smooth lofted saloon (utils/carBody): curved panels, alloys, LEDs
+      const W = CAR_DIMS.W
+      parts.push(...buildSaloon(BODY, GLASS, TRIM))
       // driver door: the +X front door panel, hinged at its front edge
       door = {
         geo: build([[BODY, bx(0.05, 0.62, 1.12, 0, -0.01, -0.56)], [GLASS, bx(0.04, 0.38, 0.9, 0, 0.5, -0.5)], [TRIM, bx(0.03, 0.04, 0.16, 0.02, 0.1, -0.85)]]),
-        hinge: [W / 2 + 0.03, 0.72, 0.98],
+        hinge: [W / 2 + 0.005, 0.72, 0.98],
         type: 'swing'
       }
       rider = seated(0.4, 0.5, 0.0, '#e8e2d2')

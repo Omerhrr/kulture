@@ -92,7 +92,7 @@ export function useDoorPrompt() {
 
 /** Pose override for the player avatar while using furniture (sit on sofa...). */
 export function usePlayerPose() {
-  return useState<null | 'sit' | 'idle' | 'sleep' | 'eat'>('kk_player_pose', () => null)
+  return useState<null | string>('kk_player_pose', () => null)
 }
 
 // ------------------------------------------------------------------ city map

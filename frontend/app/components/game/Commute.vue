@@ -8,7 +8,7 @@
 // (it only allows known destinations, see ws.py commute.skip); "Turn back"
 // drives back the way you came.
 import * as THREE from 'three'
-import { vehicleSpec } from '~/utils/vehicles'
+import { vehicleMaterial, vehicleSpec } from '~/utils/vehicles'
 import { findRoute, pathLength } from '~/utils/roadGraph'
 import { useWorkStore } from '~/stores/work'
 import { useCamOrbit, useInterior, useRide, fireKkEvent } from '~/composables/useControlsState'
@@ -24,7 +24,7 @@ const ride = useRide()
 
 const CRUISE = 15 // m/s ~ 54 km/h in town
 const spec = vehicleSpec('car')
-const mat = new THREE.MeshLambertMaterial({ vertexColors: true, color: '#e8b83a' }) // Kaduna yellow cab
+const mat = vehicleMaterial({ color: '#e8b83a' }) // Kaduna yellow cab
 const cab = new THREE.Mesh(spec.geoRider, mat)
 cab.castShadow = true
 cab.visible = false

@@ -69,8 +69,8 @@ export function skyPalette(s: SunState): { sky: string; fog: string; sun: string
   }
   if (s.dusk > 0.05) {
     // blend day -> dusk -> night
-    const sky = mixHex('#9ec7de', '#e08a52', Math.min(1, s.dusk * 1.35))
-    const fog = mixHex('#b8d2e0', '#d88a58', Math.min(1, s.dusk * 1.35))
+    const sky = mixHex('#7fb3e6', '#e08a52', Math.min(1, s.dusk * 1.35))
+    const fog = mixHex('#d3dfe6', '#e0a070', Math.min(1, s.dusk * 1.35))
     const sun = mixHex('#fff2d8', '#ff9a4d', Math.min(1, s.dusk * 1.6))
     const ambient = mixHex('#fff4e0', '#e0a878', Math.min(1, s.dusk * 1.4))
     if (s.night > 0.55) {
@@ -84,7 +84,7 @@ export function skyPalette(s: SunState): { sky: string; fog: string; sun: string
     }
     return { sky, fog, sun, ambient }
   }
-  return { sky: '#9ec7de', fog: '#b8d2e0', sun: '#fff2d8', ambient: '#fff4e0' }
+  return { sky: '#7fb3e6', fog: '#d3dfe6', sun: '#fff1d6', ambient: '#fff6ea' }
 }
 
 export function mixHex(a: string, b: string, t: number): string {

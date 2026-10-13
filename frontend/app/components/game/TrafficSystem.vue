@@ -12,7 +12,7 @@ const workStore = useWorkStore()
 // for gaps and dodge.
 import * as THREE from 'three'
 import { BAKE, roadW } from '~/utils/kaduna'
-import { vehicleSpec, type VehicleKind } from '~/utils/vehicles'
+import { vehicleMaterial, vehicleSpec, type VehicleKind } from '~/utils/vehicles'
 import { signals, signalPhase, marketFront, type Signal } from '~/utils/kadunaLighting'
 import { probeReset, probePush, trafficProbe } from '~/utils/trafficProbe'
 import { hitsBuilding } from '~/utils/collision'
@@ -278,7 +278,7 @@ const lampMats: LampSet[] = []
 onMounted(() => {
   const g = groupRef.value
   if (!g) return
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true })
+  const mat = vehicleMaterial()
   let total = 0
   for (const c of CLASSES) total += c.count
   CLASSES.forEach((c, ci) => {
@@ -594,7 +594,7 @@ onBeforeRender(({ delta, elapsed }) => {
       const offA = car.route.rw * 0.26 * car.dir
       if (
         blockedAt(car.route, ahead) ||
-        hitsBuilding(tmpA.x + -tmpA.fz * offA, tmpA.z + tmpA.fz * offA, 0.8)
+        hitsBuilding(tmpA.x + -tmpA.fz * offA, tmpA.z + tmpA.fx * offA, 0.8)
       ) {
         turnAtJunction(car, CLASSES[ci].routes)
       }

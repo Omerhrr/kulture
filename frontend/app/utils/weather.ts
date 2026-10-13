@@ -83,18 +83,6 @@ export function cycleWeather() {
   setWeather(order[(order.indexOf(weather.kind) + 1) % order.length])
 }
 
-function pickNext(k: WeatherKind): WeatherKind {
-  const opts = NEXT[k]
-  let total = 0
-  for (const [, w] of opts) total += w
-  let r = Math.random() * total
-  for (const [n, w] of opts) {
-    r -= w
-    if (r <= 0) return n
-  }
-  return opts[0][0]
-}
-
 let thunderCb: ((delay: number, strength: number) => void) | null = null
 export function onThunder(cb: (delay: number, strength: number) => void) {
   thunderCb = cb
