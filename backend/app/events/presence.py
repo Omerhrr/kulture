@@ -54,6 +54,7 @@ class Presence:
     look: dict[str, str] = field(default_factory=dict)
     moving: bool = False
     riding: str | None = None  # vehicle kind while commuting/driving
+    region: str = "kaduna-city"  # which town's map the player is in
     updated: float = field(default_factory=time.monotonic)
 
 
@@ -62,12 +63,14 @@ class PresenceRegistry:
         self._p: dict[str, Presence] = {}
         self._task: asyncio.Task | None = None
 
-    def join(self, player_id: str, name: str, pos: list[float]) -> None:
+    def join(self, player_id: str, name: str, pos: list[float], region: str = "kaduna-city") -> None:
         cur = self._p.get(player_id)
         if cur:
             cur.name = name
+            cur.region = region
+            cur.pos = list(pos)
             return
-        self._p[player_id] = Presence(player_id, name, list(pos))
+        self._p[player_id] = Presence(player_id, name, list(pos), region=region)
         self._ensure_loop()
 
     def leave(self, player_id: str) -> None:
@@ -101,7 +104,7 @@ class PresenceRegistry:
             return []
         out = []
         for p in self._p.values():
-            if p.player_id != player_id and math.hypot(p.pos[0] - me.pos[0], p.pos[2] - me.pos[2]) <= radius:
+            if p.player_id != player_id and p.region == me.region and math.hypot(p.pos[0] - me.pos[0], p.pos[2] - me.pos[2]) <= radius:
                 out.append(p)
         return out
 
@@ -131,7 +134,7 @@ class PresenceRegistry:
             return []
         out = []
         for p in self._p.values():
-            if p.player_id == player_id:
+            if p.player_id == player_id or p.region != me.region:
                 continue
             dx = p.pos[0] - me.pos[0]
             dz = p.pos[2] - me.pos[2]

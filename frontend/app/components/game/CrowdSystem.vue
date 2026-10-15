@@ -196,7 +196,7 @@ for (let r = 0; r < 4 && vendorSpots.length < N_VEND; r++) {
     vendorSpots.push([market.x - 21 + c * 8.4, market.z - 12 + r * 8 + 4.7])
   }
 }
-const park = BAKE.landmarks.find((l) => l.kind === 'park')!
+const park = BAKE.landmarks.find((l) => l.kind === 'park') ?? BAKE.landmarks.find((l) => l.kind === 'square') ?? market
 const PITCH = [park.x - 24, park.z + 4]
 
 // district occupants: stall keepers, drivers, sitters and a queue at the
@@ -1304,8 +1304,11 @@ function onTalk() {
   if (!p) return
   p.talking = 7
   p.heading = Math.atan2(playerPos.value[0] - p.x, playerPos.value[2] - p.z)
+  const nm = pedName(p.female, p.id * 7 + 3)
+  // they remember you next time (Phone → Contacts)
+  useGameApi().apiPost('/social/met', { npc_id: `ped_${p.id}`, name: nm }).catch(() => {})
   ui.dialogue = {
-    npcName: pedName(p.female, p.id * 7 + 3),
+    npcName: nm,
     text:
       p.kind === 'walker'
         ? routineLine(p.id, pedClock.hour, p.sit ? 'seated' : (pedClock.hour >= 6.5 && pedClock.hour < 9) || (pedClock.hour >= 16.5 && pedClock.hour < 19) ? 'commute' : 'walk')

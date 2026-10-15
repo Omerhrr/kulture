@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { perf as _perf } from '~/utils/quality'
+const FOG_MAX = _perf().fogMax
 // DayNight - the living clock of the world. Advances the in-game hour,
 // paints the sky + fog, drives every light intensity, and owns everything
 // that glows after dark: house windows, streetlamps (glow + light pools +
@@ -14,6 +16,9 @@ const hour = useClock()
 const daySeconds = useClockSpeed()
 // shared night factor (0 day .. 1 night) for headlights, minimap, audio
 const nightFactor = useState<number>('kk_night', () => 0)
+// city calendar day counter + NEPA power state (LifeEvents drives the cuts)
+const gameDay = useState<number>('kk_day', () => 1)
+const nepa = useState<{ off: boolean; since: number }>('kk_nepa', () => ({ off: false, since: 0 }))
 
 const ctxAny = useTresContext() as any
 const { onBeforeRender } = useLoop()
@@ -210,8 +215,10 @@ onBeforeRender(({ delta, elapsed }) => {
   // 1) advance the clock (night hours slip by ~2.2x faster: long days,
   //    short nights - see clockSpeedAt)
   const dt = Math.min(delta || 0.016, 0.1)
+  const before = hour.value
   hour.value =
     (hour.value + (dt * 24 * clockSpeedAt(hour.value)) / Math.max(30, daySeconds.value)) % 24
+  if (hour.value < before - 12) gameDay.value++ // midnight: a new day on the city calendar
 
   const s = sunState(hour.value)
   nightFactor.value = s.night
@@ -235,7 +242,7 @@ onBeforeRender(({ delta, elapsed }) => {
     }
     if (scene.fog) {
       ;(scene.fog as THREE.Fog).color.copy(fogC)
-      const far = (4600 - s.night * 2400) * (1 - w.haze * 0.72) * (1 - w.rain * 0.45)
+      const far = Math.min(FOG_MAX, (4600 - s.night * 2400) * (1 - w.haze * 0.72) * (1 - w.rain * 0.45))
       ;(scene.fog as THREE.Fog).far += (far - (scene.fog as THREE.Fog).far) * Math.min(1, dt * 2)
     }
   }
@@ -278,11 +285,12 @@ onBeforeRender(({ delta, elapsed }) => {
   // 4) night glows
   if (windowGlowRef.value) {
     const m = windowGlowRef.value.material as THREE.MeshBasicMaterial
-    m.opacity = Math.max(0, (s.night - 0.28) / 0.72) * 0.85
+    // NEPA cut: only the houses with a generator stay lit
+    m.opacity = Math.max(0, (s.night - 0.28) / 0.72) * 0.85 * (nepa.value.off ? 0.3 : 1)
     windowGlowRef.value.visible = m.opacity > 0.01
   }
   if (lampGlowRef.value && poolRef.value) {
-    const on = Math.max(0, (s.night - 0.22) / 0.78)
+    const on = Math.max(0, (s.night - 0.22) / 0.78) * (nepa.value.off ? 0 : 1)
     const mg = lampGlowRef.value.material as THREE.MeshBasicMaterial
     mg.opacity = on * 0.9
     lampGlowRef.value.visible = on > 0.01
@@ -325,6 +333,7 @@ if (import.meta.dev) {
     hour: +hour.value.toFixed(2),
     night: +nightFactor.value.toFixed(2)
   })
+  ;(window as any).__kk_sethour = (h: number) => (hour.value = h)
 }
 </script>
 

@@ -25,13 +25,16 @@ export const MIXAMO_CLIPS = [
 ] as const
 export type MixamoClip = (typeof MIXAMO_CLIPS)[number]
 
-export type MixamoCharacter = 'arissa' | 'african_male' | 'african_female'
+export type MixamoCharacter = 'arissa' | 'african_male' | 'african_female' | 'caftan_male' | 'hijab_female'
 /** the default real character per build */
 // Kaduna's own residents (Blender -> Mixamo auto-rig); each person gets
 // their own clothes, skin tone and gadgets from utils/wardrobe
-export const REAL_CHARACTERS: Partial<Record<'female' | 'male', MixamoCharacter>> = {
+export const REAL_CHARACTERS: Partial<Record<'female' | 'male' | 'caftan' | 'hijab', MixamoCharacter>> = {
   female: 'african_female',
-  male: 'african_male'
+  male: 'african_male',
+  // traditional dress (your Blender designs, Mixamo-rigged)
+  caftan: 'caftan_male',
+  hijab: 'hijab_female'
 }
 
 /** Characters rigged outside Mixamo (Blender/Tripo 17-bone armature): the
@@ -64,7 +67,7 @@ function TRIPO_MAP(): Record<string, string> {
   }
 }
 /** street height for retargeted characters (metres) */
-const TARGET_HEIGHT = { african_male: 1.78, african_female: 1.66 } as Record<string, number>
+const TARGET_HEIGHT = { african_male: 1.78, african_female: 1.66, caftan_male: 1.8, hijab_female: 1.66 } as Record<string, number>
 
 const BASE = '/models/mixamo'
 const loader = new GLTFLoader()

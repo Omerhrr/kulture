@@ -34,8 +34,13 @@ log = logging.getLogger("kk.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)  # dev convenience; Alembic owns prod migrations
+    # schema: Alembic migrations at boot (adopts older create_all databases
+    # without losing data - see app/db/migrate.py)
+    import asyncio
+
+    from app.db.migrate import migrate
+
+    await asyncio.to_thread(migrate)
     async with AsyncSessionLocal() as db:
         seeded = await seed_if_empty(db)
         if seeded:
@@ -45,6 +50,9 @@ async def lifespan(app: FastAPI):
             if moved:
                 log.info("World rescaled to x%s: %d rows updated.", settings.world_scale, moved)
         content = await reconcile_content(db)
+        from app.services.travel_service import ensure_regions
+
+        await ensure_regions(db)
         if content:
             log.info("District content reconciled: %d rows added.", content)
     workers = start_all()

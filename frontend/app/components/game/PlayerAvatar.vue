@@ -98,7 +98,12 @@ function onHit(e: Event) {
   impact.shake = Math.min(1.6, impact.shake + 0.35)
   kkAudio.impact(0.5)
 }
+const staminaApi = useGameApi()
 onMounted(() => {
+  staminaApi
+    .apiGet<any>('/health/me')
+    .then((h) => ((window as any).__kk_stamina = h.sick ? Math.max(30, h.stamina - 30) : h.stamina))
+    .catch(() => {})
   window.addEventListener('keydown', onKeyAct)
   window.addEventListener('kk-action', onActEvent)
   window.addEventListener('kk-player-hit', onHit)
@@ -124,6 +129,8 @@ const knocked = ref(false)
 const targetRing = ref()
 const walking = ref(false)
 const sprinting = ref(false)
+let breath = 10
+let winded = false
 const bobT = ref(0)
 
 const socketSend = useState<(type: string, payload: Record<string, unknown>) => boolean>(
@@ -271,7 +278,16 @@ onBeforeRender(({ delta }) => {
   // sprint: Shift on desktop, full joystick push on touch
   const mag = Math.hypot(ix, iy)
   const shift = isDown('ShiftLeft', 'ShiftRight')
-  sprinting.value = shift || (touchMove.value.active && mag > 0.92)
+  const wantSprint = (shift || (touchMove.value.active && mag > 0.92)) && (ix !== 0 || iy !== 0)
+  // stamina: fitter (gym, hikes) = longer sprints; sickness shortens them
+  const w = window as any
+  const cap = 4 + (w.__kk_stamina ?? 55) / 10 // seconds of full sprint
+  if (wantSprint && !winded) breath = Math.max(0, breath - dt)
+  else breath = Math.min(cap, breath + dt * 0.6)
+  if (breath <= 0) winded = true
+  if (winded && breath > cap * 0.3) winded = false
+  sprinting.value = wantSprint && !winded
+  w.__kk_breath = breath / cap
   const busy = performance.now() < actUntil && actName.value !== 'jump' && actName.value !== 'wave'
   const speed = (sprinting.value ? SPRINT_SPEED : WALK_SPEED) * (busy ? 0.25 : 1)
 
@@ -430,6 +446,9 @@ onBeforeRender(({ delta }) => {
       :hair-color="sim.look.hairColor"
       :outfit="sim.look.outfit"
       :gadgets="(sim.look.gadgets ?? []) as any"
+      :print="sim.look.print"
+      :scarf="sim.look.hairColor"
+      :dress="sim.look.dress ?? (sim.look.outfit === 'kaftan' || sim.look.outfit === 'dress' ? 'traditional' : 'modern')"
       :beard="sim.look.body === 'man' && sim.look.hair !== 'braids'"
       :mode="(pose ?? (walking ? 'walk' : 'idle')) as any"
       :gait-speed="sprinting ? 15.5 : 10.5"

@@ -9,7 +9,7 @@
 
 import * as THREE from 'three'
 import { makeSignTexture, makeLabelTexture } from '~/utils/sign'
-import { PLAYABLE_POS } from '~/utils/kaduna'
+import { PLAYABLE_POS, IS_CITY, BAKE } from '~/utils/kaduna'
 
 const world = useWorldStore()
 
@@ -93,7 +93,11 @@ const labels = computed(() => {
     ['rigasa_station', 'Rigasa Station', 20],
     ['sabon_tasha_shop', 'Sabon Tasha Stores', 18]
   ]
-  for (const [code, name, w] of defs) {
+  const townKeep = new Set(['musa_shop', 'arewa_pos', 'kaduna_central_market', 'keke_stop'])
+  for (const [code, name0, w] of defs) {
+    if (!IS_CITY && !townKeep.has(code)) continue
+    // in the other towns the market is that town's market
+    const name = !IS_CITY && code === 'kaduna_central_market' ? BAKE.landmarks.find((l) => l.kind === 'market')?.name ?? name0 : name0
     const e = entityByCode(code)
     const p: [number, number] = e ? [e.position[0], e.position[2]] : (PLAYABLE_POS[code] as [number, number]) ?? [0, 0]
     out.push({
@@ -166,7 +170,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Arewa House landmark -->
-    <TresGroup :position="pos3('arewa_house', PLAYABLE_POS.arewa_house)">
+    <TresGroup v-if="IS_CITY" :position="pos3('arewa_house', PLAYABLE_POS.arewa_house)">
       <TresMesh :position="[0, 7, 0]" cast-shadow :material="wallArewa">
         <TresBoxGeometry :args="[16, 14, 12]" />
       </TresMesh>
@@ -185,7 +189,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Stonetech Square: gathering plaza -->
-    <TresGroup :position="pos3('stonetech_square', PLAYABLE_POS.stonetech_square)">
+    <TresGroup v-if="IS_CITY" :position="pos3('stonetech_square', PLAYABLE_POS.stonetech_square)">
       <TresMesh :position="[0, 0.08, 0]" receive-shadow :material="stoneMat">
         <TresCylinderGeometry :args="[11, 11, 0.16, 28]" />
       </TresMesh>
@@ -234,7 +238,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Textile Market: fabric stall block in the Barnawa mill district -->
-    <TresGroup :position="pos3('textile_market', PLAYABLE_POS.textile_market)">
+    <TresGroup v-if="IS_CITY" :position="pos3('textile_market', PLAYABLE_POS.textile_market)">
       <TresMesh :position="[0, 0.04, 0]" receive-shadow :material="padMat">
         <TresBoxGeometry :args="[24, 0.08, 14]" />
       </TresMesh>
@@ -258,7 +262,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Kawo Motor Park: union transport hub with a keke line -->
-    <TresGroup :position="pos3('kawo_motor_park', PLAYABLE_POS.kawo_motor_park)">
+    <TresGroup v-if="IS_CITY" :position="pos3('kawo_motor_park', PLAYABLE_POS.kawo_motor_park)">
       <TresMesh :position="[0, 0.03, 0]" receive-shadow :material="padMat">
         <TresBoxGeometry :args="[22, 0.06, 13]" />
       </TresMesh>
@@ -285,7 +289,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- KASU Main Gate: brick pillars + arch over the campus walk -->
-    <TresGroup :position="pos3('kasu_gate', PLAYABLE_POS.kasu_gate)">
+    <TresGroup v-if="IS_CITY" :position="pos3('kasu_gate', PLAYABLE_POS.kasu_gate)">
       <TresMesh :position="[-5.6, 2.6, 0]" cast-shadow :material="brickMat">
         <TresBoxGeometry :args="[1.8, 5.2, 1.8]" />
       </TresMesh>
@@ -304,7 +308,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Rigasa Station: platform canopy of the north terminus -->
-    <TresGroup :position="pos3('rigasa_station', PLAYABLE_POS.rigasa_station)">
+    <TresGroup v-if="IS_CITY" :position="pos3('rigasa_station', PLAYABLE_POS.rigasa_station)">
       <TresMesh :position="[0, 0.5, 0]" receive-shadow :material="platformMat">
         <TresBoxGeometry :args="[30, 1, 6.5]" />
       </TresMesh>
@@ -323,7 +327,7 @@ const labels = computed(() => {
     </TresGroup>
 
     <!-- Sabon Tasha Community Shop: the southern provision store -->
-    <TresGroup :position="pos3('sabon_tasha_shop', PLAYABLE_POS.sabon_tasha_shop)">
+    <TresGroup v-if="IS_CITY" :position="pos3('sabon_tasha_shop', PLAYABLE_POS.sabon_tasha_shop)">
       <TresMesh :position="[0, 1.9, 0]" cast-shadow :material="brickMat">
         <TresBoxGeometry :args="[12, 3.8, 9]" />
       </TresMesh>

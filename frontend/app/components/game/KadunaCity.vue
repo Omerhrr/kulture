@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const nepaCut = useState<{ off: boolean; since: number }>('kk_nepa', () => ({ off: false, since: 0 }))
 // KadunaCity v3 - the living city. Still one merged vertex-colored mesh per
 // material bucket, now grouped into 512-unit tiles so frustum culling and a
 // distance fade keep the draw calls low across the 21 x 24 km map.
@@ -16,7 +17,7 @@
 
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { BAKE, BRIDGE_NAMES, WORLD_SCALE, roadW, ws, SIDEWALK_W, PLAYABLE_POS } from '~/utils/kaduna'
+import { BAKE, BRIDGE_NAMES, WORLD_SCALE, roadW, ws, SIDEWALK_W, PLAYABLE_POS, IS_CITY } from '~/utils/kaduna'
 // keep storefronts / NPC spots / spawn readable: no trees or kiosks in front
 const KEEP_CLEAR = Object.values(PLAYABLE_POS)
 const inKeepClear = (x: number, z: number, r = 14) => KEEP_CLEAR.some(([px, pz]) => Math.abs(x - px) < r && Math.abs(z - pz) < r)
@@ -294,9 +295,12 @@ function buildCity(): {
   }
   // animated water: main stem + reservoir + Romi stream
   waterGeos.push(ribbonGeo(river.main, river.width, 0.06))
-  waterGeos.push(ribbonGeo(river.main.slice(0, DAM.idx + 1), river.width * 2.1, 0.12))
-  waterGeos.push(ribbonGeo(ROMI.pts, 12, 0.06))
-  ribbon('water_bank', ROMI.pts, 24, undefined, 0.02)
+  if (IS_CITY) {
+    // Kaduna only: the reservoir above the dam and the Romi stream
+    waterGeos.push(ribbonGeo(river.main.slice(0, DAM.idx + 1), river.width * 2.1, 0.12))
+    waterGeos.push(ribbonGeo(ROMI.pts, 12, 0.06))
+    ribbon('water_bank', ROMI.pts, 24, undefined, 0.02)
+  }
 
   function ribbonGeo(pts: [number, number][], width: number, y: number): THREE.BufferGeometry {
     const pos: number[] = []
@@ -1046,7 +1050,7 @@ function buildCity(): {
   }
 
   // ---------------------------------------------------------------- dam
-  {
+  if (IS_CITY) {
     const { x, z, ang } = DAM
     const px = -Math.sin(ang) // perpendicular to the river flow
     const pz = Math.cos(ang)
@@ -1082,7 +1086,7 @@ function buildCity(): {
   }
 
   // ---------------------------------------------------------------- Romi stream label
-  label('Romi Stream', ROMI.pts[3][0], 12, ROMI.pts[3][1], 22, '#bfe3ef')
+  if (ROMI.pts[3]) label('Romi Stream', ROMI.pts[3][0], 12, ROMI.pts[3][1], 22, '#bfe3ef')
 
   // ---------------------------------------------------------------- construction sites
   for (const s of SITES) {
@@ -1147,7 +1151,7 @@ function buildCity(): {
   for (const p of BAKE.places) {
     label(p.name, p.x, 36, p.z, 40, '#f5f2e8')
   }
-  label('River Kaduna', ws(350), 24, ws(-30), 34, '#bfe3ef')
+  if (IS_CITY) label('River Kaduna', ws(350), 24, ws(-30), 34, '#bfe3ef')
   label('to Zaria 88km', ws(175), 12, ws(-930), 22, '#e8e4d8')
   label('to Jos 230km', ws(300), 12, ws(-1000), 22, '#e8e4d8')
   label('to Abuja 210km', ws(-600), 12, ws(1420), 22, '#e8e4d8')
@@ -1441,8 +1445,10 @@ onBeforeRender(({ delta, elapsed }) => {
     cityRef.value.houses.update(px, pz)
   }
   // CBD windows and streetlights light up after dusk
-  cityRef.value?.towers.setNight(nightFactor.value)
-  cityRef.value?.lamps.setNight(nightFactor.value)
+  // NEPA cut: streetlights die, only the generator-backed towers glow (dimmer)
+  const cut = nepaCut.value.off
+  cityRef.value?.towers.setNight(nightFactor.value * (cut ? 0.55 : 1))
+  cityRef.value?.lamps.setNight(cut ? 0 : nightFactor.value)
   // drift the water
   const wm = cityRef.value?.waterMaterial
   if (wm?.map) {

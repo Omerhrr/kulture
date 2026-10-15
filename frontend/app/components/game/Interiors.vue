@@ -18,6 +18,7 @@ import { buildRoom, cutaway, type BuiltRoom, type Hotspot } from '~/utils/interi
 import { useSimStore, type NeedKey } from '~/stores/sim'
 import { usePlayerPose, fireKkEvent, useMoveTarget } from '~/composables/useControlsState'
 import { PLAYABLE_POS } from '~/utils/kaduna'
+import { localName } from '~/utils/regions'
 import { nearestSeat } from '~/utils/seats'
 import { ITEMS, rotLocal, starterLayout, homeLayout, tintItem } from '~/utils/furniture'
 import { useHomeStore } from '~/stores/home'
@@ -207,7 +208,7 @@ function setupVenues() {
     const d = nz !== 0 ? VD : VW
     const hx = gx - nx * (nz !== 0 ? d / 2 : w / 2)
     const hz = gz - nz * (nz !== 0 ? d / 2 : w / 2)
-    const name = info.names[Math.floor(hash01(pl.x, pl.z, 17) * info.names.length) % info.names.length]
+    const name = localName(info.names[Math.floor(hash01(pl.x, pl.z, 17) * info.names.length) % info.names.length]!)
     const door: Door = { house: { x: hx, z: hz, w, d, rot: 0, nx, nz, name }, seed: hash01(pl.x, pl.z, 63) * 1000, named: true, venue: type }
     venueByPlacement.set(i, venueDoors.length)
     venueDoors.push(door)
@@ -542,7 +543,7 @@ function enter(door: Door) {
       .then(syncFurniture)
       .catch((e: any) => ui.showToast(e.message || 'Could not load your furniture', 'error'))
   }
-  interior.value = { inside: true, name: h.name }
+  interior.value = { inside: true, name: h.name, venue: door.venue, cx: h.x, cz: h.z, rot }
   doorPrompt.value = null
   // step just inside the front door, facing into the living room
   const lz = D / 2 - 1.1

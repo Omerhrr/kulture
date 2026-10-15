@@ -102,6 +102,13 @@ async def ngn_balance_minor(db: AsyncSession, player_id: str) -> int:
     return int(total.scalar_one())
 
 
+async def _region_slug(db: AsyncSession, region_id: str) -> str | None:
+    from app.models.world import WorldRegion
+
+    r = await db.get(WorldRegion, region_id)
+    return r.slug if r else None
+
+
 async def get_player_out(db: AsyncSession, user_id: str) -> PlayerOut | None:
     user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
     if not user:
@@ -123,6 +130,7 @@ async def get_player_out(db: AsyncSession, user_id: str) -> PlayerOut | None:
         ngn_balance_minor=balance,
         position=(state.position_x, state.position_y, state.position_z) if state else None,
         region_id=state.region_id if state else None,
+        region_slug=(await _region_slug(db, state.region_id)) if state else None,
         state_version=state.state_version if state else 0,
         created_at=profile.created_at,
     )

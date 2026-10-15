@@ -1,3 +1,4 @@
+import { regionById, REGION_ID } from '~/utils/regions'
 import { defineStore } from 'pinia'
 import type { Entity, Region } from '~/types'
 
@@ -19,7 +20,7 @@ export const useWorldStore = defineStore('world', {
       this.loading = true
       try {
         const api = useGameApi()
-        this.region = await api.region('kaduna-city')
+        this.region = await api.region(regionById(REGION_ID).slug)
       } finally {
         this.loading = false
       }

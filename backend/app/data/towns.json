@@ -1,0 +1,50 @@
+{
+ "zaria": {
+  "name": "Zaria",
+  "spawn": [
+   210.3,
+   0.0,
+   456.6
+  ]
+ },
+ "kafanchan": {
+  "name": "Kafanchan",
+  "spawn": [
+   161.7,
+   0.0,
+   -57.6
+  ]
+ },
+ "kachia": {
+  "name": "Kachia",
+  "spawn": [
+   95.7,
+   0.0,
+   8.7
+  ]
+ },
+ "zonkwa": {
+  "name": "Zonkwa",
+  "spawn": [
+   95.7,
+   0.0,
+   8.7
+  ]
+ },
+ "saminaka": {
+  "name": "Saminaka (Lere)",
+  "spawn": [
+   95.7,
+   0.0,
+   8.7
+  ]
+ },
+ "birnin_gwari": {
+  "name": "Birnin Gwari",
+  "spawn": [
+   95.7,
+   0.0,
+   8.7
+  ]
+ }
+}

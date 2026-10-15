@@ -35,6 +35,7 @@ class PlayerOut(BaseModel):
     ngn_balance_minor: int
     position: tuple[float, float, float] | None = None
     region_id: str | None = None
+    region_slug: str | None = None
     state_version: int = 0
     created_at: datetime | None = None
 

@@ -16,6 +16,12 @@ from app.services.shift_service import ShiftError
 
 router = APIRouter(prefix="/work", tags=["work"])
 
+
+async def _region(db: AsyncSession, pid: str) -> str:
+    from app.services.travel_service import SLUG_TO_ID, region_of
+
+    return SLUG_TO_ID.get(await region_of(db, pid), "kaduna")
+
 _MESSAGES = {
     "unknown_career": "That job doesn't exist.",
     "shift_already_active": "You're already on a shift.",
@@ -23,6 +29,8 @@ _MESSAGES = {
     "no_active_shift": "You're not on a shift.",
     "task_too_soon": "Take a breather - the next task opens soon.",
     "workplace_missing": "Workplace not found.",
+    "wrong_town": "That job is in another town - travel there first.",
+    "certificate_required": "You need a certificate for this job (Phone → School).",
 }
 
 
@@ -38,7 +46,7 @@ class ClockIn(BaseModel):
 @router.get("/state")
 async def state(profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     return {
-        "careers": await shift_service.careers_out(db),
+        "careers": await shift_service.careers_out(db, await _region(db, profile.id)),
         "shift": shift_service.shift_out(await shift_service.active_shift(db, profile.id)),
     }
 

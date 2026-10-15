@@ -4,7 +4,7 @@
 // Everything here is derived from the baked OSM layout with a fixed seed,
 // so the render, the map and gameplay code all agree without a bake step.
 
-import { BAKE, WORLD_SCALE, ws, wp } from './kaduna'
+import { BAKE, WORLD_SCALE, ws, wp, IS_CITY } from './kaduna'
 
 export function mulberry32(seed: number) {
   let a = seed
@@ -167,7 +167,7 @@ function makeRomi(): { pts: Array<[number, number]> } {
   pts.push(raw[raw.length - 1])
   return { pts }
 }
-export const ROMI = makeRomi()
+export const ROMI = IS_CITY ? makeRomi() : { pts: [] as Array<[number, number]> }
 
 // ------------------------------------------------------------ CBD towers
 export interface Tower {
@@ -306,15 +306,24 @@ function doorSideOf(x: number, z: number): [number, number] {
 
 function makeOpenHouses(): OpenHouse[] {
   const out: OpenHouse[] = []
-  const areas: Array<[number, number, string]> = (
-    [
-      [-60.667, 85.483, 'Home'], // the player's own street (by the spawn)
-      [-80, 102, 'Market Quarter Flat'],
-      [-55, 360, 'Barnawa Guest House'],
-      [114, 151, 'KASU Staff Quarters'],
-      [76, -580, 'Kawo Bungalow']
-    ] as Array<[number, number, string]>
-  ).map(([x, z, n]) => [ws(x), ws(z), n])
+  // in the other towns: a guest house by the market, then the districts
+  const townAreas = (): Array<[number, number, string]> => {
+    const m = BAKE.landmarks.find((l) => l.kind === 'market') ?? BAKE.landmarks[0]
+    const out: Array<[number, number, string]> = m ? [[m.x, m.z, 'Guest House']] : []
+    for (const p of BAKE.places.slice(0, 4)) out.push([p.x, p.z, `${p.name} Lodge`])
+    return out
+  }
+  const areas: Array<[number, number, string]> = IS_CITY
+    ? (
+        [
+          [-60.667, 85.483, 'Home'], // the player's own street (by the spawn)
+          [-80, 102, 'Market Quarter Flat'],
+          [-55, 360, 'Barnawa Guest House'],
+          [114, 151, 'KASU Staff Quarters'],
+          [76, -580, 'Kawo Bungalow']
+        ] as Array<[number, number, string]>
+      ).map(([x, z, n]) => [ws(x), ws(z), n])
+    : townAreas()
   const used = new Set<string>()
   for (const [ax, az, name] of areas) {
     let bestH: (typeof BAKE.houses)[number] | null = null

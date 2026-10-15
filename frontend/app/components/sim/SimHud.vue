@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { calendarDate } from '~/utils/lifeShared'
 // SimHud - the life-sim layer of the HUD:
 //   top centre : day + time | mood | weather | money (+ to earn)
 //   bottom left: portrait + six need bars (hover/tap for details)
@@ -22,17 +23,10 @@ const emit = defineEmits<{ (e: 'settings'): void }>()
 
 // game-day counter for "Mon 12"-style date (starts on today's real date)
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const day0 = new Date()
-let wraps = 0
-let prevH = hour.value
-watch(hour, (h) => {
-  if (h < prevH - 12) wraps++
-  prevH = h
-  sim.tick(h)
-})
+const gameDay = useState<number>('kk_day', () => 1) // advanced by DayNight at midnight
+watch(hour, (h) => sim.tick(h))
 const dateLabel = computed(() => {
-  void hour.value
-  const d = new Date(day0.getTime() + wraps * 86400000)
+  const d = calendarDate(gameDay.value)
   return `${DAYS[d.getDay()]} ${d.getDate()}`
 })
 

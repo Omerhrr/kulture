@@ -42,6 +42,9 @@ export function useGameApi() {
   const get = <T>(path: string) => req<T>(path, { method: 'GET' })
 
   return {
+    // generic access for the phone apps (life, social, games, races)
+    apiGet: get,
+    apiPost: post,
     register: (username: string, password: string, display_name: string) =>
       post<{ access_token: string; player_id: string }>('/auth/register', {
         username,

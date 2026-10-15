@@ -32,6 +32,7 @@ SERVICES: dict[str, tuple[str, int]] = {
 
 class SpendIn(BaseModel):
     service: str = Field(max_length=32)
+    business_owner: str | None = Field(default=None, max_length=36)
 
 
 @router.get("/services")
@@ -48,5 +49,13 @@ async def spend(body: SpendIn, profile: PlayerProfile = Depends(get_current_prof
         raise error("insufficient_funds", "Not enough naira for that.", 409)
     db.add(GameLedgerEntry(account_reference=f"player:{profile.id}", asset_type="ngn_minor", amount_minor_units=-price,
                            transaction_reference=f"venue:{body.service}:{uuid.uuid4().hex[:10]}", entry_type="venue_purchase", description=name))
+    if body.service == "gym_session":
+        from app.services import society_service
+
+        await society_service.workout(db, profile.id)
+    if body.business_owner:
+        from app.services import life_service
+
+        await life_service.sell_at_business(db, profile.id, body.business_owner, price)
     await db.commit()
     return {"ok": True, "service": body.service, "price_ngn_minor": price, "balance_ngn_minor": await player_service.ngn_balance_minor(db, profile.id)}

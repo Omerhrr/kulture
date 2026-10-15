@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { IS_CITY } from '~/utils/kaduna'
 // Commute - an automatic car ride to work or home (Lagos Life style).
 //
 // window 'kk-commute' {dest:'work'|'home'} starts it: an A* route over the
@@ -69,9 +70,20 @@ function start(dest: 'work' | 'home' | 'place', place?: { code?: string; name: s
   let to: [number, number] | null = null
   let code = ''
   let name = ''
+  if (!IS_CITY && (dest === 'work' || dest === 'home')) {
+    return ui.showToast(dest === 'work' ? 'Your workplace is in Kaduna - travel back first (Phone → Travel).' : 'Your home is in Kaduna - travel back, or get a room at a guest house here.', 'info')
+  }
   if (dest === 'work') {
     const c = work.career
     if (!c) return ui.showToast('Pick a job first: Phone → Work.', 'info')
+    if (!c.position) {
+      // certificate careers (developer, banker, doctor...) work from the
+      // office towers downtown - you log in straight away
+      work.clockIn()
+        .then(() => ui.showToast(`Logged in as ${work.shift?.title}. Stay till the end to get paid.`, 'success'))
+        .catch((e: any) => ui.showToast(e.message || 'Could not clock in', 'error'))
+      return
+    }
     to = [c.position[0] + 4, c.position[2] + 4]
     code = c.place_code
     name = c.place_name

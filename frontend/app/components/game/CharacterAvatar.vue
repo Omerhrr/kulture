@@ -37,6 +37,12 @@ const props = withDefaults(
     real?: boolean
     /** extra props worn on the body (real characters) */
     gadgets?: Gadget[]
+    /** ankara print strength 0..1 (undefined = by outfit) */
+    print?: number
+    /** force a body: 'modern' (shirt/trousers) or 'traditional' (caftan / hijab) */
+    dress?: 'modern' | 'traditional'
+    /** hijab colour for the traditional women's body */
+    scarf?: string
   }>(),
   {
     shirt: '#2e7d5b',
@@ -78,18 +84,37 @@ const rig = buildHuman({
 rig.root.scale.setScalar(props.scale)
 // real (mocap) character for this look, if we have one; the procedural
 // rig shows until it has loaded
-const realChar: MixamoCharacter | undefined = props.real && getQuality() !== 'low' ? REAL_CHARACTERS[female ? 'female' : 'male'] : undefined
+// traditional dress: a kaftan / kufi wearer gets the caftan body, a hijab
+// wearer the hijab body; other passers-by mix them in for variety (a stable
+// pick from their colours, so the same person always looks the same)
+const lookHash = [...`${props.skin}${props.shirt}${props.trouser}`].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7)
+const traditional = props.dress
+  ? props.dress !== 'modern'
+  : female
+    ? props.hijab || props.gadgets.includes('hijab') || (props.real && !props.gadgets.length && lookHash % 100 < 35)
+    : outfit === 'kaftan' || props.kufi || props.gadgets.includes('kufi') || (props.real && !props.gadgets.length && lookHash % 100 < 30)
+const realChar: MixamoCharacter | undefined =
+  props.real && getQuality() !== 'low' ? REAL_CHARACTERS[female ? (traditional ? 'hijab' : 'female') : traditional ? 'caftan' : 'male'] ?? REAL_CHARACTERS[female ? 'female' : 'male'] : undefined
 const realReady = ref(false)
 const realLook: Look = {
   skin: props.skin,
   top: props.shirt,
   bottom: props.trouser,
   hair: props.hairColor,
-  print: outfit === 'kaftan' || outfit === 'dress' ? 0.5 : 0,
+  print: props.print ?? (outfit === 'kaftan' || outfit === 'dress' ? 0.5 : 0),
   gadgets: [
-    ...(props.hijab ? (['hijab'] as Gadget[]) : props.kufi && props.hairStyle === 'cap' ? (['kufi'] as Gadget[]) : []),
-    ...props.gadgets
+    // the traditional bodies already wear their own hijab / cap
+    ...(traditional ? [] : props.hijab ? (['hijab'] as Gadget[]) : props.kufi && props.hairStyle === 'cap' ? (['kufi'] as Gadget[]) : []),
+    ...props.gadgets.filter((g) => !(traditional && (g === 'hijab' || g === 'kufi' || g === 'cap' || g === 'gele')))
   ]
+}
+// a kaftan is one cloth top to bottom
+if (traditional) realLook.bottom = realLook.top
+// hijab: the scarf is dyed - the player's chosen colour, or a stable pick
+const SCARVES = ['#1d1c1f', '#5a3a7a', '#2f5fa8', '#7a2a3a', '#2e7d5b', '#c9b78e', '#d86a8a', '#1f2a44', '#e0a020', '#efe8d6']
+if (traditional && female) {
+  realLook.headCloth = true
+  realLook.hair = props.scarf ?? SCARVES[lookHash % SCARVES.length]
 }
 watch(realReady, (v) => (rig.root.visible = !v))
 const anim = new HumanAnimator(rig, props.phase)

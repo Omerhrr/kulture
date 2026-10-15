@@ -39,6 +39,9 @@ export function useGameSocket() {
       try {
         const data = JSON.parse(ev.data) as ServerEvent
         handlers.forEach((h) => h(data))
+        // phone apps (games, DMs, likes) listen on a window event
+        const t = (data as any).type as string
+        if (t && (t.startsWith('game.') || t.startsWith('social.') || t.startsWith('race.') || t.startsWith('arcade.'))) window.dispatchEvent(new CustomEvent('kk-ws', { detail: data }))
       } catch {
         /* ignore malformed frames - server is trusted to send JSON */
       }

@@ -40,6 +40,9 @@ async def _setup_db():
     async with AsyncSessionLocal() as db:
         await seed_if_empty(db)
         await reconcile_content(db)  # district content, as on app boot
+        from app.services.travel_service import ensure_regions
+
+        await ensure_regions(db)
     yield
     await engine.dispose()
 

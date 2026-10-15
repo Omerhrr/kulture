@@ -44,7 +44,7 @@ export function pedName(female: boolean, seed: number): string {
 }
 
 // ---------------------------------------------------------------- lines
-const MORNING = ['Good morning! Sah, hope you slept well?', 'Barka da safely! The harmattan is coming, you see the wind.', 'Morning o. This Kaduna sun no dey joke at all.']
+const MORNING = ['Good morning! Sah, hope you slept well?', 'Barka da safiya! The harmattan is coming, you see the wind.', 'Morning o. This Kaduna sun no dey joke at all.']
 const AFTERNOON = ['Good afternoon. The heat today, wallahi.', 'How far! You dey find somewhere for this sun?', 'Afternoon. If you pass the market, buy mango for me.']
 const EVENING = ['Good evening. The city is calm tonight, e no be like Lagos at all.', 'Evening! Careful on the road, the okadas dey fly tonight.', 'Yau da yamma. I like Kaduna evenings, the breeze from the river.']
 
@@ -73,7 +73,14 @@ function roleLine(kind: PedKind): string {
 
 /** A line a pedestrian says when the player stops them. */
 export function pedLine(kind: PedKind, hour: number): string {
-  return Math.random() < 0.45 ? timeLine(hour) : roleLine(kind)
+  const line = Math.random() < 0.45 ? timeLine(hour) : roleLine(kind)
+  return Math.random() < 0.5 ? `${hausaGreeting(hour)} ${line}` : line
+}
+
+/** Time-appropriate Hausa greeting (Kaduna street manners: greet first). */
+export function hausaGreeting(hour: number): string {
+  const pool = hour < 11 ? ['Ina kwana?', 'Barka da safiya!', 'Sannu!'] : hour < 16.5 ? ['Ina wuni?', 'Sannu da aiki!', 'Barka da rana!'] : ['Barka da yamma!', 'Sannu!', 'Ina gajiya?']
+  return pool[Math.floor(Math.random() * pool.length)]!
 }
 
 /** Hour of the day state (set by the day/night cycle). */

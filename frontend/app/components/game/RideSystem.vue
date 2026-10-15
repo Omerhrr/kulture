@@ -120,6 +120,8 @@ onMounted(() => {
     window.addEventListener('kk-ride-view', toggleView)
     window.addEventListener('kk-horn', onHorn)
     window.addEventListener('kk-crash', onCrash)
+    window.addEventListener('kk-summon-car', onSummon)
+    paintCars()
   } catch (e) {
     ;(window as any).__kk_ride_err = String((e as Error)?.stack || e)
     throw e
@@ -236,7 +238,61 @@ onBeforeUnmount(() => {
   window.removeEventListener('kk-ride-view', toggleView)
   window.removeEventListener('kk-horn', onHorn)
   window.removeEventListener('kk-crash', onCrash)
+  window.removeEventListener('kk-summon-car', onSummon)
 })
+
+// ---- your own car: paint by tier, and bring it to you (races, Life app)
+const carTier = useState<number>('kk_car_tier', () => 0)
+const TIER_PAINT = ['#3f6fae', '#b9bcc2', '#f2f2ee', '#121212']
+function paintCars() {
+  const spec = vehicleSpec('car')
+  const c = new THREE.Color(TIER_PAINT[Math.min(3, carTier.value)] ?? TIER_PAINT[0])
+  const base = spec.geo.attributes.color.array as Float32Array
+  const gloss = spec.geo.attributes.aGloss?.array as Float32Array | undefined
+  for (const p of fleet) {
+    if (p.kind !== 'car' || !p.mesh) continue
+    const body = p.mesh.children[0] as THREE.Mesh
+    const attr = body.geometry.attributes.color as THREE.BufferAttribute
+    const arr = attr.array as Float32Array
+    for (let i = 0; i < arr.length / 3; i++) {
+      const paint = !gloss || Math.abs(gloss[i] - 0.7) <= 0.01
+      arr[i * 3] = base[i * 3] * (paint ? c.r : 1)
+      arr[i * 3 + 1] = base[i * 3 + 1] * (paint ? c.g : 1)
+      arr[i * 3 + 2] = base[i * 3 + 2] * (paint ? c.b : 1)
+    }
+    attr.needsUpdate = true
+    if (p.door && spec.door) {
+      const dm = p.door.children[0] as THREE.Mesh
+      const da = dm.geometry.attributes.color as THREE.BufferAttribute
+      const src = spec.door.geo.attributes.color.array as Float32Array
+      const a = da.array as Float32Array
+      for (let i = 0; i < a.length; i += 3) {
+        const white = src[i] > 0.9 && src[i + 1] > 0.9 && src[i + 2] > 0.9
+        a[i] = src[i] * (white ? c.r : 1)
+        a[i + 1] = src[i + 1] * (white ? c.g : 1)
+        a[i + 2] = src[i + 2] * (white ? c.b : 1)
+      }
+      da.needsUpdate = true
+    }
+  }
+}
+watch(carTier, paintCars)
+function onSummon(e: Event) {
+  const d = (e as CustomEvent).detail as { x: number; z: number; heading: number }
+  const p = fleet.find((f) => f.kind === 'car' && f !== current)
+  if (!p || !p.mesh) return
+  p.x = d.x
+  p.z = d.z
+  p.heading = d.heading
+  p.mesh.position.set(p.x, 0, p.z)
+  p.mesh.rotation.y = p.heading
+  if (p.interior) {
+    p.interior.position.copy(p.mesh.position)
+    p.interior.rotation.y = p.heading
+  }
+  trafficProbe.parked = fleet.map((f) => ({ x: f.x, z: f.z, r: vehicleSpec(f.kind).radius }))
+  setVehicleObstacles(fleet.map((f) => ({ x: f.x, z: f.z, w: vehicleSpec(f.kind).radius * 2.4, d: vehicleSpec(f.kind).radius * 2.4 })))
+}
 
 function onHorn() {
   kkAudio.init()
@@ -587,14 +643,16 @@ onBeforeRender(({ delta }) => {
     ridePose.y = Math.sin(performance.now() / 700) * 0.12
   } else {
     // ---- road vehicles
-    speed += throttle * spec.accel * dt
+    // your car tier (Corolla → Hilux → G-Wagon) makes your car faster
+    const boost = p.kind === 'car' ? 1 + 0.12 * carTier.value : 1
+    speed += throttle * spec.accel * boost * dt
     if (throttle < 0 && speed > 0) speed -= spec.accel * 1.4 * dt // brake
     // engine drag rolls the vehicle to a stop when the throttle is released
     if (Math.abs(throttle) < 0.05 && Math.abs(speed) > 0) {
       const drop = 4.5 * dt
       speed = Math.abs(speed) <= drop ? 0 : speed - Math.sign(speed) * drop
     }
-    speed = Math.max(-spec.maxSpeed * 0.4, Math.min(spec.maxSpeed, speed))
+    speed = Math.max(-spec.maxSpeed * 0.4, Math.min(spec.maxSpeed * boost, speed))
     if (Math.abs(speed) < 0.05 && throttle === 0) speed = 0
     const turn = 1.7 * Math.min(1, Math.abs(speed) / 9) * (speed < 0 ? -1 : 1)
     p.heading += steer * turn * dt

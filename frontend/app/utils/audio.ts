@@ -288,6 +288,33 @@ class KKAudio {
     this.engineFilter.frequency.setTargetAtTime(260 + Math.abs(speed) * 16, t, 0.15)
   }
 
+  // ---- NEPA generator: a two-stroke "I better pass my neighbour" drone
+  private genOsc: OscillatorNode | null = null
+  private genGain: GainNode | null = null
+  setGenerator(on: boolean) {
+    if (!this.ready || !this.ctx || !this.ambBus) return
+    const ctx = this.ctx
+    if (!this.genOsc) {
+      this.genOsc = ctx.createOscillator()
+      this.genOsc.type = 'sawtooth'
+      this.genOsc.frequency.value = 52
+      const lfo = ctx.createOscillator()
+      lfo.frequency.value = 7.5
+      const lfoG = ctx.createGain()
+      lfoG.gain.value = 6
+      lfo.connect(lfoG).connect(this.genOsc.frequency)
+      const f = ctx.createBiquadFilter()
+      f.type = 'lowpass'
+      f.frequency.value = 380
+      this.genGain = ctx.createGain()
+      this.genGain.gain.value = 0
+      this.genOsc.connect(f).connect(this.genGain).connect(this.ambBus)
+      this.genOsc.start()
+      lfo.start()
+    }
+    this.genGain!.gain.setTargetAtTime(on ? 0.035 : 0, ctx.currentTime, on ? 0.8 : 0.3)
+  }
+
   // ------------------------------------------------------------ one shots
   footstep(onRoad: boolean) {
     if (!this.ready || !this.ctx || !this.master) return

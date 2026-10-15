@@ -4,6 +4,15 @@
 // (wind, hum, birds, crickets, market chatter, river) in sync with where
 // you are and what time it is. Mute state persists in localStorage.
 import { kkAudio, zoneLevels } from '~/utils/audio'
+import { BAKE } from '~/utils/kaduna'
+
+// crowd noise around every market / motor park of the current town
+const MARKETS = BAKE.landmarks.filter((l) => l.kind === 'market' || l.kind === 'motorpark')
+function marketLevel(x: number, z: number) {
+  const d = MARKETS.length ? Math.min(...MARKETS.map((m) => Math.hypot(m.x - x, m.z - z))) : 9999
+  const v = Math.max(0, 1 - d / 140)
+  return v * v
+}
 
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const nightFactor = useState<number>('kk_night', () => 0)
@@ -28,7 +37,9 @@ onMounted(() => {
   const timer = window.setInterval(() => {
     if (!kkAudio.ready) return
     const [x, , z] = playerPos.value
-    kkAudio.update(0.25, true, zoneLevels(x, z, nightFactor.value))
+    const zl = zoneLevels(x, z, nightFactor.value)
+    zl.market = Math.max(zl.market, marketLevel(x, z))
+    kkAudio.update(0.25, true, zl)
   }, 250)
   onBeforeUnmount(() => window.clearInterval(timer))
 })

@@ -26,6 +26,10 @@ export interface Look {
   bottom: string
   /** worn extras: phone, sunglasses, cap, headphones, backpack, bag, watch */
   gadgets?: string[]
+  /** ankara print strength 0..1 (Character Studio) */
+  print?: number
+  /** body: modern clothes, or traditional (caftan for men, hijab for women) */
+  dress?: 'modern' | 'traditional'
 }
 export interface Trait {
   id: string

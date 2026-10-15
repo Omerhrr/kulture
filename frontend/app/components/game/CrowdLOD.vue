@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { perf } from '~/utils/quality'
 // CrowdLOD - the pedestrians closest to you are drawn with the full
 // skinned human rig (hands, fingers, cloth, real gait); everyone further
 // away stays in the cheap instanced crowd. Swaps are made a few times a
@@ -9,8 +10,8 @@ import { lookFor, type Look } from '~/utils/wardrobe'
 
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const interior = useInterior()
-const MAX = 12
-const RANGE = 48
+const MAX = perf().lodPeople
+const RANGE = perf().lodRange
 
 interface Slot {
   id: number

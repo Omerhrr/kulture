@@ -32,6 +32,7 @@ export interface Player {
   ngn_balance_minor: number
   position: [number, number, number] | null
   region_id: string | null
+  region_slug?: string | null
   state_version: number
   created_at?: string
 }

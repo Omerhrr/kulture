@@ -7,7 +7,8 @@ export interface Career {
   title: string
   place_code: string
   place_name: string
-  position: [number, number, number]
+  position: [number, number, number] | null
+  needs_certificate?: string | null
   pay_ngn_minor: number
   reputation: number
   shift_seconds: number

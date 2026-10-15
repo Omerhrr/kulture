@@ -15,7 +15,13 @@
 // Data: (c) OpenStreetMap contributors, ODbL. Geometry is stylized and
 // approximate; landmark positions follow OSM where mapped.
 
-import bakeJson from './kadunaBake.json'
+import kadunaBakeJson from './kadunaBake.json'
+import { REGION_ID, localName } from './regions'
+
+// the other towns of Kaduna State (scripts/kaduna-osm/towns.py)
+const TOWN_BAKES = import.meta.glob('./towns/*.json', { eager: true, import: 'default' }) as Record<string, unknown>
+const bakeJson = (REGION_ID === 'kaduna' ? kadunaBakeJson : TOWN_BAKES[`./towns/${REGION_ID}.json`] ?? kadunaBakeJson) as unknown as KadunaBake
+const IS_CITY = bakeJson === (kadunaBakeJson as unknown)
 
 export interface BakeRoad {
   name: string
@@ -52,6 +58,8 @@ export interface KadunaBake {
     origin: number[]
     unitM: number
     bounds: { xmin: number; xmax: number; zmin: number; zmax: number }
+    /** the bake already has every street (real OSM residential roads) */
+    realStreets?: boolean
   }
   river: { main: [number, number][]; width: number; side: [number, number][][] }
   roads: BakeRoad[]
@@ -111,7 +119,7 @@ const PLAYABLE_CLEAR: Record<string, number> = {
   npc_tunde: 2,
   npc_ngozi: 2
 }
-const PLAYABLE_RAW: Record<string, [number, number]> = {
+const CITY_PLAYABLE: Record<string, [number, number]> = {
   spawn_roadside: [-60.667, 85.483],
   musa_shop: [-49.333, 80.183],
   arewa_pos: [-34.667, -2.683],
@@ -134,6 +142,39 @@ const PLAYABLE_RAW: Record<string, [number, number]> = {
   npc_ngozi: [246.0, 1036.0]
 }
 
+
+/** In the other towns the same playable spots (spawn, keke stop, square,
+ *  market, NPC corners) are laid out around that town's own market, motor
+ *  park and square, so every system that uses them keeps working. */
+function townPlayables(b: KadunaBake): Record<string, [number, number]> {
+  const find = (...kinds: string[]) => b.landmarks.find((l) => kinds.includes(l.kind)) ?? b.landmarks[0] ?? { x: 0, z: 0 }
+  const market = find('market')
+  const park = find('motorpark', 'station', 'junction')
+  const square = find('square', 'govhouse', 'mosque')
+  const out: Record<string, [number, number]> = {}
+  const at = (k: string, base: { x: number; z: number }, dx: number, dz: number) => (out[k] = [base.x + dx, base.z + dz])
+  at('spawn_roadside', market, 10, 14)
+  at('musa_shop', market, 18, 10)
+  at('arewa_pos', market, -8, 16)
+  at('kaduna_central_market', market, 0, 0)
+  at('arewa_house', square, 12, -10)
+  at('stonetech_square', square, 0, 0)
+  at('keke_stop', park, 6, 6)
+  at('npc_musa', market, 16, 12)
+  at('npc_amina', square, 3, 3)
+  at('textile_market', market, -20, -14)
+  at('kawo_motor_park', park, 0, 0)
+  at('kasu_gate', square, -14, 12)
+  at('rigasa_station', park, -12, -8)
+  at('sabon_tasha_shop', market, 22, -18)
+  at('npc_mama_chidi', market, -18, -12)
+  at('npc_bashir', park, 3, 3)
+  at('npc_prof_danjuma', square, -12, 10)
+  at('npc_tunde', park, -9, -6)
+  at('npc_ngozi', market, 20, -16)
+  return out
+}
+const PLAYABLE_RAW: Record<string, [number, number]> = IS_CITY ? CITY_PLAYABLE : townPlayables(bakeJson)
 
 /** Scale a raw (baked, 1u = 10 m) map coordinate into world units. */
 export const ws = (v: number) => v * WORLD_SCALE
@@ -168,7 +209,7 @@ function scaleBake(raw: KadunaBake): KadunaBake {
     // the market landmark follows the playable market entity so the vendor
     // stalls, the crowd and the server's market all agree
     landmarks: raw.landmarks.map((l) =>
-      l.kind === 'market'
+      l.kind === 'market' && IS_CITY
         ? { ...l, x: PLAYABLE_RAW.kaduna_central_market[0] * S, z: PLAYABLE_RAW.kaduna_central_market[1] * S, kw: 48, kd: 36 }
         : { ...l, x: l.x * S, z: l.z * S }
     ),
@@ -395,7 +436,11 @@ function densify(b: KadunaBake): KadunaBake {
   if (b.airport.runway) addHashedRoad(runway, b.airport.runway, 60, 10)
   for (const line of b.rail) addHashedRoad(runway, line, 7, 6)
 
-  const { roads: streets, dev } = streetGrid(b, mains, water, keep, runway)
+  const grid = streetGrid(b, mains, water, keep, runway)
+  // with real OSM streets keep the development mask (for compounds) but not
+  // the generated grid streets
+  const streets = b.meta.realStreets ? [] : grid.roads
+  const dev = grid.dev
   const roads = [...b.roads, ...streets]
   const allRoads: PtHash = new Map()
   for (const r of roads) addHashedRoad(allRoads, r.pts, roadW(r) / 2 + SIDEWALK_W)
@@ -403,7 +448,7 @@ function densify(b: KadunaBake): KadunaBake {
   // 0) CBD high-rises take the middle of the blocks between Murtala
   //    Square, Ahmadu Bello Way and the river; tallest toward the core
   const towers: NonNullable<KadunaBake['towers']> = []
-  {
+  if (IS_CITY) {
     const trnd = seeded(0x70ad)
     const x0 = -185 * WORLD_SCALE
     const x1 = 70 * WORLD_SCALE
@@ -470,6 +515,7 @@ function densify(b: KadunaBake): KadunaBake {
       civic.every((c) => c.kind !== kind || Math.hypot(c.x - x, c.z - z) > min)
     const SCHOOLS = ['Government Secondary School', 'Capital School', 'Model Primary School', 'Kaduna Science Academy', 'Unity Girls College', 'Barnawa Primary School', 'Ahmadu Bello Memorial School', 'Arewa Comprehensive College']
     const HOSPITALS = ['General Hospital', 'Barau Dikko Teaching Hospital Annex', 'Yusuf Dantsoho Hospital', 'St. Gerard Clinic', 'Sabon Tasha Medical Centre', 'Kawo Specialist Hospital']
+    if (!IS_CITY) for (const L of [SCHOOLS, HOSPITALS]) for (let i = 0; i < L.length; i++) L[i] = localName(L[i]!)
     const blocks = [...dev].map((k) => k.split(',').map(Number) as [number, number])
     blocks.sort((a, b2) => a[0] - b2[0] || a[1] - b2[1])
     for (let q = blocks.length - 1; q > 0; q--) {
@@ -513,6 +559,7 @@ function densify(b: KadunaBake): KadunaBake {
     let fuelN = 0
     let mechN = 0
     const FUEL = ['Arewa Petroleum', 'Zaria Road Fuels', 'Kaduna Energy', 'Gamji Oil', 'Sabon Gari Petrol']
+    if (!IS_CITY) for (let i = 0; i < FUEL.length; i++) FUEL[i] = localName(FUEL[i]!)
     const MECH = ['Baba Sule Motors', 'Allah Ya Kiyaye Mechanic', 'Chidi Auto Repairs', 'Garba Vulcanizer', 'Danladi Panel Beater', 'Emeka Auto Electric']
     for (const r of b.roads) {
       if (r.class !== 'trunk' && r.class !== 'primary' && r.class !== 'secondary') continue
@@ -609,6 +656,7 @@ function densify(b: KadunaBake): KadunaBake {
 }
 
 export const BAKE = densify(scaleBake(bakeJson as unknown as KadunaBake))
+export { IS_CITY }
 export const WORLD = BAKE.meta.bounds
 
 export function clampWorld(x: number, z: number): [number, number] {

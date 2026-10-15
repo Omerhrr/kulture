@@ -12,7 +12,7 @@ import { hitsBuilding } from '~/utils/collision'
 import { addWindSway } from '~/utils/weather'
 import { getQuality } from '~/utils/quality'
 import { heightAt } from '~/utils/terrain'
-import { inPark } from '~/utils/parksShared'
+import { inPark, inPitch, PITCH, inClearZone, clearZones } from '~/utils/parksShared'
 
 const low = getQuality() === 'low'
 const RADIUS = low ? 36 : 75
@@ -139,6 +139,8 @@ const deep = new THREE.Color('#5f8a3c')
 const straw = new THREE.Color('#b8a862')
 const col = new THREE.Color()
 let cx = 1e9
+let pitchWas = false
+let zonesWas = 0
 let cz = 1e9
 
 function rebuild(px: number, pz: number) {
@@ -161,7 +163,7 @@ function rebuild(px: number, pz: number) {
       if (d > RADIUS * 0.6 && hash01(gi, gj, 3) < (d - RADIUS * 0.6) / (RADIUS * 0.4)) continue
       // natural clearings
       if (hash01(Math.floor(gi / 5), Math.floor(gj / 5), 9) < 0.12) continue
-      if (!openGround(x, z) || inPark(x, z, 1)) continue
+      if (!openGround(x, z) || inPark(x, z, 1) || inPitch(x, z) || inClearZone(x, z)) continue
       const s = 0.7 + hash01(gi, gj, 4) * 0.8
       q.setFromAxisAngle(up, hash01(gi, gj, 5) * Math.PI * 2)
       sc.set(s, s * (0.8 + hash01(gi, gj, 6) * 0.7), s)
@@ -185,6 +187,11 @@ onBeforeRender(() => {
   mesh.visible = !interior.value.inside
   if (!mesh.visible) return
   const [px, , pz] = playerPos.value
+  if (PITCH.active !== pitchWas || clearZones.version !== zonesWas) {
+    pitchWas = PITCH.active
+    zonesWas = clearZones.version
+    cx = 1e9 // pitch laid / removed: rebuild the field
+  }
   if (Math.hypot(px - cx, pz - cz) > RADIUS * 0.18) rebuild(px, pz)
 })
 

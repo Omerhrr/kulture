@@ -143,6 +143,7 @@ const previewKey = computed(() => JSON.stringify(look))
         </div>
       </div>
       <div class="flex gap-2">
+        <NuxtLink v-if="step < 3" to="/creator" class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="3D Character Studio" aria-label="3D Character Studio" @click="(sim.name = sim.name || name), sim.save()">🎨</NuxtLink>
         <button v-if="step < 3" class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="Randomise" aria-label="Randomise" @click="shuffle">🔀</button>
         <button v-else class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="Roll again" aria-label="Roll again" @click="rollBirth">🎲</button>
       </div>
@@ -163,6 +164,10 @@ const previewKey = computed(() => JSON.stringify(look))
           <TresDirectionalLight :position="[2, 4, 3]" :intensity="1.6" />
           <TresGroup :rotation="[0, yaw, 0]">
             <CharacterAvatar
+              real
+              :female="look.body === 'woman'"
+              :dress="look.outfit === 'shirt' ? 'modern' : 'traditional'"
+              :gadgets="(look.gadgets ?? []) as any"
               :key="previewKey"
               :shirt="look.top"
               :trouser="look.bottom"

@@ -37,6 +37,9 @@ class Career:
     pay_ngn_minor: int
     reputation: int
     tasks: tuple[str, ...]
+    # which town this job is in (None = anywhere: office / remote careers)
+    region: str | None = "kaduna"
+    needs_any_cert: bool = False
 
 
 CAREERS: dict[str, Career] = {
@@ -52,8 +55,38 @@ CAREERS: dict[str, Career] = {
                ("Mark the scripts", "Print the handouts", "Take attendance", "Brief the class")),
         Career("rail", "Freight Clerk", "rigasa_station", 16_000_00, 4,
                ("Check the waybills", "Weigh the cargo", "Radio the driver", "Seal the wagon")),
+        # certificate careers (school -> certificate -> career); no fixed site
+        Career("developer", "Software Developer", "", 45_000_00, 8,
+               ("Fix a bug", "Review a pull request", "Ship a feature", "Stand-up meeting"), None),
+        Career("banker", "Bank Officer", "", 40_000_00, 7,
+               ("Open an account", "Approve a loan", "Balance the vault", "Advise a customer"), None),
+        Career("doctor", "Medical Doctor", "", 60_000_00, 10,
+               ("See a patient", "Write a prescription", "Ward round", "Read the lab results"), None),
+        Career("manager", "Business Manager", "", 42_000_00, 7,
+               ("Plan the week", "Meet a supplier", "Review the books", "Coach the team"), None),
+        # ---- the other towns of Kaduna State: work where you live
+        Career("abu_lecturer", "ABU Lecturer", "", 38_000_00, 8,
+               ("Deliver a lecture", "Supervise a project", "Mark exam scripts", "Office hours"), "zaria", True),
+        Career("sabon_gari_trader", "Sabon Gari Trader", "", 16_000_00, 4,
+               ("Open the stall", "Bargain with a buyer", "Restock from the depot", "Count the day's takings"), "zaria"),
+        Career("ncat_trainee", "NCAT Trainee Pilot", "", 22_000_00, 6,
+               ("Pre-flight checks", "Circuit flying", "Radio drills", "Log the flight hours"), "zaria"),
+        Career("railway_worker", "Railway Worker", "", 17_000_00, 4,
+               ("Check the points", "Couple the wagons", "Grease the axles", "Signal the driver"), "kafanchan"),
+        Career("ginger_farmer", "Ginger Farmer", "", 13_000_00, 3,
+               ("Weed the ridges", "Harvest the ginger", "Dry it in the sun", "Bag for the market"), "kafanchan"),
+        Career("zonkwa_farmer", "Ginger Farmer", "", 13_000_00, 3,
+               ("Weed the ridges", "Harvest the ginger", "Dry it in the sun", "Bag for the market"), "zonkwa"),
+        Career("timber_worker", "Timber Worker", "", 15_000_00, 4,
+               ("Fell a tree", "Saw the planks", "Load the lorry", "Plant seedlings"), "birnin_gwari"),
+        Career("kachia_trader", "Market Day Trader", "", 14_000_00, 3,
+               ("Set out the yams", "Weigh the grain", "Haggle", "Pack up"), "kachia"),
+        Career("truck_loader", "Truck Park Loader", "", 14_000_00, 3,
+               ("Load the bags", "Tie the tarp", "Check the manifest", "Wave the trailer off"), "saminaka"),
     )
 }
+# which certificate each professional career needs
+NEEDS_CERT = {"developer": "computer_science", "banker": "banking_finance", "doctor": "medicine", "manager": "business_admin"}
 TASK_BONUS_CAP = 4
 TASK_BONUS = 0.15
 ON_SITE_RADIUS = 30.0
@@ -109,9 +142,20 @@ def shift_out(shift: WorkShift | None) -> dict[str, Any] | None:
     }
 
 
-async def careers_out(db: AsyncSession) -> list[dict[str, Any]]:
+TOWN_NAMES = {"zaria": "Zaria", "kafanchan": "Kafanchan", "zonkwa": "Zonkwa", "birnin_gwari": "Birnin Gwari", "kachia": "Kachia", "saminaka": "Saminaka"}
+
+
+async def careers_out(db: AsyncSession, region: str = "kaduna") -> list[dict[str, Any]]:
     out = []
     for c in CAREERS.values():
+        if c.region is not None and c.region != region:
+            continue  # that job is in another town
+        if not c.place_code:
+            place = f"{TOWN_NAMES.get(c.region or '', 'Kaduna')}" if c.region and c.region != "kaduna" else "Remote / office"
+            out.append({"id": c.id, "title": c.title, "place_code": "", "place_name": place, "position": None,
+                        "pay_ngn_minor": c.pay_ngn_minor, "reputation": c.reputation, "shift_seconds": settings.shift_seconds,
+                        "needs_certificate": NEEDS_CERT.get(c.id) or ("any" if c.needs_any_cert else None)})
+            continue
         ent = await _entity(db, c.place_code)
         if ent is None:
             continue
@@ -136,7 +180,18 @@ async def clock_in(db: AsyncSession, player_id: str, career_id: str) -> WorkShif
         raise ShiftError("unknown_career")
     if await active_shift(db, player_id):
         raise ShiftError("shift_already_active")
-    if await _distance_to(db, player_id, career.place_code) > ON_SITE_RADIUS:
+    from app.services import life_service
+    from app.services.travel_service import SLUG_TO_ID, region_of
+
+    if career.region is not None and SLUG_TO_ID.get(await region_of(db, player_id), "kaduna") != career.region:
+        raise ShiftError("wrong_town")
+    if career_id in NEEDS_CERT:
+        if NEEDS_CERT[career_id] not in await life_service.certificates(db, player_id):
+            raise ShiftError("certificate_required")
+    elif career.needs_any_cert:
+        if not await life_service.certificates(db, player_id):
+            raise ShiftError("certificate_required")
+    elif career.place_code and await _distance_to(db, player_id, career.place_code) > ON_SITE_RADIUS:
         raise ShiftError("not_at_workplace")
     shift = WorkShift(player_id=player_id, career=career_id)
     db.add(shift)
@@ -166,7 +221,7 @@ async def clock_out(db: AsyncSession, player_id: str) -> WorkShift:
     career = CAREERS[shift.career]
     now = datetime.now(timezone.utc)
     elapsed = (now - _aware(shift.started_at)).total_seconds()
-    on_site = await _distance_to(db, player_id, career.place_code) <= ON_SITE_RADIUS
+    on_site = not career.place_code or await _distance_to(db, player_id, career.place_code) <= ON_SITE_RADIUS
     shift.ended_at = now
     if elapsed < settings.shift_seconds or not on_site:
         shift.status = "left_early"
@@ -174,7 +229,14 @@ async def clock_out(db: AsyncSession, player_id: str) -> WorkShift:
         return shift
 
     bonus = 1 + TASK_BONUS * min(shift.tasks_done, TASK_BONUS_CAP) / TASK_BONUS_CAP
-    pay = int(career.pay_ngn_minor * bonus)
+    # experience pays: +10% per career level (Junior .. Oga)
+    from app.services import life_service
+
+    lvl, _ = life_service.career_level(await life_service.shifts_worked(db, player_id))
+    # working while sick pays half (Phone → Health → hospital)
+    st = await life_service.life_state(db, player_id)
+    sick = 0.5 if st.sick else 1.0
+    pay = int(career.pay_ngn_minor * bonus * (1 + 0.1 * lvl) * sick)
     shift.status = "paid"
     shift.paid_ngn_minor = pay
     db.add(

@@ -2,6 +2,36 @@
 import { getQuality, setQuality } from '~/utils/quality'
 const quality = ref<'high' | 'low'>('high')
 onMounted(() => (quality.value = getQuality()))
+// slow-device watchdog: on HD, if the frame rate sits under 24 fps for ~8 s,
+// offer the Lite mode once (dismissable, remembered for the session)
+const slowHint = ref(false)
+// sprint breath meter (only shows while recovering / sprinting)
+const breath = ref(1)
+let breathT: any
+onMounted(() => (breathT = setInterval(() => (breath.value = (window as any).__kk_breath ?? 1), 200)))
+onUnmounted(() => clearInterval(breathT))
+let fpsRaf = 0
+onMounted(() => {
+  if (getQuality() === 'low' || sessionStorage.getItem('kk_slow_hint')) return
+  let frames = 0, t0 = performance.now(), slowSecs = 0, warm = 0
+  const tick = () => {
+    frames++
+    const now = performance.now()
+    if (now - t0 >= 1000) {
+      const fps = (frames * 1000) / (now - t0)
+      frames = 0; t0 = now
+      if (++warm > 6) slowSecs = fps < 24 ? slowSecs + 1 : Math.max(0, slowSecs - 1)
+      if (slowSecs >= 8) { slowHint.value = true; return }
+    }
+    fpsRaf = requestAnimationFrame(tick)
+  }
+  fpsRaf = requestAnimationFrame(tick)
+})
+onUnmounted(() => cancelAnimationFrame(fpsRaf))
+function dismissSlow() {
+  slowHint.value = false
+  try { sessionStorage.setItem('kk_slow_hint', '1') } catch {}
+}
 // Top HUD: identity, balances (clearly separated asset classes per spec),
 // connection state, the day/night clock and the world event banner.
 
@@ -38,6 +68,13 @@ const phaseIcon = computed(() => {
 </script>
 
 <template>
+  <div v-if="breath < 0.98" class="pointer-events-none absolute bottom-28 left-1/2 z-20 h-1.5 w-28 -translate-x-1/2 overflow-hidden rounded-full bg-black/25">
+    <div class="h-full transition-[width] duration-200" :class="breath < 0.3 ? 'bg-rose-500' : 'bg-sky-300'" :style="{ width: `${breath * 100}%` }" />
+  </div>
+  <div v-if="slowHint" class="pointer-events-auto absolute left-1/2 top-20 z-30 flex -translate-x-1/2 items-center gap-2 kk-panel px-3 py-2 text-xs font-bold text-ink">
+    Game running slow? <button class="kk-chip bg-kadeep text-white" @click="setQuality('low')">⚡ Switch to Lite</button>
+    <button class="opacity-60" @click="dismissSlow">✕</button>
+  </div>
   <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-3 sm:p-4">
     <!-- left: identity + balances -->
     <div class="pointer-events-auto kk-panel flex items-center gap-3 px-4 py-2.5 max-sm:px-3 max-sm:py-2">

@@ -1,6 +1,7 @@
 // Shared 2D city map, prerendered once to an offscreen canvas and reused by
 // the minimap (crop) and the full map overlay (scaled). North is up (-Z).
 import { BAKE, BRIDGE_NAMES } from './kaduna'
+import { IS_CITY } from './kaduna'
 import { ROMI, TOWERS, FARMS, OPEN_HOUSES, mulberry32 } from './kadunaExtras'
 import { ws } from './kaduna'
 
@@ -204,8 +205,8 @@ export function getMapCanvas(labels = true): HTMLCanvasElement {
   // river + dam labels
   g.fillStyle = '#dceef5'
   g.font = '600 14px "Nunito", sans-serif'
-  g.fillText('River Kaduna', X(ws(320)), Y(ws(-24)))
-  g.fillText('Romi Stream', X(ROMI.pts[3][0]), Y(ROMI.pts[3][1]))
+  if (IS_CITY) g.fillText('River Kaduna', X(ws(320)), Y(ws(-24)))
+  if (ROMI.pts[3]) g.fillText('Romi Stream', X(ROMI.pts[3][0]), Y(ROMI.pts[3][1]))
 
   _canvas = cv
   return labels ? cv : _bare

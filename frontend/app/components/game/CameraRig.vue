@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { perf as _perf } from '~/utils/quality'
+const PERF_FAR = _perf().far
 // CameraRig - third-person follow camera with user orbit.
 // Must live INSIDE <TresCanvas> so useLoop binds to the canvas render loop.
 // Right-drag / one-finger drag orbits (yaw + pitch), wheel or pinch zooms
@@ -233,6 +235,6 @@ watch(
     :position="[-294, 13, 184]"
     :fov="62"
     :near="0.25"
-    :far="9000"
+    :far="PERF_FAR"
   />
 </template>

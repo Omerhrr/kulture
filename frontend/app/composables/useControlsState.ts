@@ -76,6 +76,12 @@ export interface InteriorState {
   /** true once the player walked through a door */
   inside: boolean
   name: string
+  /** venue type (bar, cinema, restaurant...) when inside a public venue */
+  venue?: string
+  /** room centre + rotation (world) */
+  cx?: number
+  cz?: number
+  rot?: number
 }
 
 export function useInterior() {

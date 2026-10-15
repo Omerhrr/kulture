@@ -6,7 +6,7 @@
 // you are close (they are full mocap characters).
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { PLAYABLE_POS } from '~/utils/kaduna'
+import { PLAYABLE_POS, BAKE } from '~/utils/kaduna'
 import { hashDist, roadHash, hash01 } from '~/utils/kadunaExtras'
 import { hitsBuilding, addColliders } from '~/utils/collision'
 import { registerSeat } from '~/utils/seats'
@@ -14,6 +14,8 @@ import { lookFor } from '~/utils/wardrobe'
 import { heightAt } from '~/utils/terrain'
 import { housePlacements } from '~/utils/housing'
 import { PARK_AREAS } from '~/utils/parksShared'
+import { IS_CITY } from '~/utils/kaduna'
+import { TOWN } from '~/utils/regions'
 import { makeLabelTexture } from '~/utils/sign'
 import type { Activity } from '~/utils/poses'
 
@@ -37,7 +39,9 @@ interface Park {
   name: string
 }
 
-const NAMES = ['Murtala Square Park', 'Kaduna Millennium Park', 'Gamji Gate Park', 'Barnawa Green', 'Ungwan Rimi Gardens']
+const NAMES = IS_CITY
+  ? ['Murtala Square Park', 'Kaduna Millennium Park', 'Gamji Gate Park', 'Barnawa Green', 'Ungwan Rimi Gardens']
+  : [...BAKE.places.map((p) => `${p.name.replace(/ \(.*\)/, '')} Park`), `${TOWN.name} Township Park`]
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const interior = useInterior()
 const parks: Park[] = PARK_AREAS
@@ -188,6 +192,8 @@ function ensureParks() {
 }
 
 // ---- only the park you are near is populated
+const social = useState<any>('kk_scene_social', () => ({ date: null, owambe: null, dance: null, football: null }))
+let hadMatch = false
 const near = ref<Array<ParkPerson & { look: ReturnType<typeof lookFor> }>>([])
 let nearPark = -1
 const groups = new Map<number, THREE.Object3D>()
@@ -215,9 +221,14 @@ onBeforeRender(({ delta }) => {
         if (Math.hypot(p.x - px, p.z - pz) < 90) best = i
       })
     }
-    if (best !== nearPark) {
+    // during a 5-a-side match the pitch (34 x 20 m at the park centre) is
+    // cleared: visitors on it step off to the touchline
+    const fb = social.value.football
+    const match = fb && best >= 0 && parks[best]!.name === fb.park ? fb : null
+    if (best !== nearPark || match !== hadMatch) {
       nearPark = best
-      near.value = best < 0 ? [] : people.filter((q) => q.park === best).map((q) => ({ ...q, look: lookFor(q.id, q.female) }))
+      hadMatch = !!match
+      near.value = best < 0 ? [] : people.filter((q) => q.park === best && !(match && Math.abs(parks[best]!.x + q.x - match.cx) < 18 && Math.abs(parks[best]!.z + q.z - match.cz) < 11)).map((q) => ({ ...q, look: lookFor(q.id, q.female) }))
     }
   }
   // joggers go round

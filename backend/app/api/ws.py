@@ -80,6 +80,8 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
     logger.info("ws connect player=%s sockets=%s", player_id, len(manager._connections.get(player_id, ())))
     mover = RateLimiter(settings.movement_rate_limit_hz)
     interactor = RateLimiter(2.0)  # interactions ≤ 2/s
+    relayer = RateLimiter(40.0)  # live arcade head-to-head frames
+    racer = RateLimiter(4.0)  # live race progress ≤ 4/s
     emoter = RateLimiter(3.0)  # jump / punch / kick / push / wave ≤ 3/s
 
     # Seed the session position from the AUTHORITATIVE server state - never
@@ -91,7 +93,11 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
     last_move_ts = 0.0
     last_persist = 0.0
     position_dirty = False
-    presence.join(player_id, profile.display_name, last_pos)
+    from app.services.travel_service import region_of
+
+    async with AsyncSessionLocal() as db:
+        my_region = await region_of(db, player_id)
+    presence.join(player_id, profile.display_name, last_pos, my_region)
     commute_started: float | None = None
 
     # authoritative snapshot on connect
@@ -183,6 +189,19 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                     position_dirty = False
                 continue
 
+            if mtype == "arcade.relay":
+                # live 2-player arcade (Street Brawl online): the host runs the
+                # fight and streams snapshots; the guest streams its buttons.
+                # The server only relays small frames between the two phones.
+                if not relayer.allow():
+                    continue
+                to = str(payload.get("to", ""))[:36]
+                data = payload.get("data")
+                if not to or to == player_id or len(json.dumps(data)) > 2048:
+                    continue
+                await manager.send_to_player(to, {"type": "arcade.fight", "payload": {"from": player_id, "data": data}})
+                continue
+
             if mtype == "entity.interact":
                 if not interactor.allow():
                     await ws.send_json(
@@ -251,6 +270,13 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                         )
                 continue
 
+            if isinstance(mtype, str) and mtype.startswith("race."):
+                from app.events.race_hub import race_hub
+
+                if racer.allow():
+                    await race_hub.handle(player_id, profile.display_name, mtype, payload if isinstance(payload, dict) else {})
+                continue
+
             if mtype == "player.look":
                 name = str(payload.get("name") or "")[:18]
                 name = re.sub(r"[^A-Za-z0-9_.]", "", name) or None
@@ -295,7 +321,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
 
             if mtype == "world.subscribe":
                 await ws.send_json(
-                    {"type": "world.subscribed", "payload": {"region": "kaduna-city"}}
+                    {"type": "world.subscribed", "payload": {"region": my_region}}
                 )
                 continue
 

@@ -21,6 +21,8 @@ export interface Look {
   /** ankara print on the top (0 none .. 1 bold) */
   print?: number
   gadgets?: Gadget[]
+  /** the body's head is covered by cloth (hijab model): dye it with `hair` */
+  headCloth?: boolean
 }
 export type Gadget = 'phone' | 'sunglasses' | 'cap' | 'kufi' | 'gele' | 'hijab' | 'headphones' | 'backpack' | 'bag' | 'watch'
 
@@ -34,7 +36,7 @@ const REGION: Array<[RegExp, number]> = [
 ]
 const SIZE = 1024
 
-interface BaseInfo {
+export interface BaseInfo {
   img: ImageData
   labels: Uint8Array
   /** mean colour per class, used as the "reference" to re-dye from */
@@ -68,8 +70,45 @@ function isSkin(r: number, g: number, b: number) {
   return h >= 8 && h <= 38 && s > 0.3 && s < 0.82 && v > 0.22 && r > b + 0.08
 }
 
-function buildBase(mesh: THREE.SkinnedMesh, tex: THREE.Texture): BaseInfo | null {
-  const image = tex.image as CanvasImageSource & { width: number; height: number }
+/** Engine-agnostic view of a skinned mesh (three or Babylon). */
+export interface MeshData {
+  count: number
+  uv: (i: number) => [number, number]
+  /** the bone index that weighs most on vertex i */
+  topBone: (i: number) => number
+  index: ((n: number) => number) | null
+  triCount: number
+  boneNames: string[]
+}
+function threeMeshData(mesh: THREE.SkinnedMesh): MeshData {
+  const g = mesh.geometry
+  const uv = g.attributes.uv
+  const si = g.attributes.skinIndex
+  const sw = g.attributes.skinWeight
+  const idx = g.index
+  return {
+    count: uv.count,
+    uv: (i) => [uv.getX(i), uv.getY(i)],
+    topBone: (i) => {
+      let best = 0
+      let bw = -1
+      for (let k = 0; k < 4; k++) {
+        const w = sw.getComponent(i, k)
+        if (w > bw) (bw = w), (best = si.getComponent(i, k))
+      }
+      return best
+    },
+    index: idx ? (n) => idx.getX(n) : null,
+    triCount: idx ? idx.count / 3 : uv.count / 3,
+    boneNames: mesh.skeleton.bones.map((b) => b.name)
+  }
+}
+
+function buildBase(mesh: THREE.SkinnedMesh, tex: THREE.Texture, headCloth = false): BaseInfo | null {
+  return buildBaseFrom(threeMeshData(mesh), tex.image as CanvasImageSource & { width: number; height: number }, headCloth)
+}
+
+export function buildBaseFrom(md: MeshData, image: CanvasImageSource & { width: number; height: number }, headCloth = false): BaseInfo | null {
   if (!image || !image.width) return null
   const cv = document.createElement('canvas')
   cv.width = cv.height = SIZE
@@ -82,27 +121,11 @@ function buildBase(mesh: THREE.SkinnedMesh, tex: THREE.Texture): BaseInfo | null
   lab.width = lab.height = SIZE
   const lc = lab.getContext('2d', { willReadFrequently: true })!
   lc.imageSmoothingEnabled = false
-  const g = mesh.geometry
-  const uv = g.attributes.uv
-  const si = g.attributes.skinIndex
-  const sw = g.attributes.skinWeight
-  const idx = g.index
-  const names = mesh.skeleton.bones.map((b) => b.name)
-  const vReg = new Uint8Array(uv.count)
-  for (let i = 0; i < uv.count; i++) {
-    let best = 0
-    let bw = -1
-    for (let k = 0; k < 4; k++) {
-      const w = sw.getComponent(i, k)
-      if (w > bw) {
-        bw = w
-        best = si.getComponent(i, k)
-      }
-    }
-    vReg[i] = regionOf(names[best] ?? '')
-  }
-  const tri = idx ? idx.count / 3 : uv.count / 3
-  const at = (n: number) => (idx ? idx.getX(n) : n)
+  const names = md.boneNames
+  const vReg = new Uint8Array(md.count)
+  for (let i = 0; i < md.count; i++) vReg[i] = regionOf(names[md.topBone(i)] ?? '')
+  const tri = md.triCount
+  const at = (n: number) => (md.index ? md.index(n) : n)
   for (let t = 0; t < tri; t++) {
     const a = at(t * 3)
     const b = at(t * 3 + 1)
@@ -112,9 +135,12 @@ function buildBase(mesh: THREE.SkinnedMesh, tex: THREE.Texture): BaseInfo | null
     const reg = ra === vReg[b] || ra === vReg[c] ? ra : vReg[b]
     lc.fillStyle = `rgb(${reg * 40},0,0)`
     lc.beginPath()
-    lc.moveTo(uv.getX(a) * SIZE, uv.getY(a) * SIZE)
-    lc.lineTo(uv.getX(b) * SIZE, uv.getY(b) * SIZE)
-    lc.lineTo(uv.getX(c) * SIZE, uv.getY(c) * SIZE)
+    const [ua, va] = md.uv(a)
+    const [ub, vb] = md.uv(b)
+    const [uc, vc] = md.uv(c)
+    lc.moveTo(ua * SIZE, va * SIZE)
+    lc.lineTo(ub * SIZE, vb * SIZE)
+    lc.lineTo(uc * SIZE, vc * SIZE)
     lc.closePath()
     lc.fill()
     lc.lineWidth = 2
@@ -142,6 +168,7 @@ function buildBase(mesh: THREE.SkinnedMesh, tex: THREE.Texture): BaseInfo | null
     let cls: keyof typeof sum | null = null
     // legs and feet are covered (trousers / leggings / shoes): no skin there
     if (reg !== 4 && reg !== 5 && isSkin(r, gg, bb)) cls = 'skin'
+    else if (reg === 1 && headCloth) cls = 'hair' // hijab: the head cloth takes the 'hair' colour
     else if (reg === 1 || reg === 2) cls = v < 0.3 ? 'hair' : null
     else if (reg === 3) cls = 'top'
     else if (reg === 4) cls = 'bottom'
@@ -196,11 +223,22 @@ export function dressTexture(mesh: THREE.SkinnedMesh, tex: THREE.Texture, look: 
   if (hit) return hit
   let base = bases.get(tex)
   if (!base) {
-    const b = buildBase(mesh, tex)
+    const b = buildBase(mesh, tex, !!look.headCloth)
     if (!b) return tex
     base = b
     bases.set(tex, base)
   }
+  const cv = dressCanvas(base, look)
+  const t = new THREE.CanvasTexture(cv)
+  t.flipY = tex.flipY
+  t.colorSpace = THREE.SRGBColorSpace
+  t.anisotropy = 4
+  variants.set(key, t)
+  return t
+}
+
+/** Re-dye a base texture for a look; returns a canvas (any engine). */
+export function dressCanvas(base: BaseInfo, look: Look): HTMLCanvasElement {
   const out = new ImageData(new Uint8ClampedArray(base.img.data), SIZE, SIZE)
   const d = out.data
   const L = base.labels
@@ -243,12 +281,7 @@ export function dressTexture(mesh: THREE.SkinnedMesh, tex: THREE.Texture, look: 
   const cv = document.createElement('canvas')
   cv.width = cv.height = SIZE
   cv.getContext('2d')!.putImageData(out, 0, 0)
-  const t = new THREE.CanvasTexture(cv)
-  t.flipY = tex.flipY
-  t.colorSpace = THREE.SRGBColorSpace
-  t.anisotropy = 4
-  variants.set(key, t)
-  return t
+  return cv
 }
 
 // ------------------------------------------------------------------ gadgets

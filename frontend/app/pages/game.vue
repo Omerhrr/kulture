@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { REGIONS, REGION_ID } from '~/utils/regions'
 import { useSimStore } from '~/stores/sim'
 import { useWorkStore } from '~/stores/work'
 import { useAdsStore } from '~/stores/ads'
@@ -97,6 +98,16 @@ function onKey(e: KeyboardEvent) {
 
 async function bootstrap() {
   const api = useGameApi()
+  const me0 = await api.me()
+  // the server decides which town you're in; load that town's map
+  const town = REGIONS.find((r) => r.slug === (me0 as any).region_slug)?.id ?? 'kaduna'
+  if (town !== REGION_ID) {
+    try {
+      localStorage.setItem('kk_region', town)
+    } catch {}
+    window.location.reload()
+    return
+  }
   await world.load()
   const [me, inv, jobs] = await Promise.all([api.me(), api.inventory(), api.myJobs()])
   player.applyPlayer(me)
@@ -114,6 +125,7 @@ async function bootstrap() {
 }
 
 const socket = useGameSocket()
+if (import.meta.client) (window as any).__kk_ws_send = (type: string, payload: Record<string, unknown>) => socket.send(type, payload)
 
 onMounted(async () => {
   try {
@@ -133,6 +145,7 @@ onMounted(async () => {
     world.handleServerEvent(ev)
     payments.onServerEvent(ev)
     if (ev.type === 'npc.dialogue') {
+      if (ev.payload?.npc) useGameApi().apiPost('/social/met', { npc_id: ev.payload.npc, name: ev.payload?.npc_name || 'Friend' }).catch(() => {})
       ui.dialogue = {
         npcName: ev.payload?.npc_name || 'NPC',
         text: ev.payload?.dialogue || '',
@@ -342,6 +355,10 @@ function fmtNgn(minor: number) {
       </button>
       <Phone />
       <WorkApp />
+      <RaceHud />
+      <LifeEvents />
+      <SocialNotices />
+      <VoiceSystem />
       <CommuteCard />
       <ShiftCard v-if="!work.commute?.active" />
       <AskSheet />

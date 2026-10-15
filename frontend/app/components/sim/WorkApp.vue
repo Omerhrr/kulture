@@ -8,7 +8,7 @@ const open = useState<boolean>('kk_work_open', () => false)
 const work = useWorkStore()
 const ui = useUiStore()
 const playerPos = useState<[number, number, number]>('kk_player_pos')
-const ICONS: Record<string, string> = { shop: '🏪', textile: '🧵', motorpark: '🚌', campus: '🎓', rail: '🚆' }
+const ICONS: Record<string, string> = { developer: '💻', banker: '🏦', doctor: '🩺', manager: '📊', shop: '🏪', textile: '🧵', motorpark: '🚌', campus: '🎓', rail: '🚆' }
 
 watch(open, async (o) => {
   if (!o) return
@@ -18,7 +18,8 @@ watch(open, async (o) => {
     ui.showToast(e.message || 'Could not load jobs', 'error')
   }
 })
-const dist = (c: { position: [number, number, number] }) => {
+const dist = (c: { position: [number, number, number] | null }) => {
+  if (!c.position) return 'clock in anywhere in town'
   const d = Math.hypot(c.position[0] - playerPos.value[0], c.position[2] - playerPos.value[2])
   return d < 1000 ? `${Math.round(d / 10) * 10} m` : `${(d / 1000).toFixed(1)} km`
 }
@@ -60,6 +61,7 @@ function go() {
             <div class="min-w-0 flex-1">
               <div class="font-display text-[15px] font-semibold text-ink">{{ c.title }}</div>
               <div class="truncate text-xs text-ink/55">{{ c.place_name }} · {{ dist(c) }}</div>
+              <div v-if="c.needs_certificate" class="text-[10px] font-bold text-violet-600">🎓 {{ c.needs_certificate === 'any' ? 'Needs any school certificate' : `Needs a ${c.needs_certificate.replace('_', ' ')} certificate` }}</div>
             </div>
             <div class="text-right">
               <div class="text-sm font-extrabold text-leaf">{{ fmtNgn(c.pay_ngn_minor) }}</div>
@@ -73,7 +75,7 @@ function go() {
         <div class="border-t border-ink/5 p-4">
           <button v-if="work.shift" class="w-full rounded-full bg-ink/10 py-4 font-display text-lg font-semibold text-ink" @click="open = false">You're on a shift</button>
           <button v-else class="w-full rounded-full py-4 font-display text-lg font-semibold text-white shadow-lg transition-colors" :class="work.careerId ? 'bg-leaf shadow-leaf/30 hover:bg-kadeep' : 'bg-leaf/35'" :disabled="!work.careerId" @click="go">
-            {{ work.career ? `Go to work · ${work.career.place_name}` : 'Pick a job' }}
+            {{ work.career ? (work.career.position ? `Go to work · ${work.career.place_name}` : `Log in · ${work.career.title}`) : 'Pick a job' }}
           </button>
         </div>
       </div>
