@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from app.schemas.utc import UTCDatetime as datetime
-from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class RegisterIn(BaseModel):
@@ -32,7 +31,7 @@ class PlayerOut(BaseModel):
     display_name: str
     avatar_id: str
     reputation: int
-    ngn_balance_minor: int
+    ksats_balance: int
     position: tuple[float, float, float] | None = None
     region_id: str | None = None
     region_slug: str | None = None

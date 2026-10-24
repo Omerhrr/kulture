@@ -214,7 +214,7 @@ class AgentOrchestrator:
         if any(g in msg for g in ("hello", "hi", "sannu", "barka", "good")):
             return f"Sannu {name}! Welcome to my shop. You wan buy something, or you fit help me deliver package go Stonetech Square?"
         if "job" in msg or "work" in msg or "deliver" in msg:
-            return f"Ah, you wan work? I get delivery job wey I need help with, {name}. Check the job board, na NGN I dey pay, and reputation dey follow."
+            return f"Ah, you wan work? I get delivery job wey I need help with, {name}. Check the job board, na k-sats I dey pay, and reputation dey follow."
         if "bitcoin" in msg or "sats" in msg or "lightning" in msg:
             return "Yes o! You fit pay with Lightning - scan the QR for the item you want. Na real sats, so na your wallet go approve am. I no fit touch your Bitcoin."
         return f"Welcome {name}! Today we get stock - check the shop panel. Pay with Lightning (real sats) or just browse. How you dey?"
@@ -240,7 +240,7 @@ class AgentOrchestrator:
                     {
                         "item_code": "suya_spice",
                         "dropoff_entity_code": "stonetech_square",
-                        "reward_ngn_minor": 8_000_00,
+                        "reward_ksats": 8_000_00,
                         "title": "Deliver Suya Spice to Stonetech Square",
                         "expires_minutes": 480,
                     },

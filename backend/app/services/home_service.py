@@ -1,4 +1,4 @@
-"""Home furniture: catalog, ownership, layout, buy and sell (simulated NGN).
+"""Home furniture: catalog, ownership, layout, buy and sell (simulated k-sats).
 
 The server owns what you have and the money; the client only proposes
 positions, which are bounds-checked. Selling refunds half the catalog price.
@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.home import HomeItem
 from app.models.ledger import GameLedgerEntry
-from app.services import player_service
 
 # sku -> (name, price in kobo, category)
 CATALOG: dict[str, tuple[str, int, str]] = {
@@ -51,7 +50,7 @@ def item_out(it: HomeItem) -> dict[str, Any]:
 
 
 def catalog_out() -> list[dict[str, Any]]:
-    return [{"sku": k, "name": n, "price_ngn_minor": p, "category": c, "sell_ngn_minor": int(p * SELL_RATE)} for k, (n, p, c) in CATALOG.items()]
+    return [{"sku": k, "name": n, "price_ksats": p, "category": c, "sell_ksats": int(p * SELL_RATE)} for k, (n, p, c) in CATALOG.items()]
 
 
 async def items(db: AsyncSession, player_id: str) -> list[HomeItem]:
@@ -100,13 +99,14 @@ async def buy(db: AsyncSession, player_id: str, sku: str, x: float = 0.0, z: flo
     if len(await items(db, player_id)) >= MAX_ITEMS:
         raise HomeError("home_full")
     name, price, _ = CATALOG[sku]
-    if await player_service.ngn_balance_minor(db, player_id) < price:
-        raise HomeError("insufficient_funds")
+    from app.services import life_service
+
+    try:
+        await life_service.charge(db, player_id, price, "furniture_purchase", f"Bought {name}")
+    except life_service.LifeError:
+        raise HomeError("insufficient_funds") from None
     it = HomeItem(player_id=player_id, sku=sku, x=x, z=z, rot=0)
     db.add(it)
-    await db.flush()
-    db.add(GameLedgerEntry(account_reference=f"player:{player_id}", asset_type="ngn_minor", amount_minor_units=-price,
-                           transaction_reference=f"furniture_buy:{it.id}", entry_type="furniture_purchase", description=f"Bought {name}"))
     await db.commit()
     return it
 
@@ -118,7 +118,7 @@ async def sell(db: AsyncSession, player_id: str, uid: str) -> int:
     name, price, _ = CATALOG.get(it.sku, (it.sku, 0, ""))
     refund = int(price * SELL_RATE)
     await db.delete(it)
-    db.add(GameLedgerEntry(account_reference=f"player:{player_id}", asset_type="ngn_minor", amount_minor_units=refund,
+    db.add(GameLedgerEntry(account_reference=f"player:{player_id}", asset_type="ksats", amount_minor_units=refund,
                            transaction_reference=f"furniture_sell:{uid}:{uuid.uuid4().hex[:6]}", entry_type="furniture_sale", description=f"Sold {name}"))
     await db.commit()
     return refund

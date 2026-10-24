@@ -216,7 +216,7 @@ def upgrade() -> None:
     sa.Column('started_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('ended_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('tasks_done', sa.Integer(), nullable=False),
-    sa.Column('paid_ngn_minor', sa.BigInteger(), nullable=False),
+    sa.Column('paid_ksats', sa.BigInteger(), nullable=False),
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),

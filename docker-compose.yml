@@ -1,85 +1,75 @@
-# Kaduna Kulture - full-stack composition (local/staging).
-# Production hardening (secrets, TLS, node isolation) is documented in
-# docs/security.md and must be reviewed before accepting real payments.
+# Kaduna Kulture - production stack (VPS).
+#   cp infra/env.production.example .env   # fill in the secrets
+#   docker compose up -d --build
+# Only Caddy is exposed (80/443); Postgres and the app stay on the private
+# compose network.
 
-version: "3.9"
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
 
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: kk
-      POSTGRES_PASSWORD: kk_dev_change_me
-      POSTGRES_DB: kaduna
+      POSTGRES_USER: ${POSTGRES_USER:-kk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-kaduna}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kk -d kaduna"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    # Optional per spec: cache/rate limiting only - NEVER the ledger.
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      retries: 20
+    logging: *logging
 
   backend:
     build: ./backend
+    restart: unless-stopped
+    env_file: .env
     environment:
-      KK_ENV: local
-      KK_DATABASE_URL: postgresql+asyncpg://kk:kk_dev_change_me@db:5432/kaduna
-      KK_LIGHTNING_PROVIDER: mock
-      KK_LLM_BASE_URL: http://llm-bridge:8100/v1
-      KK_JWT_SECRET: change-me-in-staging-and-prod
+      KK_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kk}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-kaduna}
+      KK_CORS_ORIGINS: '["https://${KK_DOMAIN}"]'
     depends_on:
       db:
         condition: service_healthy
-    command: >
-      sh -c "alembic upgrade head &&
-             python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready')\""]
-      interval: 10s
+      interval: 15s
       timeout: 5s
-      retries: 10
-
-  llm-bridge:
-    image: oven/bun:1
-    working_dir: /app
-    volumes:
-      - ./services/llm-bridge:/app
-      - bridge_node_modules:/root/.bun/install/cache
-    command: sh -c "bun install && bun bridge.ts"
-    environment:
-      PORT: 8100
+      start_period: 60s
+      retries: 5
+    logging: *logging
 
   frontend:
     build: ./frontend
-    environment:
-      NODE_ENV: production
+    restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
+    logging: *logging
 
   caddy:
     image: caddy:2-alpine
+    restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+      - "443:443/udp"
+    environment:
+      KK_DOMAIN: ${KK_DOMAIN:?set KK_DOMAIN in .env}
     volumes:
       - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - frontend
       - backend
+    logging: *logging
 
 volumes:
   pgdata:
   caddy_data:
-  bridge_node_modules:
+  caddy_config:

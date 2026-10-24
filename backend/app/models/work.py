@@ -22,4 +22,4 @@ class WorkShift(UUIDPk, Timestamped, Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tasks_done: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    paid_ngn_minor: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    paid_ksats: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)

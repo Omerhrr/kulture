@@ -29,7 +29,7 @@ export interface Player {
   display_name: string
   avatar_id: string
   reputation: number
-  ngn_balance_minor: number
+  ksats_balance: number
   position: [number, number, number] | null
   region_id: string | null
   region_slug?: string | null
@@ -52,7 +52,7 @@ export interface Listing {
   item_name: string
   emoji: string
   description: string
-  price_ngn_minor: number
+  price_ksats: number
   price_sats: number
   quantity_available: number
 }
@@ -74,7 +74,7 @@ export interface Job {
   description: string
   status: string
   pickup_state: string
-  reward_ngn_minor: number
+  reward_ksats: number
   reward_reputation: number
   pickup_entity: { id: string; code: string; name: string; position: number[] } | null
   dropoff_entity: { id: string; code: string; name: string; position: number[] } | null
@@ -84,7 +84,7 @@ export interface PaymentIntent {
   id: string
   status: string
   amount_sats: number
-  amount_ngn_minor: number
+  amount_ksats: number
   item_code: string
   item_name: string
   quantity: number

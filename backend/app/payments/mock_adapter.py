@@ -14,9 +14,8 @@ LdkNodeAdapter (see docs/lightning-integration.md).
 
 from __future__ import annotations
 
-import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from app.payments.interfaces import (

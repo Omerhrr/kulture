@@ -51,7 +51,7 @@ export const TRAITS: Trait[] = [
 ]
 export const DREAMS = [
   { id: 'oga', icon: '👔', name: 'Oga at the Top', blurb: 'Reach the top level of any career.' },
-  { id: 'landlord', icon: '🏡', name: 'Barnawa Landlord', blurb: 'Build a net worth of ₦1,000,000.' },
+  { id: 'landlord', icon: '🏡', name: 'Barnawa Landlord', blurb: 'Build a net worth of 100M k-sats.' },
   { id: 'trader', icon: '🧵', name: 'Kantin Kwari King', blurb: 'Run a stall that never closes at the textile market.' },
   { id: 'padi', icon: '🤝', name: "Everybody's Padi", blurb: 'Become best friends with 4 people.' },
   { id: 'sats', icon: '⚡', name: 'Sats Stacker', blurb: 'Pay for 10 things with Lightning.' }

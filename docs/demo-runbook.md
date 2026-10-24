@@ -28,7 +28,7 @@ node scripts/ws-smoke.mjs                            # WS + agent E2E (should pr
 ### 2. Enter the world (60 s)
 
 - Open the app → **Enter the world** → log in as `demo_player`.
-- Point out the HUD: **₦25,000 is simulated NGN - game money, NOT Bitcoin**
+- Point out the HUD: **2,500,000 k-sats is game money - NOT Bitcoin**
   (acceptance KK-012). The green dot means the authoritative WebSocket is live.
 
 ### 3. Walk + talk to the AI shopkeeper (90 s)
@@ -47,8 +47,8 @@ node scripts/ws-smoke.mjs                            # WS + agent E2E (should pr
 - Walk to the store → **📦 Pick up** (server validates you're actually there).
 - Stonetech Square is ~800 m south in Barnawa: hop on the **keke or car
   parked by the spawn** (press **E**) and drive there - it shows off the
-  life-size city - then → **✅ Deliver** → NGN + reputation paid
-  through the ledger. Open **📜 Ledger** - simulated NGN entries are clearly
+  life-size city - then → **✅ Deliver** → k-sats + reputation paid
+  through the ledger. Open **📜 Ledger** - k-sats entries are clearly
   labeled; real sats never mix with them.
 
 ### 5. The Lightning purchase (2 min - the money shot)

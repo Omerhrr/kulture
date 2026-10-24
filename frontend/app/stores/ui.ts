@@ -4,7 +4,7 @@ import type { InteractionOption } from '~/types'
 export const useUiStore = defineStore('ui', {
   state: () => ({
     openPanel: '' as '' | 'shop' | 'inventory' | 'jobs' | 'ledger' | 'pos',
-    interaction: null as { entityId: string; entityName: string; options: InteractionOption[] } | null,
+    interaction: null as { entity_id: string; entity_name: string; options: InteractionOption[] } | null,
     dialogue: null as { npcName: string; text: string; engine: string } | null,
     toast: '' as string,
     toastKind: 'info' as 'info' | 'success' | 'error'

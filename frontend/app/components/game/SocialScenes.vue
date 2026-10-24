@@ -87,7 +87,7 @@ function onOwambe(e: Event) {
   canopy.visible = !interior.value.inside
   notes.visible = true
   pose.value = 'dance'
-  ui.showToast(guest ? `🎉 Owambe for ${partner}! Dance and spray some naira.` : `🎉 Owambe! Everyone is spraying money for you and ${partner}.`, 'success')
+  ui.showToast(guest ? `🎉 Owambe for ${partner}! Dance and spray some k-sats.` : `🎉 Owambe! Everyone is spraying money for you and ${partner}.`, 'success')
 }
 
 // ------------------------------------------------------------ dance battle
@@ -384,13 +384,17 @@ onMounted(() => {
   window.addEventListener('kk-owambe', onOwambe)
   window.addEventListener('kk-dance-battle', onDance)
   window.addEventListener('kk-football', onFootball)
-  window.addEventListener('kk-football-end', () => endFootball('You left the match.'))
+  window.addEventListener('kk-football-end', onFootballEnd)
 })
+function onFootballEnd() {
+  endFootball('You left the match.')
+}
 onBeforeUnmount(() => {
   window.removeEventListener('kk-date', onDate)
   window.removeEventListener('kk-owambe', onOwambe)
   window.removeEventListener('kk-dance-battle', onDance)
   window.removeEventListener('kk-football', onFootball)
+  window.removeEventListener('kk-football-end', onFootballEnd)
   endFootball('')
 })
 if (import.meta.dev && typeof window !== 'undefined') {

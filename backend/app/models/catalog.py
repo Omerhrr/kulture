@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import BigInteger, JSON, String, UniqueConstraint, Integer, ForeignKey
+from sqlalchemy import JSON, String, UniqueConstraint, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base

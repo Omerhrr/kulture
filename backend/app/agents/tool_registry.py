@@ -31,10 +31,10 @@ from app.models.jobs import Job
 from app.models.player import PlayerProfile
 from app.models.world import WorldEntity
 
-JOB_REWARD_CAP_NGN_MINOR = 50_000_00      # a single job can never pay more than ₦50,000
+JOB_REWARD_CAP_KSATS = 50_000_00      # a single job can never pay more than 5,000,000 k-sats
 MAX_OPEN_JOBS_PER_BUSINESS = 6
 PRICE_DELTA_MAX_PERCENT = 25              # ±25% price corridor
-MIN_LISTING_PRICE_NGN = 50_00
+MIN_LISTING_PRICE_KSATS = 50_00
 MIN_LISTING_SATS = 100
 
 
@@ -68,7 +68,7 @@ class ListJobsIn(BaseModel):
 class CreateDeliveryJobIn(BaseModel):
     item_code: str = Field(min_length=2, max_length=64)
     dropoff_entity_code: str = Field(min_length=2, max_length=64)
-    reward_ngn_minor: int = Field(ge=0, le=JOB_REWARD_CAP_NGN_MINOR)
+    reward_ksats: int = Field(ge=0, le=JOB_REWARD_CAP_KSATS)
     title: str = Field(min_length=3, max_length=80)
     expires_minutes: int = Field(default=240, ge=15, le=1440)
 
@@ -80,7 +80,7 @@ class CreateDeliveryJobIn(BaseModel):
 
 class SetPriceIn(BaseModel):
     listing_id: str = Field(min_length=8, max_length=36)
-    new_price_ngn_minor: int | None = Field(default=None, ge=MIN_LISTING_PRICE_NGN)
+    new_price_ksats: int | None = Field(default=None, ge=MIN_LISTING_PRICE_KSATS)
     new_price_sats: int | None = Field(default=None, ge=MIN_LISTING_SATS)
 
 
@@ -151,7 +151,7 @@ async def _t_check_inventory(db: AsyncSession, agent: NPCAgent, **_: Any) -> dic
                 "name": item.name,
                 "quantity_available": listing.quantity_available,
                 "price_sats": listing.price_sats,
-                "price_ngn_minor": listing.price_ngn_minor,
+                "price_ksats": listing.price_ksats,
             }
             for listing, item in rows
         ]
@@ -171,7 +171,7 @@ async def _t_market_prices(db: AsyncSession, agent: NPCAgent, item_code: str | N
         "prices": [
             {"business_code": listing.business_id[:8], "item_code": item.code,
              "name": item.name, "price_sats": listing.price_sats,
-             "price_ngn_minor": listing.price_ngn_minor}
+             "price_ksats": listing.price_ksats}
             for listing, item in rows
         ]
     }
@@ -195,7 +195,7 @@ async def _t_list_jobs(db: AsyncSession, agent: NPCAgent, **_: Any) -> dict[str,
     ).scalars().all()
     return {
         "open_jobs": [
-            {"code": j.code, "title": j.title, "reward_ngn_minor": j.reward_ngn_minor}
+            {"code": j.code, "title": j.title, "reward_ksats": j.reward_ksats}
             for j in jobs
         ],
         "open_job_count": len(jobs),
@@ -204,7 +204,7 @@ async def _t_list_jobs(db: AsyncSession, agent: NPCAgent, **_: Any) -> dict[str,
 
 async def _t_create_delivery_job(
     db: AsyncSession, agent: NPCAgent, item_code: str, dropoff_entity_code: str,
-    reward_ngn_minor: int, title: str, expires_minutes: int = 240, **_: Any
+    reward_ksats: int, title: str, expires_minutes: int = 240, **_: Any
 ) -> dict[str, Any]:
     biz = await _get_business(db, agent)
     open_count = len(
@@ -237,17 +237,17 @@ async def _t_create_delivery_job(
         status="available",
         pickup_entity_id=biz.entity_id,
         dropoff_entity_id=dropoff.id,
-        reward_ngn_minor=int(reward_ngn_minor),
+        reward_ksats=int(reward_ksats),
         reward_reputation=5,
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=expires_minutes),
     )
     db.add(job)
-    return {"job_code": job.code, "reward_ngn_minor": job.reward_ngn_minor}
+    return {"job_code": job.code, "reward_ksats": job.reward_ksats}
 
 
 async def _t_set_price(
     db: AsyncSession, agent: NPCAgent, listing_id: str,
-    new_price_ngn_minor: int | None = None, new_price_sats: int | None = None, **_: Any
+    new_price_ksats: int | None = None, new_price_sats: int | None = None, **_: Any
 ) -> dict[str, Any]:
     biz = await _get_business(db, agent)
     listing = (
@@ -261,15 +261,15 @@ async def _t_set_price(
         raise ToolRejected("listing_not_owned_by_business")
 
     changes: dict[str, int] = {}
-    if new_price_ngn_minor is not None:
-        lo = max(MIN_LISTING_PRICE_NGN, listing.price_ngn_minor * (100 - PRICE_DELTA_MAX_PERCENT) // 100)
-        hi = listing.price_ngn_minor * (100 + PRICE_DELTA_MAX_PERCENT) // 100
-        if not (lo <= new_price_ngn_minor <= hi):
+    if new_price_ksats is not None:
+        lo = max(MIN_LISTING_PRICE_KSATS, listing.price_ksats * (100 - PRICE_DELTA_MAX_PERCENT) // 100)
+        hi = listing.price_ksats * (100 + PRICE_DELTA_MAX_PERCENT) // 100
+        if not (lo <= new_price_ksats <= hi):
             raise ToolRejected(
                 f"price_out_of_corridor_{lo}_to_{hi}"
             )
-        listing.price_ngn_minor = new_price_ngn_minor
-        changes["price_ngn_minor"] = new_price_ngn_minor
+        listing.price_ksats = new_price_ksats
+        changes["price_ksats"] = new_price_ksats
     if new_price_sats is not None:
         lo = max(MIN_LISTING_SATS, listing.price_sats * (100 - PRICE_DELTA_MAX_PERCENT) // 100)
         hi = listing.price_sats * (100 + PRICE_DELTA_MAX_PERCENT) // 100

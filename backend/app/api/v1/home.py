@@ -21,7 +21,7 @@ _MSG = {
     "bad_position": "That spot is outside your home.",
     "not_found": "You don't own that item.",
     "unknown_item": "That item isn't in the catalogue.",
-    "insufficient_funds": "Not enough naira for that.",
+    "insufficient_funds": "Not enough k-sats for that.",
     "home_full": "Your home is full - sell something first.",
 }
 
@@ -58,7 +58,7 @@ async def _state(db: AsyncSession, pid: str) -> dict[str, Any]:
     return {
         "items": [home_service.item_out(i) for i in await home_service.items(db, pid)],
         "catalog": home_service.catalog_out(),
-        "balance_ngn_minor": await player_service.ngn_balance_minor(db, pid),
+        "balance_ksats": await player_service.ksats_balance(db, pid),
     }
 
 
@@ -99,4 +99,4 @@ async def sell(uid: str, profile: PlayerProfile = Depends(get_current_profile), 
         refund = await home_service.sell(db, profile.id, uid)
     except HomeError as e:
         raise _err(e)
-    return {"refund_ngn_minor": refund, **(await _state(db, profile.id))}
+    return {"refund_ksats": refund, **(await _state(db, profile.id))}

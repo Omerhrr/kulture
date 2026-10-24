@@ -9,7 +9,7 @@ from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
-from app.models.base import Timestamped, UUIDPk, utcnow
+from app.models.base import Timestamped, UUIDPk
 
 
 class Job(UUIDPk, Timestamped, Base):
@@ -35,7 +35,7 @@ class Job(UUIDPk, Timestamped, Base):
     )
     pickup_state: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
     # pickup_state: pending | picked_up | delivered
-    reward_ngn_minor: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    reward_ksats: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     reward_reputation: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

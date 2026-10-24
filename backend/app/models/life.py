@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Float, JSON, Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -22,6 +22,13 @@ class LifeState(Timestamped, Base):
     housing: Mapped[str] = mapped_column(String(16), default="family", nullable=False)  # family | rent | own
     rent_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     car_tier: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0 none .. 3
+    # your own car: paint, number plate and where you last parked it
+    car_color: Mapped[str] = mapped_column(String(9), default="", server_default="", nullable=False)
+    car_plate: Mapped[str] = mapped_column(String(12), default="", server_default="", nullable=False)
+    car_region: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    car_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    car_z: Mapped[float | None] = mapped_column(Float, nullable=True)
+    car_heading: Mapped[float] = mapped_column(Float, default=0.0, server_default="0", nullable=False)
     business_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)  # shop | restaurant
     business_name: Mapped[str | None] = mapped_column(String(48), nullable=True)
     business_collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -85,7 +92,7 @@ class GameMatch(UUIDPk, Timestamped, Base):
     game: Mapped[str] = mapped_column(String(16), nullable=False, index=True)  # whot | ludo | ayo | trivia
     status: Mapped[str] = mapped_column(String(12), default="waiting", nullable=False, index=True)
     stake: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # per player, minor units
-    asset: Mapped[str] = mapped_column(String(12), default="ngn_minor", nullable=False)
+    asset: Mapped[str] = mapped_column(String(12), default="ksats", nullable=False)
     players: Mapped[list[Any]] = mapped_column(JSON, default=list)  # [{id, name, bot}]
     state: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     winner: Mapped[str | None] = mapped_column(String(36), nullable=True)

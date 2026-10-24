@@ -245,6 +245,8 @@ for (let i = 0; i < TOTAL; i++) {
     ez: 0,
     crossTimer: 7 + Math.random() * 14,
     flee: 0,
+    tx: 0,
+    tz: 0,
     id: i
   }
   const nightOwl = hash01(i, 9.17) < 0.28

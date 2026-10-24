@@ -6,8 +6,12 @@ balances stay the single source of truth."""
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+
 import random
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -35,9 +39,9 @@ def _aware(dt: datetime | None) -> datetime | None:
 
 
 # --------------------------------------------------------------- ledger
-async def balance(db: AsyncSession, player_id: str, asset: str = "ngn_minor") -> int:
-    if asset == "ngn_minor":
-        return await player_service.ngn_balance_minor(db, player_id)
+async def balance(db: AsyncSession, player_id: str, asset: str = "ksats") -> int:
+    if asset == "ksats":
+        return await player_service.ksats_balance(db, player_id)
     total = await db.execute(
         select(func.coalesce(func.sum(GameLedgerEntry.amount_minor_units), 0)).where(
             GameLedgerEntry.account_reference == f"player:{player_id}", GameLedgerEntry.asset_type == asset
@@ -46,16 +50,32 @@ async def balance(db: AsyncSession, player_id: str, asset: str = "ngn_minor") ->
     return int(total.scalar_one())
 
 
-async def charge(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ngn_minor") -> None:
+# One lock per (player, asset): a debit's balance probe can never see another
+# session's uncommitted debit, so two tabs double-tapping a purchase could both
+# pass the pre-check and draw the balance negative. Serializing charge() per
+# account fixes that within a server process (how the game runs).
+_charge_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+
+async def charge(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ksats") -> None:
     if amount <= 0:
         return
-    if await balance(db, player_id, asset) < amount:
-        raise LifeError("insufficient_funds")
-    db.add(GameLedgerEntry(account_reference=f"player:{player_id}", asset_type=asset, amount_minor_units=-amount,
-                           transaction_reference=f"{kind}:{uuid.uuid4().hex[:12]}", entry_type=kind, description=description))
+    async with _charge_locks[f"{player_id}:{asset}"]:
+        if await balance(db, player_id, asset) < amount:
+            raise LifeError("insufficient_funds")
+        entry = GameLedgerEntry(account_reference=f"player:{player_id}", asset_type=asset, amount_minor_units=-amount,
+                                transaction_reference=f"{kind}:{uuid.uuid4().hex[:12]}", entry_type=kind, description=description)
+        db.add(entry)
+        # re-check after the debit is written: two purchases racing each other
+        # (double tap, two tabs) must not both pass the check above
+        await db.flush()
+        if await balance(db, player_id, asset) < 0:
+            await db.delete(entry)
+            await db.flush()
+            raise LifeError("insufficient_funds")
 
 
-def credit(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ngn_minor") -> None:
+def credit(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ksats") -> None:
     if amount <= 0:
         return
     db.add(GameLedgerEntry(account_reference=f"player:{player_id}", asset_type=asset, amount_minor_units=amount,
@@ -274,7 +294,17 @@ async def buy_house(db: AsyncSession, player_id: str) -> LifeState:
     return st
 
 
-async def buy_car(db: AsyncSession, player_id: str, tier: int) -> LifeState:
+CAR_COLORS = ["#3f6fae", "#b9bcc2", "#f2f2ee", "#121212", "#b8433a", "#2f7d5b", "#e0a020", "#6a4a8a"]
+
+
+def _plate(player_id: str) -> str:
+    """Kaduna-style number plate, stable per owner: KD 123 ABC."""
+    h = int(hashlib.sha1(player_id.encode()).hexdigest(), 16)
+    letters = "ABCDEFGHJKLMNPRSTUVWXYZ"
+    return f"KD{100 + h % 900} {letters[h // 900 % 23]}{letters[h // 20700 % 23]}{letters[h // 476100 % 23]}"
+
+
+async def buy_car(db: AsyncSession, player_id: str, tier: int, color: str | None = None) -> LifeState:
     st = await life_state(db, player_id)
     if tier not in CARS or tier <= st.car_tier:
         raise LifeError("bad_car")
@@ -282,9 +312,50 @@ async def buy_car(db: AsyncSession, player_id: str, tier: int) -> LifeState:
     trade_in = CARS[st.car_tier][1] // 2 if st.car_tier in CARS else 0
     await charge(db, player_id, max(0, price - trade_in), "car_purchase", f"Bought a {name}" + (" (trade-in)" if trade_in else ""))
     st.car_tier = tier
+    st.car_color = color if color in CAR_COLORS else (st.car_color or CAR_COLORS[(tier * 3) % len(CAR_COLORS)])
+    st.car_plate = st.car_plate or _plate(player_id)
+    # a new car is delivered to your home car park
+    st.car_x = None
+    st.car_z = None
     await player_service.add_reputation(db, player_id, 5 * tier)
     await db.commit()
     return st
+
+
+async def paint_car(db: AsyncSession, player_id: str, color: str) -> LifeState:
+    st = await life_state(db, player_id)
+    if not st.car_tier:
+        raise LifeError("no_car")
+    if color not in CAR_COLORS:
+        raise LifeError("bad_color")
+    await charge(db, player_id, 1_500_000, "car_paint", "Car respray")
+    st.car_color = color
+    await db.commit()
+    return st
+
+
+async def park_car(db: AsyncSession, player_id: str, region: str, x: float, z: float, heading: float) -> None:
+    st = await life_state(db, player_id)
+    if not st.car_tier:
+        raise LifeError("no_car")
+    st.car_region = region
+    st.car_x = float(x)
+    st.car_z = float(z)
+    st.car_heading = float(heading)
+    await db.commit()
+
+
+async def parked_cars(db: AsyncSession, region: str) -> list[dict[str, Any]]:
+    """Everyone's own cars parked in this town (shown to other players)."""
+    from app.models.player import PlayerProfile
+
+    rows = (await db.execute(select(LifeState, PlayerProfile).join(PlayerProfile, PlayerProfile.id == LifeState.player_id).where(LifeState.car_tier > 0))).all()
+    out = []
+    for st, prof in rows:
+        out.append({"owner_id": prof.id, "owner": prof.display_name, "tier": st.car_tier, "name": CARS[st.car_tier][0], "color": st.car_color or CAR_COLORS[0],
+                    "plate": st.car_plate or _plate(prof.id), "parked": st.car_x is not None and (st.car_region or "kaduna-city") == region,
+                    "x": st.car_x, "z": st.car_z, "heading": st.car_heading})
+    return out
 
 
 async def open_business(db: AsyncSession, player_id: str, kind: str, name: str) -> LifeState:
@@ -305,23 +376,6 @@ async def open_business(db: AsyncSession, player_id: str, kind: str, name: str) 
     await player_service.add_reputation(db, player_id, 20)
     await db.commit()
     return st
-
-
-async def collect_business(db: AsyncSession, player_id: str) -> int:
-    st = await life_state(db, player_id)
-    if not st.business_kind:
-        raise LifeError("no_business")
-    last = _aware(st.business_collected_at) or _now()
-    days = int((_now() - last) / BUSINESS_PERIOD)
-    if days < 1:
-        raise LifeError("nothing_to_collect")
-    days = min(days, 7)
-    income = BUSINESSES[st.business_kind][2] * days
-    credit(db, player_id, income, "business_income", f"{st.business_name} · {days} day(s) takings")
-    st.business_collected_at = last + days * BUSINESS_PERIOD
-    st.business_sales += income
-    await db.commit()
-    return income
 
 
 async def businesses(db: AsyncSession) -> list[dict[str, Any]]:
@@ -364,7 +418,7 @@ PRO_CAREERS = {
 
 
 async def shifts_worked(db: AsyncSession, player_id: str) -> int:
-    n = await db.execute(select(func.count()).select_from(WorkShift).where(WorkShift.player_id == player_id, WorkShift.paid_ngn_minor > 0))
+    n = await db.execute(select(func.count()).select_from(WorkShift).where(WorkShift.player_id == player_id, WorkShift.paid_ksats > 0))
     return int(n.scalar_one())
 
 
@@ -395,9 +449,9 @@ async def dream_progress(db: AsyncSession, player_id: str, dream: str) -> dict[s
     if dream == "oga":
         ms = [m("Work your first shift", shifts >= 1), m("Earn a certificate", bool(certs)), m("Reach Senior level", lvl >= 2), m("Reach Lead level", lvl >= 3), m("Become the Oga at the top", lvl >= 4)]
     elif dream == "landlord":
-        ms = [m("Save ₦100,000", worth >= 10_000_000), m("Rent your own flat", st.housing in ("rent", "own")), m("Net worth ₦500,000", worth >= 50_000_000), m("Buy your own house", st.housing == "own"), m("Net worth ₦1,000,000", worth >= 100_000_000)]
+        ms = [m("Save 10M ks", worth >= 10_000_000), m("Rent your own flat", st.housing in ("rent", "own")), m("Net worth 50M ks", worth >= 50_000_000), m("Buy your own house", st.housing == "own"), m("Net worth 100M ks", worth >= 100_000_000)]
     elif dream == "trader":
-        ms = [m("Work at the textile market", shifts >= 1), m("Study Business Administration", "business_admin" in certs), m("Open your own business", bool(st.business_kind)), m("Take ₦100,000 in sales", st.business_sales >= 10_000_000), m("Take ₦500,000 in sales", st.business_sales >= 50_000_000)]
+        ms = [m("Work at the textile market", shifts >= 1), m("Study Business Administration", "business_admin" in certs), m("Open your own business", bool(st.business_kind)), m("Take 10M ks in sales", st.business_sales >= 10_000_000), m("Take 50M ks in sales", st.business_sales >= 50_000_000)]
     elif dream == "padi":
         ms = [m("Make your first friend", friends >= 1), m("2 close friends", friends >= 2), m("3 close friends", friends >= 3), m("4 best friends", friends >= 4)]
     else:
@@ -420,6 +474,9 @@ async def status(db: AsyncSession, player_id: str) -> dict[str, Any]:
         "rent_due": rent_due,
         "car_tier": st.car_tier,
         "car_name": CARS[st.car_tier][0] if st.car_tier in CARS else None,
+        "car": ({"tier": st.car_tier, "color": st.car_color or CAR_COLORS[0], "plate": st.car_plate or _plate(player_id),
+                 "x": st.car_x, "z": st.car_z, "heading": st.car_heading, "region": st.car_region} if st.car_tier else None),
+        "car_colors": CAR_COLORS,
         "business": {"kind": st.business_kind, "name": st.business_name, "sales": st.business_sales, "level": st.business_level, "stock": st.business_stock} if st.business_kind else None,
         "enrollment": enrollment_out(e),
         "certificates": [{"course": c, "name": COURSES[c]["name"]} for c in certs],

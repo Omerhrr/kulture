@@ -7,7 +7,7 @@
 //  * harmattan mornings, keke/okada riders calling for passengers
 //  * context actions: dance battle (bar), talent show (cinema), 5-a-side
 //    (park), landmark info cards + the Kajuru Castle weekend trip
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 import { useClock } from '~/composables/useTimeOfDay'
 import { useInterior, usePlayerPose, useRide } from '~/composables/useControlsState'
 import { inPark } from '~/utils/parksShared'
@@ -88,7 +88,7 @@ function attendWedding() {
 
 // ------------------------------------------------------------ keke / okada calls
 const call = ref<string | null>(null)
-const CALLS = ['Keke! Kawo, Kawo! ₦200!', 'Okada! Where you dey go? Ungwan Rimi, Barnawa!', 'Kasuwa! Central Market, enter enter!', 'Sabon Tasha! One chance remain!', 'Malali, Malali! Keke dey go now!', 'Oga, you dey go Kakuri? Make I carry you.', 'Hajiya, Kawo? Enter, ₦150 only!']
+const CALLS = ['Keke! Kawo, Kawo! 20,000 ks!', 'Okada! Where you dey go? Ungwan Rimi, Barnawa!', 'Kasuwa! Central Market, enter enter!', 'Sabon Tasha! One chance remain!', 'Malali, Malali! Keke dey go now!', 'Oga, you dey go Kakuri? Make I carry you.', 'Hajiya, Kawo? Enter, 15,000 ks only!']
 let callTimer: any = null
 onMounted(() => {
   callTimer = setInterval(() => {
@@ -143,7 +143,7 @@ async function finishDance() {
   const won = myScore.value > rivalScore.value
   result.value = won ? 'The crowd goes wild - you win the dance battle!' : 'DJ Kabiru takes it this time.'
   const r = await api.apiPost<any>('/life/event', { event: 'dance_battle', won }).catch(() => null)
-  if (r?.prize) result.value += ` Prize ${fmtNgn(r.prize)}.`
+  if (r?.prize) result.value += ` Prize ${fmtKsats(r.prize)}.`
 }
 function onKey(e: KeyboardEvent) {
   const i = KEYS.indexOf(e.key)
@@ -198,7 +198,7 @@ async function talentHit() {
   const won = score > best
   result.value = `Judges' score: ${score}. ${won ? 'You win the talent show! 🏆' : `${rivals.value.find((r) => r.score === best)!.name} wins with ${best}.`}`
   const r = await api.apiPost<any>('/life/event', { event: 'talent_show', won }).catch(() => null)
-  if (r?.prize) result.value += ` Prize ${fmtNgn(r.prize)}.`
+  if (r?.prize) result.value += ` Prize ${fmtKsats(r.prize)}.`
 }
 function closeMini() {
   cancelAnimationFrame(raf)
@@ -216,7 +216,7 @@ watch(
       const won = old.score[0] > old.score[1]
       if (won) {
         const r = await api.apiPost<any>('/life/event', { event: 'football', won }).catch(() => null)
-        if (r?.prize) ui.showToast(`Match prize ${fmtNgn(r.prize)} ⚽`, 'success')
+        if (r?.prize) ui.showToast(`Match prize ${fmtKsats(r.prize)} ⚽`, 'success')
       }
     }
   }
@@ -231,7 +231,7 @@ async function buyAtBiz() {
   buying.value = true
   try {
     const r = await api.apiPost<any>('/venues/spend', { service: b.kind === 'restaurant' ? 'restaurant_meal' : 'shop_groceries', business_owner: b.owner_id })
-    ui.showToast(`${b.kind === 'restaurant' ? 'Enjoyed a plate' : 'Bought groceries'} at ${b.name} · ${fmtNgn(r.price_ngn_minor)}`, 'success')
+    ui.showToast(`${b.kind === 'restaurant' ? 'Enjoyed a plate' : 'Bought groceries'} at ${b.name} · ${fmtKsats(r.price_ksats)}`, 'success')
   } catch (e: any) {
     ui.showToast(e.message || 'Could not buy', 'error')
   } finally {

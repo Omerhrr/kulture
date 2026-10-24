@@ -85,6 +85,7 @@ if (import.meta.dev) {
     <CityEvents v-if="stage >= 10" />
     <PlayerBusinesses v-if="stage >= 10" />
     <CrewClubhouse v-if="stage >= 10" />
+    <CarParks v-if="stage >= 10" />
     <AmbientHeli v-if="stage >= 11" />
     <template v-if="stage >= 5"><NpcAvatar v-for="n in npcs" :key="n.code" :x="n.x" :z="n.z" :name="n.code" :female="n.female" :shirt="n.shirt" :hair-style="n.hairStyle" :beard="n.beard" /></template>
   </TresCanvas>

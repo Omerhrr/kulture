@@ -57,7 +57,7 @@ class ListingOut(BaseModel):
     item_name: str
     emoji: str
     description: str
-    price_ngn_minor: int
+    price_ksats: int
     price_sats: int
     quantity_available: int
 
@@ -77,12 +77,18 @@ class PurchaseIn(BaseModel):
     idempotency_key: str | None = None
 
 
+class DepositIn(BaseModel):
+    """Lightning sats to deposit; credited 1 sat = 1,000 k-sats on settlement."""
+
+    sats: int = Field(ge=1, le=5_000_000)
+
+
 # ----------------------------------------------------------------- payments
 class PaymentIntentOut(BaseModel):
     id: str
     status: str
     amount_sats: int
-    amount_ngn_minor: int
+    amount_ksats: int
     item_code: str
     item_name: str
     quantity: int
@@ -106,7 +112,7 @@ class JobOut(BaseModel):
     description: str
     status: str
     pickup_state: str
-    reward_ngn_minor: int
+    reward_ksats: int
     reward_reputation: int
     pickup_entity: dict[str, Any] | None = None
     dropoff_entity: dict[str, Any] | None = None

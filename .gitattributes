@@ -1,0 +1,6 @@
+# files that run on the Linux VPS / inside containers must keep LF endings
+*.sh text eol=lf
+Dockerfile text eol=lf
+Caddyfile text eol=lf
+docker-compose.yml text eol=lf
+infra/env.production.example text eol=lf

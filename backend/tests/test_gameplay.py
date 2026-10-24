@@ -17,7 +17,7 @@ async def test_register_and_me(client, auth_headers):
     r = await client.get("/api/v1/players/me", headers=auth_headers)
     assert r.status_code == 200
     me = r.json()
-    assert me["ngn_balance_minor"] == 2_500_000  # ₦25,000.00 in kobo
+    assert me["ksats_balance"] == 2_500_000  # 2,500,000 starting k-sats
     assert me["reputation"] == 0
     assert me["position"] is not None
 
@@ -133,7 +133,7 @@ async def test_delivery_job_full_loop(client, auth_headers, world_ctx):
     )
     assert done.status_code == 200
     me_after = done.json()
-    assert me_after["ngn_balance_minor"] == me_before["ngn_balance_minor"] + job["reward_ngn_minor"]
+    assert me_after["ksats_balance"] == me_before["ksats_balance"] + job["reward_ksats"]
     assert me_after["reputation"] == me_before["reputation"] + job["reward_reputation"]
 
     # parcel consumed

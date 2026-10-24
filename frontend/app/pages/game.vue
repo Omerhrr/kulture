@@ -64,6 +64,9 @@ function tryInteract() {
 // keyboard shortcuts
 function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement) return
+  // holding a key auto-repeats keydown: it must not mash the toggles
+  // (enter/exit doors, map, time-skip, horn...)
+  if (e.repeat) return
   // number keys pick an option on the interaction sheet
   if (ui.interaction && /^[1-9]$/.test(e.key)) {
     const o = ui.interaction.options[+e.key - 1]
@@ -157,6 +160,7 @@ onMounted(async () => {
     // other players nearby + the real online count (1 Hz from the server)
     if (ev.type === 'players.snapshot') {
       useState('kk_players').value = ev.payload
+      if (import.meta.dev) (window as any).__kk_snap = ev.payload
       return
     }
     // the server granted a commute skip: land where it says
@@ -262,8 +266,8 @@ async function submitAuth() {
   }
 }
 
-function fmtNgn(minor: number) {
-  return `₦${(minor / 100).toLocaleString('en-NG')}`
+function fmtKsats(minor: number) {
+  return `${Math.round(minor).toLocaleString('en')} ks`
 }
 </script>
 
@@ -358,6 +362,7 @@ function fmtNgn(minor: number) {
       <RaceHud />
       <LifeEvents />
       <SocialNotices />
+      <RideInvite />
       <VoiceSystem />
       <CommuteCard />
       <ShiftCard v-if="!work.commute?.active" />
@@ -388,7 +393,7 @@ function fmtNgn(minor: number) {
           <div class="rounded-2xl bg-paper p-3 text-[12px]">
             <div class="font-bold text-ink/75">Asset classes (never mixed):</div>
             <div>⚡ Real Bitcoin sats - verified Lightning settlements</div>
-            <div>💰 Simulated NGN - game-only currency ({{ fmtNgn(player.profile?.ngn_balance_minor || 0) }})</div>
+            <div>💰 k-sats - game-only currency ({{ fmtKsats(player.profile?.ksats_balance || 0) }}). Deposit Lightning sats: 1 sat = 1,000 k-sats.</div>
             <div>⭐ Reputation - progression, not money</div>
           </div>
         </div>
@@ -446,7 +451,7 @@ function fmtNgn(minor: number) {
         v-else-if="!isTouch"
         class="pointer-events-auto absolute bottom-24 left-4 cursor-pointer z-20 rounded-2xl bg-ink/45 px-3.5 py-2 text-[11px] leading-relaxed text-white/90 backdrop-blur-sm"
       >
-        <div>WASD or arrows to walk · Shift to sprint · click the ground to go there · Y weather</div>
+        <div>WASD or arrows to walk · Shift to sprint · click the ground to go there · Y weather · V camera view (1st / 2nd / 3rd person)</div>
         <div>E talk, board a keke, car, okada, bus, boat or plane, or enter homes · V inner view</div>
         <div>M city map · N skip 2 hours · H horn · P sound on/off <button class="ml-2 underline" @click="showHint = false">hide</button></div>
       </div>

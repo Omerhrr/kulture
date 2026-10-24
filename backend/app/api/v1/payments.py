@@ -15,7 +15,6 @@ import hashlib
 import hmac
 import json
 import time
-import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
@@ -26,19 +25,20 @@ from app.api.deps import error, get_current_profile
 from app.core.config import settings
 from app.db.session import get_db
 from app.events.outbox_service import emit
-from app.models.business import Business
 from app.models.payments import LightningInvoice, PaymentIntent
 from app.models.player import PlayerProfile
 from app.payments.interfaces import SettlementEvent
 from app.payments.lightning_service import (
+    SATS_TO_KSATS,
     PaymentError,
+    create_deposit_intent,
     create_invoice_for_intent,
     invoice_for_intent,
     mark_intent_cancelled,
     process_settlement,
 )
 from app.payments.mock_adapter import MockRegtestAdapter, get_adapter
-from app.schemas.game import DevPayIn, PaymentIntentOut, PurchaseIn
+from app.schemas.game import DevPayIn, PaymentIntentOut, PurchaseIn, DepositIn
 from app.services import shop_service
 
 router = APIRouter(tags=["payments"])
@@ -49,7 +49,7 @@ def _intent_out(intent: PaymentIntent, inv) -> PaymentIntentOut:
         id=intent.id,
         status=intent.status,
         amount_sats=intent.amount_sats,
-        amount_ngn_minor=intent.amount_ngn_minor,
+        amount_ksats=intent.amount_ksats,
         item_code=(intent.metadata_json or {}).get("item_code", ""),
         item_name=(intent.metadata_json or {}).get("item_name", ""),
         quantity=intent.quantity,
@@ -225,6 +225,29 @@ async def lightning_webhook(
         await db.commit()
 
     return {"outcome": outcome["outcome"], "provider_event_id": event.provider_event_id}
+
+
+# ------------------------------------------------------ k-sats deposits
+@router.post("/deposits", status_code=201)
+async def create_deposit(
+    body: DepositIn,
+    profile: PlayerProfile = Depends(get_current_profile),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Turn Lightning sats into spendable k-sats (1 sat = 1,000 k-sats).
+    Same verified, exactly-once settlement pipeline as purchases: the intent
+    is fulfilled by lightning_service.process_settlement."""
+    try:
+        intent = await create_deposit_intent(db, profile.id, body.sats)
+        await create_invoice_for_intent(db, intent)
+    except PaymentError as exc:
+        code = str(exc).split(":")[0]
+        raise error(code, str(exc), 409, retryable="unreachable" in str(exc))
+    intent, inv = await invoice_for_intent(db, intent.id)
+    return {
+        "intent": _intent_out(intent, inv).model_dump(mode="json"),
+        "ksats_credits": body.sats * SATS_TO_KSATS,
+    }
 
 
 # ------------------------------------------------------------------ dev-only

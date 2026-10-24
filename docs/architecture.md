@@ -8,7 +8,7 @@
 2. **Bitcoin integrity** - a Lightning invoice is a payment request, not
    proof of payment. Only the backend's independent verification against the
    node settles a payment.
-3. **Separation of economies** - real sats, simulated NGN, and reputation
+3. **Separation of economies** - real sats, k-sats, and reputation
    are distinct asset classes, never silently convertible.
 4. **Bounded AI** - DSH agents recommend and execute only permitted actions
    through validated tools. No LLM ever touches real money.

@@ -49,6 +49,10 @@ class RaceHub:
     async def handle(self, pid: str, name: str, mtype: str, payload: dict[str, Any]) -> None:
         if mtype == "race.join":
             route = str(payload.get("route", ""))[:32]
+            from app.api.v1.races import ROUTES
+
+            if route not in ROUTES:
+                return  # only real routes get a lobby (no unbounded lobby spam)
             old = self._find(pid)
             if old and old["route"] != route:
                 old["players"][pid]["left"] = True
@@ -69,16 +73,23 @@ class RaceHub:
             if not lb["start_at"]:
                 lb["start_at"] = time.time() + GRACE_S
         elif mtype == "race.progress":
-            me["cp"] = max(me["cp"], int(payload.get("cp", 0)))
-            me["ms"] = int(payload.get("ms", 0))
+            me["cp"] = max(me["cp"], _int(payload.get("cp", 0), 0, 99))
+            me["ms"] = _int(payload.get("ms", 0))
         elif mtype == "race.finish":
             me["finished"] = True
-            me["ms"] = int(payload.get("ms", 0))
+            me["ms"] = _int(payload.get("ms", 0))
         elif mtype == "race.leave":
             me["left"] = True
         else:
             return
         await self._push(lb)
+
+
+def _int(v: Any, lo: int = 0, hi: int = 3_600_000) -> int:
+    try:
+        return max(lo, min(hi, int(float(v))))
+    except (TypeError, ValueError, OverflowError):
+        return lo
 
 
 race_hub = RaceHub()

@@ -15,7 +15,10 @@ import { ridePose } from '~/utils/rideState'
 import { trafficProbe } from '~/utils/trafficProbe'
 import { kkAudio } from '~/utils/audio'
 import { registerCrash } from '~/utils/impact'
-import { vehicleMaterial, vehicleSpec, buildInterior, type VehicleKind } from '~/utils/vehicles'
+import { vehicleMaterial, vehicleSpec, buildInterior, paintedVehicle, plateSprite, bodyWithGlass, type VehicleKind } from '~/utils/vehicles'
+import { lookFor } from '~/utils/wardrobe'
+import { useSimStore } from '~/stores/sim'
+import { hashDist, roadHash } from '~/utils/kadunaExtras'
 import { BAKE, ws, PLAYABLE_POS } from '~/utils/kaduna'
 import { useKeyboard } from '~/composables/useKeyboard'
 import { useRide } from '~/composables/useControlsState'
@@ -42,6 +45,11 @@ interface Parked {
   driver: THREE.Group | null
   /** hinged / sliding door pivot (cars, danfo, lorry) */
   door: THREE.Group | null
+  /** someone's own car: 'me' (yours) or the owner's player id */
+  owner?: string
+  ownerName?: string
+  tier?: number
+  tag?: THREE.Sprite | null
 }
 
 // ---------------------------------------------------------------- boarding
@@ -121,7 +129,12 @@ onMounted(() => {
     window.addEventListener('kk-horn', onHorn)
     window.addEventListener('kk-crash', onCrash)
     window.addEventListener('kk-summon-car', onSummon)
-    paintCars()
+    window.addEventListener('kk-car-changed', loadCars)
+    window.addEventListener('kk-ride-invite', onInvite)
+    window.addEventListener('kk-ride-accept', onAccept)
+    window.addEventListener('kk-ws', onRelay)
+    setTimeout(loadCars, 3500)
+    carTimer = setInterval(loadCars, 20_000)
   } catch (e) {
     ;(window as any).__kk_ride_err = String((e as Error)?.stack || e)
     throw e
@@ -188,10 +201,8 @@ function mountFleet() {
       }
       geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
     }
-    const body = new THREE.Mesh(geo, mat)
-    body.castShadow = true
     const mesh = new THREE.Group()
-    mesh.add(body)
+    mesh.add(bodyWithGlass(geo, mat)) // see-through windows: you can see who's inside
     if (spec.door) {
       // the door is its own part so it can swing / slide open
       const dg = spec.door.geo.clone()
@@ -208,9 +219,7 @@ function mountFleet() {
       }
       const pivot = new THREE.Group()
       pivot.position.set(...spec.door.hinge)
-      const dm = new THREE.Mesh(dg, mat)
-      dm.castShadow = true
-      pivot.add(dm)
+      pivot.add(bodyWithGlass(dg, mat))
       mesh.add(pivot)
       p.door = pivot
     }
@@ -239,50 +248,176 @@ onBeforeUnmount(() => {
   window.removeEventListener('kk-horn', onHorn)
   window.removeEventListener('kk-crash', onCrash)
   window.removeEventListener('kk-summon-car', onSummon)
+  window.removeEventListener('kk-car-changed', loadCars)
+  window.removeEventListener('kk-ride-invite', onInvite)
+  window.removeEventListener('kk-ride-accept', onAccept)
+  window.removeEventListener('kk-ws', onRelay)
+  clearInterval(carTimer)
+  if (pax) exitPassenger(true)
 })
 
 // ---- your own car: paint by tier, and bring it to you (races, Life app)
 const carTier = useState<number>('kk_car_tier', () => 0)
-const TIER_PAINT = ['#3f6fae', '#b9bcc2', '#f2f2ee', '#121212']
-function paintCars() {
-  const spec = vehicleSpec('car')
-  const c = new THREE.Color(TIER_PAINT[Math.min(3, carTier.value)] ?? TIER_PAINT[0])
-  const base = spec.geo.attributes.color.array as Float32Array
-  const gloss = spec.geo.attributes.aGloss?.array as Float32Array | undefined
-  for (const p of fleet) {
-    if (p.kind !== 'car' || !p.mesh) continue
-    const body = p.mesh.children[0] as THREE.Mesh
-    const attr = body.geometry.attributes.color as THREE.BufferAttribute
-    const arr = attr.array as Float32Array
-    for (let i = 0; i < arr.length / 3; i++) {
-      const paint = !gloss || Math.abs(gloss[i] - 0.7) <= 0.01
-      arr[i * 3] = base[i * 3] * (paint ? c.r : 1)
-      arr[i * 3 + 1] = base[i * 3 + 1] * (paint ? c.g : 1)
-      arr[i * 3 + 2] = base[i * 3 + 2] * (paint ? c.b : 1)
-    }
-    attr.needsUpdate = true
-    if (p.door && spec.door) {
-      const dm = p.door.children[0] as THREE.Mesh
-      const da = dm.geometry.attributes.color as THREE.BufferAttribute
-      const src = spec.door.geo.attributes.color.array as Float32Array
-      const a = da.array as Float32Array
-      for (let i = 0; i < a.length; i += 3) {
-        const white = src[i] > 0.9 && src[i + 1] > 0.9 && src[i + 2] > 0.9
-        a[i] = src[i] * (white ? c.r : 1)
-        a[i + 1] = src[i + 1] * (white ? c.g : 1)
-        a[i + 2] = src[i + 2] * (white ? c.b : 1)
+// ---------------------------------------------------------------- owned cars
+// The car you buy (Phone → Life) is yours alone: your paint, your number
+// plate, parked at your home car park (or wherever you left it - the server
+// remembers). Other players' cars stand where they left them, locked: you
+// can only ride in one if its owner invites you.
+const api = useGameApi()
+const sim = useSimStore()
+const myId = computed(() => usePlayerStore().profile?.id ?? '')
+const myName = computed(() => usePlayerStore().profile?.display_name ?? sim.name ?? 'Me')
+const homeFront = useState<{ x: number; z: number; nx: number; nz: number; w: number } | null>('kk_home_front', () => null)
+let carTimer: ReturnType<typeof setInterval> | undefined
+const ownedMat = vehicleMaterial()
+let homePad: THREE.Group | null = null
+
+/** your home car park: a paved bay beside the gate, clear of buildings */
+function homeParkSpot(): [number, number, number] | null {
+  const h = homeFront.value
+  if (!h) return null
+  // along the street face of the house, a few metres to the side of the gate
+  const ax = -h.nz
+  const az = h.nx
+  for (const side of [1, -1]) {
+    for (let off = 4.5; off <= 12; off += 1.5) {
+      for (const out of [3.2, 4.5, 2.2]) {
+        const x = h.x + ax * off * side + h.nx * out
+        const z = h.z + az * off * side + h.nz * out
+        if (!collidesAt(x, z, 2.2) && hashDist(roadHash(), x, z, 20) > 3.2) return [x, z, Math.atan2(h.nx, h.nz) + Math.PI]
       }
-      da.needsUpdate = true
     }
   }
+  const [x, z] = freeSpotNear(h.x + h.nx * 5, h.z + h.nz * 5, 1.8)
+  return [x, z, Math.atan2(h.nx, h.nz) + Math.PI]
 }
-watch(carTier, paintCars)
+function buildHomePad(x: number, z: number, heading: number) {
+  if (homePad) root.remove(homePad)
+  const g = new THREE.Group()
+  const asphalt = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.06, 6.2), new THREE.MeshStandardMaterial({ color: '#3a3b3f', roughness: 0.95 }))
+  asphalt.position.y = 0.03
+  asphalt.receiveShadow = true
+  g.add(asphalt)
+  const line = new THREE.MeshBasicMaterial({ color: '#f2f2ea' })
+  for (const sx of [-1.7, 1.7]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 6.0), line)
+    l.position.set(sx, 0.07, 0)
+    g.add(l)
+  }
+  const back = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.02, 0.1), line)
+  back.position.set(0, 0.07, -3)
+  g.add(back)
+  // little "P" sign on a post
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.1), new THREE.MeshStandardMaterial({ color: '#9aa0a6', metalness: 0.5 }))
+  post.position.set(1.95, 1.05, -2.8)
+  g.add(post)
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const cg = c.getContext('2d')!
+  cg.fillStyle = '#1f4fa0'
+  cg.fillRect(0, 0, 64, 64)
+  cg.fillStyle = '#fff'
+  cg.font = '800 48px sans-serif'
+  cg.textAlign = 'center'
+  cg.fillText('P', 32, 50)
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide }))
+  sign.position.set(1.95, 2.0, -2.8)
+  g.add(sign)
+  g.position.set(x, 0, z)
+  g.rotation.y = heading
+  homePad = g
+  root.add(g)
+}
+
+function removeParked(p: Parked) {
+  if (p.mesh) root.remove(p.mesh)
+  if (p.interior) {
+    // the hidden interior mesh owns its geometry + material: drop it too or
+    // every rebuild of the fleet leaks one behind (loadCars runs every 20s)
+    root.remove(p.interior)
+    p.interior.geometry?.dispose()
+    ;(p.interior.material as THREE.Material | undefined)?.dispose()
+    p.interior = null
+  }
+  const i = fleet.indexOf(p)
+  if (i >= 0) fleet.splice(i, 1)
+}
+function addOwned(o: { owner: string; ownerName: string; tier: number; color: string; plate: string; x: number; z: number; heading: number }): Parked {
+  const { group, door } = paintedVehicle('car', o.color, ownedMat)
+  group.position.set(o.x, 0, o.z)
+  group.rotation.y = o.heading
+  const tag = plateSprite(o.plate, o.owner === 'me' ? '🔑 Your car' : `🔒 ${o.ownerName}`)
+  tag.position.set(0, 2.25, 0)
+  group.add(tag)
+  root.add(group)
+  const p: Parked = { kind: 'car', x: o.x, z: o.z, heading: o.heading, mesh: group, interior: null, driver: null, door, owner: o.owner, ownerName: o.ownerName, tier: o.tier, tag }
+  const iGeo = buildInterior('car')
+  if (iGeo) {
+    const im = new THREE.Mesh(iGeo, new THREE.MeshLambertMaterial({ vertexColors: true }))
+    im.position.copy(group.position)
+    im.rotation.y = o.heading
+    im.visible = false
+    p.interior = im
+    root.add(im)
+  }
+  fleet.push(p)
+  return p
+}
+let carsKey = ''
+async function loadCars() {
+  try {
+    const [st, list] = await Promise.all([api.apiGet<any>('/life/status'), api.apiGet<any>('/life/cars')])
+    carTier.value = st.car_tier
+    const mine = st.car
+    myCar = mine ?? null
+    carColor.value = mine?.color ?? ''
+    const others = (list.cars as any[]).filter((c) => c.owner_id !== myId.value && c.parked)
+    const key = JSON.stringify([mine && [mine.tier, mine.color, mine.x, mine.z], others.map((c) => [c.owner_id, c.color, c.x, c.z])])
+    if (key === carsKey) return
+    carsKey = key
+    // rebuild every owned car that is not being driven right now
+    for (const p of [...fleet]) if (p.owner && p !== current) removeParked(p)
+    if (mine && current?.owner !== 'me') {
+      const home = homeParkSpot()
+      const parked = mine.x != null
+      const here = parked && (mine.region ?? 'kaduna-city') === regionSlug()
+      // never parked yet: delivered to your home car park in this town.
+      // Parked in another town: it stays there (Phone → Life → Bring it here).
+      if (here || !parked) {
+        const [x, z, h] = here ? [mine.x, mine.z, mine.heading] : home ?? [playerPos.value[0] + 4, playerPos.value[2] + 4, 0]
+        addOwned({ owner: 'me', ownerName: myName.value, tier: mine.tier, color: mine.color, plate: mine.plate, x, z, heading: h })
+      }
+    }
+    if (mine) {
+      const home = homeParkSpot()
+      if (home) buildHomePad(home[0], home[1], home[2])
+    }
+    for (const c of others) addOwned({ owner: c.owner_id, ownerName: c.owner, tier: c.tier, color: c.color, plate: c.plate, x: c.x, z: c.z, heading: c.heading })
+    refreshObstacles()
+  } catch {}
+}
+function regionSlug() {
+  try {
+    const id = localStorage.getItem('kk_region') || 'kaduna'
+    return id === 'kaduna' ? 'kaduna-city' : id.replace('_', '-')
+  } catch {
+    return 'kaduna-city'
+  }
+}
+function refreshObstacles() {
+  trafficProbe.parked = fleet.map((f) => ({ x: f.x, z: f.z, r: vehicleSpec(f.kind).radius }))
+  setVehicleObstacles(fleet.filter((f) => f !== current).map((f) => ({ x: f.x, z: f.z, w: vehicleSpec(f.kind).radius * 2.4, d: vehicleSpec(f.kind).radius * 2.4 })))
+}
 function onSummon(e: Event) {
   const d = (e as CustomEvent).detail as { x: number; z: number; heading: number }
-  const p = fleet.find((f) => f.kind === 'car' && f !== current)
+  let p = fleet.find((f) => f.owner === 'me' && f !== current) ?? null
+  if (!p && myCar) p = addOwned({ owner: 'me', ownerName: myName.value, tier: myCar.tier, color: myCar.color, plate: myCar.plate, x: d.x, z: d.z, heading: d.heading })
+  if (!p) p = fleet.find((f) => f.kind === 'car' && !f.owner && f !== current) ?? null
   if (!p || !p.mesh) return
-  p.x = d.x
-  p.z = d.z
+  // never drop it inside a wall
+  const [fx, fz] = freeSpotNear(d.x, d.z, vehicleSpec(p.kind).radius)
+  p.x = fx
+  p.z = fz
   p.heading = d.heading
   p.mesh.position.set(p.x, 0, p.z)
   p.mesh.rotation.y = p.heading
@@ -290,8 +425,8 @@ function onSummon(e: Event) {
     p.interior.position.copy(p.mesh.position)
     p.interior.rotation.y = p.heading
   }
-  trafficProbe.parked = fleet.map((f) => ({ x: f.x, z: f.z, r: vehicleSpec(f.kind).radius }))
-  setVehicleObstacles(fleet.map((f) => ({ x: f.x, z: f.z, w: vehicleSpec(f.kind).radius * 2.4, d: vehicleSpec(f.kind).radius * 2.4 })))
+  if (p.owner === 'me') api.apiPost('/life/car/park', { x: p.x, z: p.z, heading: p.heading }).catch(() => {})
+  refreshObstacles()
 }
 
 function onHorn() {
@@ -305,6 +440,7 @@ let speed = 0
 let alt = 0 // plane only
 let lastSent = 0
 let scanTimer = 0
+let ghostTimer = 0
 // body jolt after a crash (pitch kick that springs back)
 let jolt = 0
 let steerSmoothed = 0
@@ -362,7 +498,8 @@ function onToggle() {
     w.__kk_toggle_n = (w.__kk_toggle_n || 0) + 1
     w.__kk_toggle_dbg = { active: ride.value.active, prompt: ride.value.prompt, fleet: fleet.length }
   }
-  if (ride.value.active) exitVehicle()
+  if (pax) exitPassenger(true)
+  else if (ride.value.active) exitVehicle()
   else if (ride.value.prompt) board()
 }
 
@@ -372,7 +509,11 @@ function toggleView() {
 
 function board() {
   const nearest = nearestParked()
-  if (!nearest || phase.value !== 'none') return
+  if (!nearest || phase.value !== 'none' || pax) return
+  if (nearest.owner && nearest.owner !== 'me') {
+    ui.showToast(`That's ${nearest.ownerName}'s car - ask them to invite you along.`, 'info')
+    return
+  }
   current = nearest
   ride.value.active = true
   ride.value.kind = nearest.kind
@@ -400,6 +541,11 @@ function board() {
   phaseT = 0
   avatarVisible.value = true
   avatarMode.value = 'walk'
+  // tell everyone what you're driving (they see the vehicle and you in it)
+  socketSend.value('ride.state', { kind: nearest.kind, color: nearest.owner === 'me' ? myCarColor() : '' })
+  // commercial vehicles come with a few passengers already on board
+  spawnNpcRiders(nearest)
+  party.value = { role: 'driver', seatsFree: freeSeats(), names: [] }
   // keep camera distance comfortable for vehicles
   orbit.value.dist = Math.max(orbit.value.dist, nearest.kind === 'plane' ? 26 : nearest.kind === 'bus' || nearest.kind === 'truck' ? 13 : 9)
 }
@@ -429,7 +575,7 @@ function animatePhase(dt: number) {
   const spec = vehicleSpec(p.kind)
   const [sx, sz] = doorStand(p)
   const [seatX, seatY, seatZ] = seatWorld(p)
-  const sitMode = spec.straddle || p.kind === 'keke' ? (spec.straddle ? 'ride' : 'sit') : 'sit'
+  const sitMode = 'sit' // the mocap body sits on bikes too (no walking legs while riding)
   const hasDoor = !!spec.door
   phaseT += dt
   const ph = phase.value
@@ -458,7 +604,8 @@ function animatePhase(dt: number) {
     fig.x = sx + (seatX - sx) * e
     fig.z = sz + (seatZ - sz) * e
     // step up: hips rise into the seat (sitting puts them at seatY)
-    fig.y = (seatY - 0.94) * e + Math.sin(e * Math.PI) * 0.15
+    fig.y = ridePose.y + Math.sin(e * Math.PI) * 0.15
+    seatH.value = seatY - ridePose.y
     fig.h = p.heading - (Math.PI / 2) * (1 - e)
     avatarMode.value = e > 0.45 ? (sitMode as 'sit' | 'ride') : 'walk'
     if (k >= 1) {
@@ -488,7 +635,8 @@ function animatePhase(dt: number) {
     const e = k * k * (3 - 2 * k)
     fig.x = seatX + (sx - seatX) * e
     fig.z = seatZ + (sz - seatZ) * e
-    fig.y = (seatY - 0.94) * (1 - e) + Math.sin(e * Math.PI) * 0.15
+    fig.y = ridePose.y + Math.sin(e * Math.PI) * 0.15
+    seatH.value = seatY - ridePose.y
     fig.h = p.heading - (Math.PI / 2) * e
     avatarMode.value = e < 0.55 ? (sitMode as 'sit' | 'ride') : 'walk'
     if (k >= 1) {
@@ -514,6 +662,14 @@ function animatePhase(dt: number) {
 function finishExit() {
   const p = current
   if (!p) return
+  // your own car stays where you leave it (the server remembers)
+  if (p.owner === 'me') api.apiPost('/life/car/park', { x: p.x, z: p.z, heading: p.heading }).catch(() => {})
+  // everyone riding with you gets out too
+  for (const id of friends.keys()) relay(id, { k: 'ride_end' })
+  friends.clear()
+  riders.value = []
+  party.value = { role: 'none', seatsFree: 0, names: [] }
+  socketSend.value('ride.state', { kind: null })
   const [sx, sz] = doorStand(p)
   const [ex, ez] = unstick(...clampBounds(sx, sz))
   playerPos.value = [ex, 0, ez]
@@ -530,6 +686,7 @@ function finishExit() {
   if (p.interior) p.interior.visible = false
   avatarVisible.value = false
   current = null
+  refreshObstacles()
 }
 
 function nearestParked(): Parked | null {
@@ -548,6 +705,295 @@ function nearestParked(): Parked | null {
   return best
 }
 
+// ---------------------------------------------------------------- riders
+// Everyone else in the vehicle with you: passengers who were already on the
+// danfo / keke, friends you invited, and (when you ride along) the driver.
+const ui = useUiStore()
+interface RLook { skin: string; top: string; bottom: string; hair: string; hairColor: string; outfit: string; female: boolean; gadgets: string[] }
+interface Rider { key: string; seat: number; look: RLook; npc: boolean; id?: string; npcId?: number }
+const riders = ref<Rider[]>([])
+const riderObjs = new Map<string, THREE.Object3D>()
+function setRiderRef(key: string, el: any) {
+  const o = el?.isObject3D ? el : el?.instance ?? el?.value
+  if (o?.isObject3D) riderObjs.set(key, o)
+  else riderObjs.delete(key)
+}
+function npcLook(id: number): RLook {
+  const female = id % 2 === 0
+  const l = lookFor(id, female)
+  return { skin: l.skin, top: l.top, bottom: l.bottom, hair: female ? 'braids' : 'cap', hairColor: l.hair ?? '#141114', outfit: female ? 'dress' : id % 3 ? 'kaftan' : 'shirt', female, gadgets: (l.gadgets ?? []) as string[] }
+}
+function playerLook(l: any): RLook {
+  l = l ?? {}
+  return {
+    skin: l.skin || '#7a4e33',
+    top: l.top || '#3f6fae',
+    bottom: l.bottom || '#2b3440',
+    hair: l.hair || 'cap',
+    hairColor: l.hairColor || '#141114',
+    outfit: l.outfit || 'kaftan',
+    female: l.body === 'woman' || l.outfit === 'dress' || !!l.female,
+    gadgets: (l.gadgets ?? []).slice(0, 4)
+  }
+}
+const myLook = () => playerLook({ ...sim.look, body: (sim.look as any).body })
+
+// ---------------------------------------------------------------- party
+// Invite friends who are near you into your vehicle. The server relays a
+// few small messages between the phones; the driver's phone is in charge
+// (it hands out seats and streams where the vehicle is).
+const party = useState<{ role: 'none' | 'driver' | 'passenger'; seatsFree: number; names: string[] }>('kk_ride_party', () => ({ role: 'none', seatsFree: 0, names: [] }))
+const partyIds = useState<string[]>('kk_ride_party_ids', () => [])
+const players = useState<{ online: number; players: Array<{ id: string; name: string; pos: [number, number, number]; look: any }> }>('kk_players', () => ({ online: 0, players: [] }))
+const friends = new Map<string, { name: string; look: RLook; seat: number }>()
+// consent: you only seat people you invited, and only get seated by a
+// driver you said yes to (nobody can pull you into their car uninvited)
+const invitedAt = new Map<string, number>()
+const joinedAt = new Map<string, number>()
+/** boarding or driving (not on the way out) */
+function inVehicle() {
+  return ['walk', 'open', 'climb', 'close', 'riding'].includes(phase.value)
+}
+function relay(to: string, data: unknown) {
+  const ok = (window as any).__kk_ws_send?.('arcade.relay', { to, data })
+  if (import.meta.dev) ((window as any).__kk_relays ??= []).push([to.slice(0, 6), (data as any)?.k, ok])
+}
+const carColor = ref('')
+let myCar: { tier: number; color: string; plate: string } | null = null
+function myCarColor(): string {
+  return carColor.value
+}
+function freeSeats(): number {
+  if (!current) return 0
+  return vehicleSpec(current.kind).passengers.length - friends.size
+}
+function updateParty() {
+  party.value = { role: 'driver', seatsFree: freeSeats(), names: [...friends.values()].map((f) => f.name) }
+  partyIds.value = [...friends.keys()]
+}
+function spawnNpcRiders(p: Parked) {
+  riders.value = []
+  riderMode.value = 'sit'
+  riderKind.value = p.kind
+  if (p.owner) return
+  const seats = vehicleSpec(p.kind).passengers.length
+  const n = p.kind === 'bus' ? 2 + Math.floor(Math.random() * 3) : p.kind === 'keke' ? 1 + Math.floor(Math.random() * 2) : p.kind === 'boat' ? 1 : 0
+  const seed = Math.floor(Math.random() * 100000)
+  const out: Rider[] = []
+  for (let i = 0; i < Math.min(n, seats); i++) {
+    const seat = seats - 1 - i // NPCs fill from the back; friends from the front
+    const npcId = seed + i * 7
+    out.push({ key: `npc-${npcId}`, seat, look: npcLook(npcId), npc: true, npcId })
+  }
+  riders.value = out
+}
+/** world position of a seat (driver seat when seat < 0) */
+function seatPoint(kind: VehicleKind, seat: number, x: number, z: number, h: number, y: number): [number, number, number] {
+  const spec = vehicleSpec(kind)
+  const o = seat >= 0 ? spec.passengers[seat] ?? spec.seat : spec.seat
+  return [x + Math.cos(h) * o[0] + Math.sin(h) * o[2], y + o[1], z - Math.sin(h) * o[0] + Math.cos(h) * o[2]]
+}
+function placeRiders(kind: VehicleKind, x: number, z: number, h: number, y: number, tilt = 0) {
+  for (const r of riders.value) {
+    const o = riderObjs.get(r.key)
+    if (!o) continue
+    const [wx, , wz] = seatPoint(kind, r.seat, x, z, h, y)
+    o.position.set(wx, y, wz)
+    o.rotation.set(0, h, tilt)
+  }
+}
+const riderMode = ref<'sit' | 'ride'>('sit')
+const riderKind = ref<VehicleKind>('car')
+const seatH = ref(0.5)
+function riderSeat(seat: number): number {
+  const spec = vehicleSpec(riderKind.value)
+  return (seat >= 0 ? spec.passengers[seat] ?? spec.seat : spec.seat)[1]
+}
+
+// driver: invite someone near you
+function onInvite(e: Event) {
+  const { to, name } = (e as CustomEvent).detail as { to: string; name: string }
+  if (!current || !inVehicle()) return ui.showToast('Get in a vehicle first, then invite people along.', 'info')
+  if (freeSeats() <= 0) return ui.showToast('No free seats left.', 'info')
+  invitedAt.set(to, Date.now())
+  relay(to, { k: 'ride_invite', name: myName.value, label: vehicleSpec(current.kind).label, own: current.owner === 'me' })
+  ui.showToast(`Invite sent to ${name} 🚗`, 'success')
+}
+// passenger: you said yes to someone's invite
+function onAccept(e: Event) {
+  const { from } = (e as CustomEvent).detail as { from: string }
+  if (ride.value.active) return ui.showToast('Get out of your vehicle first.', 'info')
+  joinedAt.set(from, Date.now())
+  relay(from, { k: 'ride_join', name: myName.value, look: myLook() })
+}
+function onRelay(ev: Event) {
+  const d = (ev as CustomEvent).detail
+  if (d?.type !== 'arcade.fight') return
+  const from = d.payload?.from as string
+  const x = d.payload?.data ?? {}
+  if (x.k === 'ride_join') driverJoin(from, x)
+  else if (x.k === 'ride_leave') driverLeave(from)
+  else if (x.k === 'ride_seat' && !ride.value.active && Date.now() - (joinedAt.get(from) ?? 0) < 60_000) {
+    joinedAt.delete(from)
+    enterPassenger(from, x)
+  }
+  else if (x.k === 'ride_pose' && pax?.driver === from) passengerPose(x)
+  else if (x.k === 'ride_end' && pax?.driver === from) {
+    exitPassenger(false)
+    ui.showToast('The driver parked - everybody out!', 'info')
+  } else if (x.k === 'ride_full') ui.showToast(`No seat for you right now (${x.why ?? 'full'}).`, 'info')
+}
+function driverJoin(from: string, x: any) {
+  const p = current
+  if (!p || !inVehicle()) return relay(from, { k: 'ride_full', why: 'the driver got out' })
+  if (friends.has(from)) return
+  if (Date.now() - (invitedAt.get(from) ?? 0) > 120_000) return // not invited (or the invite ran out)
+  invitedAt.delete(from)
+  const them = players.value.players.find((pl) => pl.id === from)
+  if (them && Math.hypot(them.pos[0] - p.x, them.pos[2] - p.z) > 80) return relay(from, { k: 'ride_full', why: 'walk closer to the vehicle first' })
+  const spec = vehicleSpec(p.kind)
+  const taken = new Set([...friends.values()].map((f) => f.seat))
+  const seat = spec.passengers.findIndex((_, i) => !taken.has(i))
+  if (seat < 0) return relay(from, { k: 'ride_full', why: 'every seat is taken' })
+  const look = playerLook(x.look)
+  friends.set(from, { name: String(x.name || 'Friend').slice(0, 24), look, seat })
+  // a passenger already in that seat hops off to make room
+  riders.value = [...riders.value.filter((r: Rider) => r.seat !== seat), { key: `p-${from}`, seat, look, npc: false, id: from }]
+  relay(from, { k: 'ride_seat', seat, kind: p.kind, color: p.owner === 'me' ? carColor.value : '', x: p.x, z: p.z, h: p.heading, y: ridePose.y, driverName: myName.value, driverLook: myLook(), label: spec.label })
+  updateParty()
+  ui.showToast(`${friends.get(from)!.name} hopped in 🙌`, 'success')
+}
+function driverLeave(from: string) {
+  const f = friends.get(from)
+  if (!f) return
+  friends.delete(from)
+  riders.value = riders.value.filter((r: Rider) => r.id !== from)
+  updateParty()
+  ui.showToast(`${f.name} got out`, 'info')
+}
+let poseSent = 0
+function streamPose(p: Parked) {
+  if (!friends.size) return
+  const now = performance.now()
+  if (now - poseSent < 200) return
+  poseSent = now
+  const others = [...friends.entries()].map(([id, f]) => ({ id, seat: f.seat, look: f.look }))
+  const npcs = riders.value.filter((r: Rider) => r.npc).map((r: Rider) => ({ seat: r.seat, n: r.npcId }))
+  for (const id of friends.keys()) {
+    relay(id, { k: 'ride_pose', x: +p.x.toFixed(2), z: +p.z.toFixed(2), h: +p.heading.toFixed(3), y: +ridePose.y.toFixed(2), pax: others.filter((o) => o.id !== id), npcs })
+  }
+}
+
+// passenger: riding along in a friend's vehicle
+let pax: null | { driver: string; driverName: string; kind: VehicleKind; seat: number; x: number; z: number; h: number; y: number; tx: number; tz: number; th: number; ty: number; group: THREE.Group; lastRx: number; driverLook: RLook } = null
+function enterPassenger(from: string, x: any) {
+  const kind = x.kind as VehicleKind
+  if (!['car', 'keke', 'okada', 'bus', 'truck', 'boat', 'plane'].includes(kind)) return
+  const spec = vehicleSpec(kind)
+  const { group } = paintedVehicle(kind, x.color || undefined, ownedMat)
+  group.position.set(x.x, x.y ?? 0, x.z)
+  group.rotation.y = x.h
+  root.add(group)
+  pax = { driver: from, driverName: String(x.driverName || 'Driver'), kind, seat: x.seat, x: x.x, z: x.z, h: x.h, y: x.y ?? 0, tx: x.x, tz: x.z, th: x.h, ty: x.y ?? 0, group, lastRx: performance.now(), driverLook: playerLook(x.driverLook) }
+  ride.value.active = true
+  ride.value.kind = kind
+  ride.value.name = `${pax.driverName}'s ${x.label ?? spec.label}`
+  ride.value.inner = false
+  ride.value.prompt = null
+  ridePose.active = true
+  ridePose.cabin = spec.cockpit[1]
+  ridePose.cockpitFwd = spec.cockpit[0]
+  ridePose.x = x.x
+  ridePose.z = x.z
+  ridePose.heading = x.h
+  avatarVisible.value = true
+  avatarMode.value = 'sit'
+  riders.value = [{ key: `drv-${from}`, seat: -1, look: pax.driverLook, npc: false, id: from }]
+  riderMode.value = 'sit'
+  riderKind.value = kind
+  party.value = { role: 'passenger', seatsFree: 0, names: [pax.driverName] }
+  partyIds.value = [from]
+  socketSend.value('ride.state', { kind, driver: from, seat: x.seat })
+  orbit.value.dist = Math.max(orbit.value.dist, kind === 'bus' ? 13 : 9)
+  ui.showToast(`Riding with ${pax.driverName} 🚗 · E to get out`, 'success')
+}
+function passengerPose(x: any) {
+  if (!pax) return
+  pax.tx = x.x
+  pax.tz = x.z
+  pax.th = x.h
+  pax.ty = x.y ?? 0
+  pax.lastRx = performance.now()
+  const next: Rider[] = [{ key: `drv-${pax.driver}`, seat: -1, look: pax.driverLook, npc: false, id: pax.driver }]
+  for (const o of x.pax ?? []) next.push({ key: `p-${o.id}`, seat: o.seat, look: playerLook(o.look), npc: false, id: o.id })
+  for (const n of x.npcs ?? []) next.push({ key: `npc-${n.n}`, seat: n.seat, look: npcLook(n.n), npc: true, npcId: n.n })
+  const sig = next.map((r) => r.key + r.seat).join(',')
+  if (sig !== riders.value.map((r: Rider) => r.key + r.seat).join(',')) riders.value = next
+  partyIds.value = next.filter((r) => r.id).map((r) => r.id!)
+}
+function updatePassenger(dt: number) {
+  const P = pax!
+  const k = 1 - Math.exp(-dt * 6)
+  P.x += (P.tx - P.x) * k
+  P.z += (P.tz - P.z) * k
+  P.y += (P.ty - P.y) * k
+  let dh = P.th - P.h
+  dh = Math.atan2(Math.sin(dh), Math.cos(dh))
+  P.h += dh * k
+  P.group.position.set(P.x, P.y, P.z)
+  P.group.rotation.y = P.h
+  const [sx, sy, sz] = seatPoint(P.kind, P.seat, P.x, P.z, P.h, P.y)
+  fig.x = sx
+  fig.y = P.y
+  fig.z = sz
+  seatH.value = sy - P.y
+  fig.h = P.h
+  placeAvatar()
+  const a = avatarRef.value
+  if (a) a.visible = !ride.value.inner
+  placeRiders(P.kind, P.x, P.z, P.h, P.y)
+  ridePose.x = P.x
+  ridePose.z = P.z
+  ridePose.y = P.y
+  ridePose.heading = P.h
+  playerPos.value = [P.x, 0, P.z]
+  playerFacing.value = P.h
+  const now = performance.now()
+  if (now - lastSent > 110) {
+    lastSent = now
+    socketSend.value('player.move', { position: [P.x, 0, P.z], facing: P.h })
+  }
+  if (now - P.lastRx > 8000) {
+    exitPassenger(false)
+    ui.showToast('Lost the driver - you got out.', 'info')
+  }
+}
+function exitPassenger(notify: boolean) {
+  const P = pax
+  if (!P) return
+  if (notify) relay(P.driver, { k: 'ride_leave' })
+  root.remove(P.group)
+  const spec = vehicleSpec(P.kind)
+  const lat = P.seat >= 0 ? (spec.passengers[P.seat]?.[0] ?? 0.4) : spec.seat[0]
+  const out = (lat < 0 ? -1 : 1) * (spec.radius + 0.7)
+  const [ex, ez] = unstick(...clampBounds(P.x + Math.cos(P.h) * out, P.z - Math.sin(P.h) * out))
+  playerPos.value = [ex, 0, ez]
+  socketSend.value('player.move', { position: [ex, 0, ez], facing: P.h })
+  ride.value.active = false
+  ride.value.kind = null
+  ride.value.name = ''
+  ride.value.inner = false
+  ride.value.speed = 0
+  ridePose.active = false
+  avatarVisible.value = false
+  riders.value = []
+  party.value = { role: 'none', seatsFree: 0, names: [] }
+  partyIds.value = []
+  socketSend.value('ride.state', { kind: null })
+  pax = null
+}
+
+const lookKey = computed(() => JSON.stringify(sim.look))
 const orbit = useCamOrbit()
 const touchMove = useTouchMove()
 
@@ -561,10 +1007,21 @@ onBeforeRender(({ delta }) => {
     scanTimer = 0
     if (!ride.value.active) {
       const n = nearestParked()
-      ride.value.prompt = n ? `Board ${vehicleSpec(n.kind).label}` : null
+      ride.value.prompt = n ? (n.owner === 'me' ? 'Drive your car' : n.owner ? `🔒 ${n.ownerName}'s car` : `Board ${vehicleSpec(n.kind).label}`) : null
     }
   }
 
+  // someone driving their own car: hide its parked copy (it's on the road)
+  ghostTimer += dt
+  if (ghostTimer > 1) {
+    ghostTimer = 0
+    const driving = new Set(players.value.players.filter((pl: any) => typeof pl.riding === 'string' && pl.riding.startsWith('car|' + pl.id)).map((pl) => pl.id))
+    for (const f of fleet) if (f.owner && f.owner !== 'me' && f.mesh) f.mesh.visible = !driving.has(f.owner)
+  }
+  if (pax) {
+    updatePassenger(dt)
+    return
+  }
   if (!ride.value.active || !current) return
   if (phase.value !== 'riding') {
     // Boarding/exit phases are pure cosmetic interpolation (no physics, no
@@ -573,6 +1030,7 @@ onBeforeRender(({ delta }) => {
     // wall time. Driving below keeps the tight 0.1s clamp for tunneling.
     animatePhase(Math.min(delta || 0.016, 0.45))
     placeAvatar()
+    if (current) placeRiders(current.kind, current.x, current.z, current.heading, ridePose.y)
     return
   }
   const p = current
@@ -644,7 +1102,7 @@ onBeforeRender(({ delta }) => {
   } else {
     // ---- road vehicles
     // your car tier (Corolla → Hilux → G-Wagon) makes your car faster
-    const boost = p.kind === 'car' ? 1 + 0.12 * carTier.value : 1
+    const boost = p.owner === 'me' ? 1 + 0.12 * (p.tier ?? carTier.value) : 1
     speed += throttle * spec.accel * boost * dt
     if (throttle < 0 && speed > 0) speed -= spec.accel * 1.4 * dt // brake
     // engine drag rolls the vehicle to a stop when the throttle is released
@@ -706,16 +1164,19 @@ onBeforeRender(({ delta }) => {
   {
     const [hx, hy, hz] = seatWorld(p)
     fig.x = hx
-    fig.y = hy - 0.94
+    fig.y = ridePose.y
     fig.z = hz
     fig.h = p.heading
-    avatarMode.value = spec.straddle ? 'ride' : 'sit'
+    seatH.value = hy - ridePose.y
+    avatarMode.value = 'sit'
     placeAvatar()
     const a = avatarRef.value
     if (a) {
       a.visible = !ride.value.inner
       a.rotation.z = p.mesh ? p.mesh.rotation.z : 0
     }
+    placeRiders(p.kind, p.x, p.z, p.heading, ridePose.y, p.mesh ? p.mesh.rotation.z : 0)
+    streamPose(p)
   }
 
   // shared pose: camera + HUD read the cockpit anchor from here
@@ -757,23 +1218,65 @@ if (import.meta.dev) {
     phase: phase.value,
     pos: [+playerPos.value[0].toFixed(1), +playerPos.value[2].toFixed(1)]
   })
-  ;(window as any).__kk_fleet = () => fleet.map((f) => [f.kind, +f.x.toFixed(0), +f.z.toFixed(0)])
+  ;(window as any).__kk_fleet = () => fleet.map((f) => [f.kind, +f.x.toFixed(1), +f.z.toFixed(1), f.owner ?? '', +f.heading.toFixed(2)])
+  ;(window as any).__kk_riders = () => riders.value.map((r: Rider) => [r.key, r.seat])
+  ;(window as any).__kk_party = () => ({ ...party.value })
+  // test hook: stand at a vehicle's door (by fleet index) and get in
+  ;(window as any).__kk_board_at = (i: number) => {
+    const f = fleet[i]
+    if (!f) return false
+    const [sx, sz] = doorStand(f)
+    playerPos.value = [sx, 0, sz]
+    socketSend.value('player.move', { position: [sx, 0, sz], facing: 0 })
+    ;(window as any).__kk_teleport_at = Date.now()
+    ride.value.prompt = 'test'
+    board()
+    return phase.value
+  }
 }
 </script>
 
 <template>
   <TresGroup>
     <primitive :object="root" />
+    <!-- you, getting in and sitting at the wheel (or in your seat) -->
     <TresGroup ref="avatarRef" :visible="false">
       <CharacterAvatar
-        shirt="#2e7d5b"
-        trouser="#2b3440"
-        :kufi="true"
-        hair-style="cap"
-        outfit="kaftan"
-        :beard="true"
+        real
+        :key="lookKey"
+        :shirt="sim.look.top"
+        :trouser="sim.look.bottom"
+        :skin="sim.look.skin"
+        :kufi="sim.look.hair === 'cap'"
+        :hijab="sim.look.outfit === 'dress'"
+        :hair-style="sim.look.hair"
+        :hair-color="sim.look.hairColor"
+        :outfit="sim.look.outfit"
+        :gadgets="(sim.look.gadgets ?? []) as any"
+        :print="sim.look.print"
+        :scarf="sim.look.hairColor"
         :mode="avatarMode"
+        :seat="seatH"
         :gait-speed="10.5"
+      />
+    </TresGroup>
+    <!-- everyone else in the vehicle: passengers, friends, the driver -->
+    <TresGroup v-for="r in riders" :key="r.key" :ref="(el: any) => setRiderRef(r.key, el)">
+      <CharacterAvatar
+        real
+        :female="r.look.female"
+        :skin="r.look.skin"
+        :shirt="r.look.top"
+        :trouser="r.look.bottom"
+        :hair-color="r.look.hairColor"
+        :hair-style="(r.look.hair as any)"
+        :kufi="r.look.hair === 'cap'"
+        :hijab="r.look.outfit === 'dress' && r.npc === false"
+        :outfit="(r.look.outfit as any)"
+        :gadgets="(r.look.gadgets ?? []) as any"
+        :mode="riderMode"
+        :seat="riderSeat(r.seat)"
+        :phase="r.key.length * 0.37"
       />
     </TresGroup>
   </TresGroup>

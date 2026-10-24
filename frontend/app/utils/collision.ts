@@ -137,6 +137,9 @@ export function buildingsNear(x: number, z: number): Box[] {
 }
 
 export const PLAYER_RADIUS = 0.6
+// Indoors the body is slimmer so the bedroom / bathroom doorways and the
+// gaps between furniture are walkable (a person is ~0.5 m across).
+export const INTERIOR_RADIUS = 0.28
 // Downtown fallback spawn (Ahmadu Bello Way roadside).
 export const SPAWN: [number, number] = PLAYABLE_POS.spawn_roadside
 
@@ -183,8 +186,12 @@ function entersVehicle(ox: number, oz: number, x: number, z: number, r: number):
 
 export function collides(x: number, z: number, ox = x, oz = z): boolean {
   if (interiorWalls) {
+    const r = INTERIOR_RADIUS
     for (const b of interiorWalls) {
-      if (Math.abs(x - b.x) < b.w / 2 + PLAYER_RADIUS && Math.abs(z - b.z) < b.d / 2 + PLAYER_RADIUS) {
+      if (Math.abs(x - b.x) < b.w / 2 + r && Math.abs(z - b.z) < b.d / 2 + r) {
+        // already touching it (e.g. just stood up from the bed)? let you walk out
+        const moved = ox !== x || oz !== z
+        if (moved && Math.abs(ox - b.x) < b.w / 2 + r && Math.abs(oz - b.z) < b.d / 2 + r) continue
         return true
       }
     }

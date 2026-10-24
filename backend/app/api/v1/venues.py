@@ -3,7 +3,6 @@ session. Prices live on the server (the client only names the service)."""
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -12,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import error, get_current_profile
 from app.db.session import get_db
-from app.models.ledger import GameLedgerEntry
 from app.models.player import PlayerProfile
 from app.services import player_service
 
@@ -37,7 +35,7 @@ class SpendIn(BaseModel):
 
 @router.get("/services")
 async def services() -> dict[str, Any]:
-    return {"services": [{"id": k, "name": n, "price_ngn_minor": p} for k, (n, p) in SERVICES.items()]}
+    return {"services": [{"id": k, "name": n, "price_ksats": p} for k, (n, p) in SERVICES.items()]}
 
 
 @router.post("/spend")
@@ -45,10 +43,12 @@ async def spend(body: SpendIn, profile: PlayerProfile = Depends(get_current_prof
     if body.service not in SERVICES:
         raise error("unknown_service", "That service isn't offered here.", 404)
     name, price = SERVICES[body.service]
-    if await player_service.ngn_balance_minor(db, profile.id) < price:
-        raise error("insufficient_funds", "Not enough naira for that.", 409)
-    db.add(GameLedgerEntry(account_reference=f"player:{profile.id}", asset_type="ngn_minor", amount_minor_units=-price,
-                           transaction_reference=f"venue:{body.service}:{uuid.uuid4().hex[:10]}", entry_type="venue_purchase", description=name))
+    from app.services import life_service
+
+    try:
+        await life_service.charge(db, profile.id, price, "venue_purchase", name)
+    except life_service.LifeError:
+        raise error("insufficient_funds", "Not enough k-sats for that.", 409) from None
     if body.service == "gym_session":
         from app.services import society_service
 
@@ -58,4 +58,4 @@ async def spend(body: SpendIn, profile: PlayerProfile = Depends(get_current_prof
 
         await life_service.sell_at_business(db, profile.id, body.business_owner, price)
     await db.commit()
-    return {"ok": True, "service": body.service, "price_ngn_minor": price, "balance_ngn_minor": await player_service.ngn_balance_minor(db, profile.id)}
+    return {"ok": True, "service": body.service, "price_ksats": price, "balance_ksats": await player_service.ksats_balance(db, profile.id)}

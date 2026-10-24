@@ -58,12 +58,19 @@ MAX_KIDS = 4
 
 
 def _child_tick(c: Child) -> None:
-    days = _days_since(c.cared_at or c.created_at)
-    if days < 0.05:
+    """Children get hungry (15/day) and bored (8/day). Only whole steps are
+    consumed and the clock moves by exactly that much, so checking often
+    neither freezes nor speeds up the decay; time away is capped (2 days)."""
+    last = _aware(c.cared_at or c.created_at)
+    if last is None:
         return
-    c.hunger = max(0, c.hunger - int(15 * days))
-    c.happiness = max(0, c.happiness - int(8 * days))
-    c.cared_at = _now()
+    days = min(2.0, _days_since(last))
+    steps = int(days * 15)  # one hunger point per 1/15 day
+    if steps < 1:
+        return
+    c.hunger = max(0, c.hunger - steps)
+    c.happiness = max(0, c.happiness - (steps * 8) // 15)
+    c.cared_at = max(last + steps / 15 * GAME_DAY, _now() - 2 * GAME_DAY)
 
 
 def child_out(c: Child) -> dict[str, Any]:
@@ -127,8 +134,8 @@ async def care(db: AsyncSession, pid: str, child_id: str, action: str) -> dict[s
 # ================================================================== business
 LEVELS = {1: ("Provision shop", 0), 2: ("Supermarket", 30_000_000), 3: ("Shopping mall", 100_000_000)}
 RESTAURANT_LEVELS = {1: ("Restaurant", 0), 2: ("Restaurant & lounge", 30_000_000), 3: ("Hotel restaurant", 100_000_000)}
-UNIT_COST = 5_000  # ₦50 wholesale per unit of stock
-STAFF_WAGE = 150_000  # ₦1,500 per staff per game day
+UNIT_COST = 5_000  # 5,000 k-sats wholesale per unit of stock
+STAFF_WAGE = 150_000  # 150,000 k-sats per staff per game day
 USE_PER_DAY = 10
 
 
@@ -224,22 +231,30 @@ HOSPITAL_COST = 500_000
 
 
 def _health_tick(st: LifeState) -> str | None:
-    """Lazy health clock: a little wear each game day, illness more likely
-    when run down; being sick drains health."""
-    days = _days_since(st.health_checked_at)
+    """Lazy health clock, in whole game days (the remainder carries over):
+    sick = -5 a day until treated; well = slowly back toward a level set
+    by fitness. Illness is likelier when run down. Time away counts for at
+    most 3 game days, so a weekend offline doesn't wreck you."""
     if st.health_checked_at is None:
         st.health_checked_at = _now()
         return None
-    if days < 0.25:
+    last = _aware(st.health_checked_at)
+    whole = int(_days_since(last))
+    if whole < 1:
         return None
+    counted = min(whole, 3)
     news = None
-    whole = int(days)
-    st.health = max(5, st.health - (5 if st.sick else 1) * max(1, whole))
-    for _ in range(max(1, min(whole, 7))):
-        if not st.sick and random.random() < max(0.0, (75 - st.health - st.fitness / 5) / 250):
-            st.sick = random.choice(ILLNESSES)
-            news = st.sick
-    st.health_checked_at = _now()
+    for _ in range(counted):
+        if st.sick:
+            st.health = max(5, st.health - 5)
+        else:
+            target = min(100, 70 + st.fitness // 4)
+            if st.health < target:
+                st.health = min(target, st.health + 2)
+            if random.random() < max(0.0, (75 - st.health - st.fitness / 5) / 250):
+                st.sick = random.choice(ILLNESSES)
+                news = st.sick
+    st.health_checked_at = last + whole * GAME_DAY
     return news
 
 
@@ -417,7 +432,7 @@ async def activity(db: AsyncSession, pid: str, aid: str, result: dict[str, Any] 
         st.fitness = min(100, st.fitness + a["fitness"])
         st.health = min(100, st.health + 4)
     if aid == "polo" and result and result.get("bet") in ("Zazzau Riders", "Kano Chargers"):
-        # a small friendly wager on the result (₦1,000 → ₦1,800 if right)
+        # a small friendly wager on the result (100,000 → 180,000 ks if right)
         winner = random.choice(["Zazzau Riders", "Zazzau Riders", "Kano Chargers"])
         out["winner"] = winner
         await _charge(db, pid, 100_000, "polo_bet", "Polo wager")
@@ -518,6 +533,9 @@ async def leave_crew(db: AsyncSession, pid: str) -> None:
     await db.flush()
     rest = (await db.execute(select(CrewMember).where(CrewMember.crew_id == c.id).order_by(CrewMember.created_at))).scalars().all()
     if not rest:
+        # last one out: the crew and its chat go with it
+        for msg in (await db.execute(select(CrewMessage).where(CrewMessage.crew_id == c.id))).scalars().all():
+            await db.delete(msg)
         await db.delete(c)
     elif c.owner_id == pid:
         c.owner_id = rest[0].player_id
@@ -539,7 +557,7 @@ async def crew_say(db: AsyncSession, pid: str, name: str, text: str) -> tuple[li
 
 
 # ================================================================== gifting
-GIFT_MAX = 5_000_000  # ₦50,000 per gift
+GIFT_MAX = 5_000_000  # 5,000,000 k-sats per gift
 
 
 async def gift(db: AsyncSession, pid: str, to: str, amount: int = 0, item_code: str | None = None) -> dict[str, Any]:

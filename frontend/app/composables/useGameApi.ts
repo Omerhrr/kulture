@@ -62,13 +62,13 @@ export function useGameApi() {
     workTask: () => post<{ shift: any }>('/work/task'),
     clockOut: () => post<{ shift: any }>('/work/clock-out'),
 
-    // home furniture (simulated naira)
-    home: () => get<{ items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home'),
-    homeInit: (items: Array<{ sku: string; x: number; z: number; rot: number }>) => post<{ items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home/init', { items }),
+    // home furniture (k-sats)
+    home: () => get<{ items: any[]; catalog: any[]; balance_ksats: number }>('/home'),
+    homeInit: (items: Array<{ sku: string; x: number; z: number; rot: number }>) => post<{ items: any[]; catalog: any[]; balance_ksats: number }>('/home/init', { items }),
     homeMove: (uid: string, x: number, z: number, rot: number) => req<any>(`/home/items/${uid}`, { method: 'PUT', body: JSON.stringify({ x, z, rot }) }),
-    homeBuy: (sku: string, x: number, z: number) => post<{ item: any; items: any[]; catalog: any[]; balance_ngn_minor: number }>('/home/buy', { sku, x, z }),
-    venueSpend: (service: string) => post<{ ok: boolean; price_ngn_minor: number; balance_ngn_minor: number }>('/venues/spend', { service }),
-    homeSell: (uid: string) => post<{ refund_ngn_minor: number; items: any[]; catalog: any[]; balance_ngn_minor: number }>(`/home/items/${uid}/sell`),
+    homeBuy: (sku: string, x: number, z: number) => post<{ item: any; items: any[]; catalog: any[]; balance_ksats: number }>('/home/buy', { sku, x, z }),
+    venueSpend: (service: string) => post<{ ok: boolean; price_ksats: number; balance_ksats: number }>('/venues/spend', { service }),
+    homeSell: (uid: string) => post<{ refund_ksats: number; items: any[]; catalog: any[]; balance_ksats: number }>(`/home/items/${uid}/sell`),
 
     // billboard adverts (paid with Lightning)
     adBoards: () => get<{ boards: Record<string, any[]>; price_sats_per_day: number; max_days: number; auto_approve: boolean }>('/ads/boards'),
@@ -98,6 +98,8 @@ export function useGameApi() {
 
     purchase: (listing_id: string, quantity: number, idempotency_key: string) =>
       post<PaymentIntent>('/purchases', { listing_id, quantity, idempotency_key }),
+    deposit: (sats: number) =>
+      post<{ intent: PaymentIntent; ksats_credits: number }>('/deposits', { sats }),
     createInvoice: (intentId: string) =>
       post<PaymentIntent>(`/payment-intents/${intentId}/invoice`),
     intent: (intentId: string) => get<PaymentIntent>(`/payment-intents/${intentId}`),

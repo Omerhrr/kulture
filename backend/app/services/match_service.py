@@ -22,7 +22,7 @@ from app.services import life_service
 from app.services.games_engine import GAMES, GameError, current_seat
 
 BOT_FILL = timedelta(seconds=15)
-STAKE_CAP = {"ngn_minor": 500_000, "sats_ref": 1_000}
+STAKE_CAP = {"ksats": 500_000, "sats_ref": 1_000}
 BOT_NAMES = ["Musa", "Aisha", "Emeka", "Halima", "Tunde", "Zainab", "Ibrahim", "Grace", "Sani", "Blessing"]
 
 
@@ -117,7 +117,7 @@ async def _settle(db: AsyncSession, m: GameMatch) -> None:
 INVITE_WAIT = timedelta(minutes=3)
 
 
-async def join(db: AsyncSession, pid: str, name: str, game: str, stake: int = 0, asset: str = "ngn_minor", vs_bots: bool = False,
+async def join(db: AsyncSession, pid: str, name: str, game: str, stake: int = 0, asset: str = "ksats", vs_bots: bool = False,
                invite: str | None = None, match_id: str | None = None) -> GameMatch:
     """Join a table. `invite` opens a private head-to-head table for one
     friend; `match_id` accepts such an invite (stake comes from the table)."""

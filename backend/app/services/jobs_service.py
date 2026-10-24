@@ -5,7 +5,7 @@ The delivery flow (spec KK-002):
 2. pickup   - player must be within the pickup entity radius; grants the
               quest item `package_parcel`; job becomes `in_progress`.
 3. complete - player must be within the dropoff radius AND hold the parcel;
-              consumes it, pays NGN + reputation through the ledger.
+              consumes it, pays k-sats + reputation through the ledger.
 All position checks happen here, server-side, against authoritative state.
 """
 
@@ -119,8 +119,8 @@ async def complete_job(
     db.add(
         GameLedgerEntry(
             account_reference=f"player:{player_id}",
-            asset_type="ngn_minor",
-            amount_minor_units=job.reward_ngn_minor,
+            asset_type="ksats",
+            amount_minor_units=job.reward_ksats,
             transaction_reference=f"job_reward:{job.code}:{uuid.uuid4().hex[:8]}",
             entry_type="job_reward",
             description=f"Completed delivery job {job.title}",
@@ -146,7 +146,7 @@ async def complete_job(
             event_type="job.updated", aggregate_id=job.id, player_id=player_id,
             payload={
                 "job_id": job.id, "status": "completed",
-                "reward_ngn_minor": job.reward_ngn_minor,
+                "reward_ksats": job.reward_ksats,
                 "reward_reputation": job.reward_reputation,
             },
         )

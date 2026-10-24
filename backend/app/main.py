@@ -13,14 +13,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
 
 from app.agents.llm_client import llm_client
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal, engine
 from app.api.router import api_root
-from app.models import Base
-from app.models.world import WorldRegion
 from app.seed.seed_data import reconcile_content, reconcile_world_scale, seed_if_empty
 from app.workers.runner import start_all
 

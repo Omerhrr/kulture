@@ -63,10 +63,10 @@ auditable ledger.
 | Asset | Source of truth | Usage |
 |-------|-----------------|-------|
 | ⚡ Bitcoin sats (real) | verified Lightning payment records | explicitly authorized purchases |
-| 💰 Simulated NGN | server-side game ledger | job rewards, market prices, flavor |
+| 💰 k-sats | server-side game ledger | job rewards, market prices, flavor |
 | ⭐ Reputation | server-side progression records | unlocking, trust |
 
-Rules enforced in code and UI: never silently convert NGN to sats; never
+Rules enforced in code and UI: never silently convert k-sats to sats; never
 advertise fictional balances as redeemable Bitcoin; integer satoshi amounts
 only; payment amounts and recipients displayed clearly; no wagering or cash
 redemption in the MVP; AI agents cannot create money.
@@ -77,7 +77,7 @@ redemption in the MVP; AI agents cannot create money.
 2. **Pick up** - player must be within the pickup entity's radius (server
    checks); grants the sealed `quest_parcel` item.
 3. **Complete** - player must be within the drop-off radius AND hold the
-   parcel; consumes it, credits NGN + reputation through the ledger.
+   parcel; consumes it, credits k-sats + reputation through the ledger.
 
 Rewards: ₦8,000 sim + 5 reputation (seeded job). The DSH shopkeeper can post
 additional bounded delivery jobs (≤ 6 open, ≤ ₦50,000 each).

@@ -25,7 +25,9 @@ def _make_engine():
         if settings.db_null_pool:
             kwargs["poolclass"] = NullPool
         return create_async_engine(url, **kwargs)
-    return create_async_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20)
+    if settings.db_null_pool:  # tests: connections never cross event loops
+        return create_async_engine(url, poolclass=NullPool)
+    return create_async_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20, pool_recycle=1800)
 
 
 engine = _make_engine()

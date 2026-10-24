@@ -377,7 +377,7 @@ export function buildVenue(type: VenueType, seed: number): BuiltVenue {
         person(cx + 0.3, D / 2 - 3.3, 0, 'serve', { staff: 'cashier' })
       }
       person(-1.5, D / 2 - 1.8, Math.PI, 'idle')
-      spots.push({ id: 'mart_shop', x: 2.0, z: D / 2 - 1.9, fx: 3.5, fz: D / 2 - 2.6, act: { label: 'Checkout', button: 'Buy groceries · ₦3,000', need: 'hunger', gain: 60, dur: 4, pose: 'browse', service: 'shop_groceries' } })
+      spots.push({ id: 'mart_shop', x: 2.0, z: D / 2 - 1.9, fx: 3.5, fz: D / 2 - 2.6, act: { label: 'Checkout', button: 'Buy groceries · 300 ks', need: 'hunger', gain: 60, dur: 4, pose: 'browse', service: 'shop_groceries' } })
       break
     }
     // ------------------------------------------------------------ mall
@@ -413,7 +413,7 @@ export function buildVenue(type: VenueType, seed: number): BuiltVenue {
       counter(s.P, s.G, W / 2 - 3, 3, 3, -Math.PI / 2, '#efe8d6', '#c84a3a')
       s.colliders.push({ x: W / 2 - 3, z: 3, w: 0.7, d: 3.1 })
       person(W / 2 - 2.3, 3, -Math.PI / 2, 'cook', { staff: 'chef' })
-      spots.push({ id: 'mall_food', x: W / 2 - 4, z: 3, fx: W / 2 - 3, fz: 3, act: { label: 'Food court', button: 'Buy shawarma · ₦2,000', need: 'hunger', gain: 55, dur: 5, pose: 'eat', service: 'mall_snack' } })
+      spots.push({ id: 'mall_food', x: W / 2 - 4, z: 3, fx: W / 2 - 3, fz: 3, act: { label: 'Food court', button: 'Buy shawarma · 200 ks', need: 'hunger', gain: 55, dur: 5, pose: 'eat', service: 'mall_snack' } })
       // people walking the concourse
       for (let k = 0; k < 4; k++) person(-6 + k * 4, 1.2 + (k % 2), k % 2 ? Math.PI / 2 : -Math.PI / 2, 'talk')
       break
@@ -433,7 +433,7 @@ export function buildVenue(type: VenueType, seed: number): BuiltVenue {
         s.E.push(['#4ad08a', box(0.5, 0.25, 0.05, x, 1.3, z - 0.82)])
         s.colliders.push({ x, z: z - 0.8, w: 0.85, d: 0.2 })
         if (i < 3) person(x, z + 0.1, FACE_BACK, 'run')
-        else spots.push({ id: 'gym_run', x: x + 0.7, z: z + 0.5, fx: x, fz: z, act: { label: 'Treadmill', button: 'Run 20 minutes · ₦1,000', need: 'fun', gain: 35, dur: 8, pose: 'run', service: 'gym_session' } })
+        else spots.push({ id: 'gym_run', x: x + 0.7, z: z + 0.5, fx: x, fz: z, act: { label: 'Treadmill', button: 'Run 20 minutes · 100 ks', need: 'fun', gain: 35, dur: 8, pose: 'run', service: 'gym_session' } })
       }
       // dumbbell rack + lifters
       const rx = W / 2 - 2.2
@@ -534,7 +534,7 @@ export function buildVenue(type: VenueType, seed: number): BuiltVenue {
         s.P.push(['#1b1d22', cyl(0.2, 0.2, 0.06, x, 0.75, -D / 2 + 2.6, 12)])
         s.P.push(['#8a8e96', cyl(0.03, 0.03, 0.75, x, 0.37, -D / 2 + 2.6, 6)])
         if (i !== 4 && r() < 0.75) person(x, -D / 2 + 2.6, FACE_BACK, 'drink', { seat: 0.75 })
-        if (i === 4) spots.push({ id: 'bar_drink', x, z: -D / 2 + 3.4, fx: x, fz: -D / 2 + 1.8, seat: { x, z: -D / 2 + 2.6, h: 0.75, yaw: FACE_BACK }, act: { label: 'Bar stool', button: 'Order a drink · ₦1,500', need: 'fun', gain: 40, dur: 7, pose: 'drink', service: 'bar_drink', stay: true } })
+        if (i === 4) spots.push({ id: 'bar_drink', x, z: -D / 2 + 3.4, fx: x, fz: -D / 2 + 1.8, seat: { x, z: -D / 2 + 2.6, h: 0.75, yaw: FACE_BACK }, act: { label: 'Bar stool', button: 'Order a drink · 150 ks', need: 'fun', gain: 40, dur: 7, pose: 'drink', service: 'bar_drink', stay: true } })
       }
       // dance floor + speakers
       s.E.push(['#5a2a7a', box(4, 0.01, 3.6, W / 2 - 3, 0.012, 2)])
@@ -583,7 +583,7 @@ export function buildVenue(type: VenueType, seed: number): BuiltVenue {
       const seats = tableSet(s.P, 0, 3.8, 2, '#efe8d6', '#3f6fae')
       s.colliders.push({ x: 0, z: 3.8, w: 1.1, d: 1.1 })
       const [sx2, sz2, syaw] = seats[0]
-      spots.push({ id: 'resto_eat', x: sx2 + 0.6, z: sz2 + 0.6, fx: 0, fz: 3.8, seat: { x: sx2, z: sz2, h: 0.47, yaw: syaw }, act: { label: 'Free table', button: 'Order jollof · ₦3,500', need: 'hunger', gain: 80, dur: 8, pose: 'eat', service: 'restaurant_meal', stay: true } })
+      spots.push({ id: 'resto_eat', x: sx2 + 0.6, z: sz2 + 0.6, fx: 0, fz: 3.8, seat: { x: sx2, z: sz2, h: 0.47, yaw: syaw }, act: { label: 'Free table', button: 'Order jollof · 350 ks', need: 'hunger', gain: 80, dur: 8, pose: 'eat', service: 'restaurant_meal', stay: true } })
       break
     }
     // ------------------------------------------------------------ hotel
@@ -615,7 +615,7 @@ export function buildVenue(type: VenueType, seed: number): BuiltVenue {
       s.P.push(['#7a3a4a', box(2.02, 0.08, 1.4, bx, 0.52, bz + 0.35)])
       s.P.push(['#6b4a2f', box(2.2, 1.1, 0.12, bx, 0.55, bz - 1.15)])
       s.colliders.push({ x: bx, z: bz, w: 2.1, d: 2.3 })
-      spots.push({ id: 'hotel_sleep', x: bx - 1.6, z: bz + 0.4, fx: bx, fz: bz, seat: { x: bx, z: bz + 0.1, h: 0.52, yaw: 0 }, act: { label: 'Hotel room', button: 'Book a night · ₦15,000', need: 'energy', gain: 100, dur: 8, pose: 'sleep', service: 'hotel_night' } })
+      spots.push({ id: 'hotel_sleep', x: bx - 1.6, z: bz + 0.4, fx: bx, fz: bz, seat: { x: bx, z: bz + 0.1, h: 0.52, yaw: 0 }, act: { label: 'Hotel room', button: 'Book a night · 1,500 ks', need: 'energy', gain: 100, dur: 8, pose: 'sleep', service: 'hotel_night' } })
       // porter with luggage near the door
       s.P.push(['#2a4a8a', box(0.45, 0.6, 0.25, -W / 2 + 2.5, 0.3, D / 2 - 2)])
       person(-W / 2 + 2, D / 2 - 2.3, 0.6, 'idle', { staff: 'porter' })
@@ -639,7 +639,7 @@ export function buildVenue(type: VenueType, seed: number): BuiltVenue {
           s.P.push(['#8a1a2a', box(0.6, 0.12, 0.55, x, y + 0.45, z)])
           s.P.push(['#8a1a2a', box(0.6, 0.6, 0.1, x, y + 0.75, z + 0.3)])
           if (row === 2 && k === 4) {
-            spots.push({ id: 'cine_watch', x: x + 0.75, z: z + 0.2, fx: x, fz: -D / 2, seat: { x, z, h: y + 0.48, yaw: FACE_BACK }, act: { label: 'Cinema seat', button: 'Watch the film · ₦2,500', need: 'fun', gain: 70, dur: 12, pose: 'watch', service: 'cinema_ticket', stay: true } })
+            spots.push({ id: 'cine_watch', x: x + 0.75, z: z + 0.2, fx: x, fz: -D / 2, seat: { x, z, h: y + 0.48, yaw: FACE_BACK }, act: { label: 'Cinema seat', button: 'Watch the film · 250 ks', need: 'fun', gain: 70, dur: 12, pose: 'watch', service: 'cinema_ticket', stay: true } })
           } else if (r() < 0.55) person(x, z, FACE_BACK, r() < 0.2 ? 'drink' : 'watch', { seat: y + 0.48 })
         }
         s.colliders.push({ x: 0, z: z + 0.3, w: W - 3.5, d: 0.2 })

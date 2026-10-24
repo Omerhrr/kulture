@@ -10,7 +10,8 @@ PyJWT>=2.8
 httpx>=0.27
 pytest>=8.0
 pytest-asyncio>=0.23
-# PostgreSQL driver for staging/production:
-# asyncpg>=0.29
+# PostgreSQL drivers for staging/production (asyncpg = app, psycopg2 = Alembic):
+asyncpg>=0.29
+psycopg2-binary>=2.9
 # Redis optional (spec: cache/rate limiting only, never the ledger):
 # redis>=5.0

@@ -22,7 +22,7 @@ MSG = {
     "no_such_person": "Couldn't find that person.",
     "bad_place": "Pick restaurant, cinema or park.",
     "not_interested": "Get to know them a bit first.",
-    "insufficient_funds": "Not enough naira for that.",
+    "insufficient_funds": "Not enough k-sats for that.",
     "no_date": "You're not on a date.",
     "bad_choice": "Pick one of the options.",
     "already_engaged": "You're already engaged.",

@@ -85,7 +85,7 @@ const phaseIcon = computed(() => {
           <span class="ml-1 kk-chip border-golddark/25 bg-kasand/15 text-golddark">REP {{ player.profile?.reputation ?? 0 }}</span>
         </div>
         <div class="mt-0.5 flex items-center gap-2 text-xs">
-          <span class="kk-chip" title="Simulated in-game currency - NOT Bitcoin">💰 {{ player.ngnDisplay }} <span class="text-ink/40 max-sm:hidden [@media(max-height:500px)]:hidden">NGN (sim)</span></span>
+          <span class="kk-chip" title="k-sats - in-game currency, NOT Bitcoin. Deposit sats: 1 sat = 1,000 k-sats">💰 {{ player.ksatsDisplay }} <span class="text-ink/40 max-sm:hidden [@media(max-height:500px)]:hidden">k-sats</span></span>
           <span
             class="kk-chip"
             :class="wsStatus === 'open' ? 'text-leaf' : 'text-amber-600'"

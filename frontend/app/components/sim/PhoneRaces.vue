@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Phone → Races: street-race routes on real Kaduna roads with leaderboards.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 import { useClock } from '~/composables/useTimeOfDay'
 import { raceRoutes } from '~/utils/raceRoutes'
 
@@ -27,7 +27,7 @@ function go(id: string) {
     <div v-for="r in routes" :key="r.id" class="rounded-2xl bg-ink/[0.04] p-3">
       <div class="flex items-center justify-between">
         <div class="text-[14px] font-bold">{{ r.name }}</div>
-        <div class="text-[11px] font-bold text-emerald-600">{{ fmtNgn(r.prize) }}</div>
+        <div class="text-[11px] font-bold text-emerald-600">{{ fmtKsats(r.prize) }}</div>
       </div>
       <div class="text-[10px] text-ink/50">~{{ (r.length / 1000).toFixed(1) }} km · checkpoints on the real road</div>
       <div class="my-1.5 space-y-0.5">

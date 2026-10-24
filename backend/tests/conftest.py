@@ -8,7 +8,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-os.environ["KK_DATABASE_URL"] = "sqlite+aiosqlite:///" + os.path.join(
+# KK_TEST_DATABASE_URL=postgresql+asyncpg://... runs the suite on Postgres
+# (the production database); the schema there is dropped and rebuilt.
+_PG_TEST = os.environ.get("KK_TEST_DATABASE_URL", "")
+os.environ["KK_DATABASE_URL"] = _PG_TEST or "sqlite+aiosqlite:///" + os.path.join(
     os.path.dirname(__file__), "test_kaduna.db"
 )
 os.environ["KK_LLM_ENABLED"] = "false"
@@ -23,7 +26,6 @@ _TEST_DB = os.path.join(os.path.dirname(__file__), "test_kaduna.db")
 if os.path.exists(_TEST_DB):
     os.remove(_TEST_DB)
 
-import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
@@ -36,6 +38,8 @@ async def _setup_db():
     from app.db.session import AsyncSessionLocal
 
     async with engine.begin() as conn:
+        if _PG_TEST:
+            await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     async with AsyncSessionLocal() as db:
         await seed_if_empty(db)

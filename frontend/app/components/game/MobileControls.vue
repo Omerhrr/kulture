@@ -25,6 +25,10 @@ onMounted(() => {
   check()
   window.addEventListener('resize', check)
   window.addEventListener('orientationchange', check)
+  onBeforeUnmount(() => {
+    window.removeEventListener('resize', check)
+    window.removeEventListener('orientationchange', check)
+  })
 })
 
 const MOVES = [

@@ -60,14 +60,14 @@ async def test_invalid_inputs_rejected():
     with pytest.raises(ToolRejected):
         validate_tool_request(agent, "create_delivery_job", {
             "item_code": "suya_spice", "dropoff_entity_code": "stonetech_square",
-            "reward_ngn_minor": 999_999_999_99, "title": "Too generous"})
+            "reward_ksats": 999_999_999_99, "title": "Too generous"})
     # unknown dropoff - schema-valid but rejected at execution by the handler
     from app.agents.tool_registry import TOOL_REGISTRY
     from app.db.session import AsyncSessionLocal
 
     parsed = validate_tool_request(agent, "create_delivery_job", {
         "item_code": "suya_spice", "dropoff_entity_code": "lagos_island",
-        "reward_ngn_minor": 100_00, "title": "Wrong city"})
+        "reward_ksats": 100_00, "title": "Wrong city"})
     with pytest.raises(ToolRejected):
         async with AsyncSessionLocal() as db:
             await TOOL_REGISTRY["create_delivery_job"].handler(db, agent, **parsed)
@@ -93,7 +93,7 @@ async def test_agent_run_deterministic_creates_job_and_audits():
     from sqlalchemy import select, func, update
     from app.agents.orchestrator import orchestrator
     from app.db.session import AsyncSessionLocal
-    from app.models.agents import AgentAction, AgentRun
+    from app.models.agents import AgentAction
     from app.models.jobs import Job
     from app.models.business import NPCAgent
 

@@ -70,7 +70,7 @@ NEW_ENTITIES = [
 ]
 
 SHOP_LISTINGS = [
-    # item_code, stock, ngn_minor, sats
+    # item_code, stock, ksats, sats
     ("suya_spice", 24, 350_000, 1500),
     ("fura_nono", 16, 480_000, 2000),
     ("zobo_concentrate", 30, 290_000, 1200),
@@ -103,7 +103,7 @@ BUSINESS_DEFS = [
     ("sabon_tasha_stores", "Sabon Tasha Community Shop", "shop", "sabon_tasha_shop", "The southern shops everybody knows"),
 ]
 
-# business_code -> [(item_code, stock, ngn_minor, sats)]
+# business_code -> [(item_code, stock, ksats, sats)]
 LISTING_DEFS: dict[str, list[tuple[str, int, int, int]]] = {
     "textile_fabrics": [
         ("wax_print", 18, 815_000, 3500),
@@ -163,7 +163,7 @@ NPC_DEFS = [
 ]
 
 JOB_DEFS = [
-    # code, title, description, issuer_business_code, pickup_code, dropoff_code, ngn_minor, rep
+    # code, title, description, issuer_business_code, pickup_code, dropoff_code, ksats, rep
     ("deliv-musa-kasu-0002", "Deliver textbooks to KASU Main Gate",
      "Collect a parcel at Musa's Provision Store and take it to Professor "
      "Danjuma at the KASU Main Gate, east across town.",
@@ -302,14 +302,14 @@ async def reconcile_content(db: AsyncSession) -> int:
         ).scalar_one()
         if have > 0:
             continue
-        for item_code, stock, ngn_minor, sats in rows:
+        for item_code, stock, ksats, sats in rows:
             item = items.get(item_code)
             if item is None:
                 continue
             db.add(
                 ShopListing(
                     business_id=biz.id, item_id=item.id, quantity_available=stock,
-                    price_ngn_minor=ngn_minor, price_sats=sats, is_active=True,
+                    price_ksats=ksats, price_sats=sats, is_active=True,
                 )
             )
             added += 1
@@ -343,7 +343,7 @@ async def reconcile_content(db: AsyncSession) -> int:
         j.code: j
         for j in (await db.execute(select(Job).where(Job.code.in_(job_codes)))).scalars()
     }
-    for code, title, desc, issuer_code, pickup_code, dropoff_code, ngn_minor, rep in JOB_DEFS:
+    for code, title, desc, issuer_code, pickup_code, dropoff_code, ksats, rep in JOB_DEFS:
         if code not in jobs:
             db.add(
                 Job(
@@ -352,7 +352,7 @@ async def reconcile_content(db: AsyncSession) -> int:
                     status="available",
                     pickup_entity_id=entities[pickup_code].id,
                     dropoff_entity_id=entities[dropoff_code].id,
-                    reward_ngn_minor=ngn_minor, reward_reputation=rep,
+                    reward_ksats=ksats, reward_reputation=rep,
                 )
             )
             added += 1
@@ -372,7 +372,7 @@ async def reconcile_content(db: AsyncSession) -> int:
                 status="available",
                 pickup_entity_id=entities[pickup_code].id,
                 dropoff_entity_id=entities[dropoff_code].id,
-                reward_ngn_minor=ngn_minor, reward_reputation=rep,
+                reward_ksats=ksats, reward_reputation=rep,
             )
         )
         added += 1
@@ -437,11 +437,11 @@ async def seed_if_empty(db: AsyncSession) -> bool:
     db.add(biz_pos)
     await db.flush()
 
-    for item_code, stock, ngn_minor, sats in SHOP_LISTINGS:
+    for item_code, stock, ksats, sats in SHOP_LISTINGS:
         db.add(
             ShopListing(
                 business_id=biz_musa.id, item_id=items[item_code].id,
-                quantity_available=stock, price_ngn_minor=ngn_minor,
+                quantity_available=stock, price_ksats=ksats,
                 price_sats=sats, is_active=True,
             )
         )
@@ -480,7 +480,7 @@ async def seed_if_empty(db: AsyncSession) -> bool:
             "and deliver it to Hajiya Amina at Stonetech Square.",
             issuer_business_id=biz_musa.id, status="available",
             pickup_entity_id=musa_shop.id, dropoff_entity_id=entity_map["stonetech_square"].id,
-            reward_ngn_minor=8_000_00, reward_reputation=5,
+            reward_ksats=8_000_00, reward_reputation=5,
         )
     )
 
@@ -514,11 +514,11 @@ async def seed_if_empty(db: AsyncSession) -> bool:
     db.add(
         GameLedgerEntry(
             account_reference=f"player:{demo_profile.id}",
-            asset_type="ngn_minor",
+            asset_type="ksats",
             amount_minor_units=25_000_00,
             transaction_reference=f"grant:demo:{int(datetime.now(timezone.utc).timestamp())}",
             entry_type="grant_initial",
-            description="Starting simulated NGN (game currency - not Bitcoin)",
+            description="Starting simulated k-sats (game currency - not Bitcoin)",
         )
     )
     await db.commit()

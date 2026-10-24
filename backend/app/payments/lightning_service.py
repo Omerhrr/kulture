@@ -16,14 +16,13 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.events.outbox_service import emit
-from app.models.catalog import Item
 from app.models.payments import LightningInvoice, PaymentEvent, PaymentIntent
 from app.payments.interfaces import (
     Invoice,
@@ -52,6 +51,36 @@ def _aware(dt: datetime | None) -> datetime | None:
 
 def new_payment_hash() -> str:
     return hashlib.sha256(uuid.uuid4().bytes + uuid.uuid4().hex.encode()).hexdigest()
+
+
+# In-game money is k-sats. Deposits exchange verified Lightning sats for
+# spendable k-sats at a fixed rate: 1 sat = 1,000 k-sats.
+SATS_TO_KSATS = 1_000
+
+
+# ---------------------------------------------------------- k-sats deposits
+async def create_deposit_intent(db: AsyncSession, player_id: str, sats: int) -> PaymentIntent:
+    """A deposit intent has no listing/item: on verified settlement the ledger is
+    credited with sats * SATS_TO_KSATS k-sats, atomically, exactly once."""
+    if sats < 1 or sats > 5_000_000:
+        raise PaymentError("bad_deposit_amount")
+    now = _now()
+    intent = PaymentIntent(
+        player_id=player_id,
+        quantity=1,
+        amount_sats=sats,
+        amount_ksats=sats * SATS_TO_KSATS,
+        currency="sats",
+        status="created",
+        purchase_reference=f"deposit:{uuid.uuid4().hex[:10]}",
+        idempotency_key=f"deposit-{player_id}-{uuid.uuid4().hex[:12]}",
+        expires_at=now + timedelta(seconds=settings.invoice_expiry_seconds * 2),
+        metadata_json={"kind": "deposit", "item_code": "ksats_deposit", "item_name": "k-sats deposit"},
+    )
+    db.add(intent)
+    await db.flush()
+    await db.commit()
+    return intent
 
 
 # ------------------------------------------------------------------ create
@@ -84,23 +113,23 @@ async def create_invoice_for_intent(db: AsyncSession, intent: PaymentIntent) -> 
         await db.commit()
         raise PaymentError(f"invoice_creation_failed: {exc}") from exc
 
-    db.add(
-        LightningInvoice(
-            payment_intent_id=intent.id,
-            provider=invoice.provider,
-            provider_invoice_id=invoice.provider_invoice_id,
-            payment_hash=invoice.payment_hash,
-            invoice_bolt11=invoice.bolt11,
-            amount_sats=invoice.amount_sats,
-            status="awaiting_payment",
-            expires_at=invoice.expires_at,
-            memo=memo,
-        )
+    li = LightningInvoice(
+        payment_intent_id=intent.id,
+        provider=invoice.provider,
+        provider_invoice_id=invoice.provider_invoice_id,
+        payment_hash=invoice.payment_hash,
+        invoice_bolt11=invoice.bolt11,
+        amount_sats=invoice.amount_sats,
+        status="awaiting_payment",
+        expires_at=invoice.expires_at,
+        memo=memo,
     )
+    db.add(li)
+    await db.flush()  # li.id exists now: events reference the invoice row
     db.add(
         PaymentEvent(
             provider_event_id=f"inv-created-{invoice.payment_hash[:24]}",
-            invoice_id="-",  # linked below after flush
+            invoice_id=li.id,
             event_type="invoice.created",
             payload_hash=hashlib.sha256(
                 json.dumps({"h": invoice.payment_hash, "a": invoice.amount_sats}).encode()
@@ -110,14 +139,6 @@ async def create_invoice_for_intent(db: AsyncSession, intent: PaymentIntent) -> 
         )
     )
     intent.status = "awaiting_payment"
-    await db.flush()
-
-    # fix the denormalized link on the just-created event
-    await db.execute(
-        update(PaymentEvent)
-        .where(PaymentEvent.provider_event_id == f"inv-created-{invoice.payment_hash[:24]}")
-        .values(invoice_id=invoice.payment_hash)
-    )
     await db.commit()
     return intent
 
@@ -195,7 +216,7 @@ async def process_settlement(
             db.add(
                 PaymentEvent(
                     provider_event_id=event.provider_event_id,
-                    invoice_id=inv.payment_hash,
+                    invoice_id=inv.id,
                     event_type="invoice.settled",
                     payload_hash=payload_hash,
                     payload={"duplicate": True},
@@ -209,7 +230,7 @@ async def process_settlement(
         db.add(
             PaymentEvent(
                 provider_event_id=event.provider_event_id,
-                invoice_id=inv.payment_hash,
+                invoice_id=inv.id,
                 event_type="invoice.settled",
                 payload_hash=payload_hash,
                 payload={"payment_hash": event.payment_hash, "amount_paid_sats": event.amount_paid_sats},
@@ -241,13 +262,29 @@ async def process_settlement(
             await db.commit()
             return {"outcome": "rejected_insufficient_stock_after_payment"}
 
-    # 4) inventory grant (same transaction)
-    await inventory_service.grant_items(
-        db, intent.player_id, intent.item_id, intent.quantity,
-        reference=f"purchase:{intent.purchase_reference}",
-    )
+    # 4) fulfillment, defined by the intent kind - all in this transaction
+    if (intent.metadata_json or {}).get("kind") == "deposit":
+        # k-sats deposit: the verified sats become spendable game money here
+        # (1 sat = SATS_TO_KSATS k-sats), alongside the sats_ref audit entry.
+        from app.models.ledger import GameLedgerEntry
 
-    # 5) auditable ledger reference (real sats are NEVER converted to NGN)
+        db.add(
+            GameLedgerEntry(
+                account_reference=f"player:{intent.player_id}",
+                asset_type="ksats",
+                amount_minor_units=intent.amount_sats * SATS_TO_KSATS,
+                transaction_reference=f"deposit:{event.provider_event_id}",
+                entry_type="ksats_deposit",
+                description=f"Deposited {intent.amount_sats:,} sats -> {intent.amount_sats * SATS_TO_KSATS:,} k-sats",
+            )
+        )
+    elif intent.item_id is not None:
+        await inventory_service.grant_items(
+            db, intent.player_id, intent.item_id, intent.quantity,
+            reference=f"purchase:{intent.purchase_reference}",
+        )
+
+    # 5) auditable ledger reference (sats entry references, never spent directly)
     from app.models.ledger import GameLedgerEntry
 
     db.add(

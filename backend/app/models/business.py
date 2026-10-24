@@ -50,7 +50,7 @@ class ShopListing(UUIDPk, Base):
     )
     item_id: Mapped[str] = mapped_column(String(36), ForeignKey("items.id"), nullable=False)
     quantity_available: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    price_ngn_minor: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    price_ksats: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     price_sats: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)

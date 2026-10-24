@@ -27,7 +27,7 @@ def _err(e: MatchError):
 class JoinIn(BaseModel):
     game: str
     stake: int = Field(default=0, ge=0)
-    asset: str = "ngn_minor"
+    asset: str = "ksats"
     vs_bots: bool = False
     invite: str | None = None  # friend's player id: private head-to-head
     match_id: str | None = None  # accept a friend's invite

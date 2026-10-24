@@ -1,4 +1,5 @@
-/** Simulated naira from kobo (minor units). */
-export function fmtNgn(minor: number) {
-  return `₦${Math.round(minor / 100).toLocaleString('en-NG')}`
+/** In-game money = k-sats (whole units, deposited with Lightning sats:
+ * 1 sat = 1,000 k-sats). Display just groups the whole number. */
+export function fmtKsats(ksats: number) {
+  return `${Math.round(ksats).toLocaleString('en')} ks`
 }

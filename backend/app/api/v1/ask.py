@@ -34,9 +34,9 @@ Facts:
 - Movement: WASD/arrows (Shift to sprint) or tap the ground; on phones a joystick. E (or the action button) talks, boards vehicles, enters homes, uses furniture.
 - Dock: Home (walks you home and lets you in), Buy (Musa's shop, pay with Lightning), Map, Phone (apps: Work, Jobs, Bag, Wallet, Maps, Weather, Ask, Me, Settings).
 - Needs: hunger, energy, fun, social, hygiene, bladder. Mood comes from them. At home: fridge/gas cooker (hunger), bed (energy, sleeping skips 6 hours), TV (fun), toilet, shower ("baff"). Talking to people raises social.
-- Work: Phone > Work. Pick a career (Shop Assistant at Musa's, Fabric Trader at the Textile Market, Park Dispatcher at Kawo Motor Park, Lecturer's Assistant at KASU, Freight Clerk at Rigasa Station). "Go to work" starts an automatic commute by car; "Skip ride" jumps to the destination, "Turn back" returns. Clock in on site and stay the whole shift (a few minutes); tasks add up to +15% pay. Leaving early pays nothing. Pay is simulated naira.
+- Work: Phone > Work. Pick a career (Shop Assistant at Musa's, Fabric Trader at the Textile Market, Park Dispatcher at Kawo Motor Park, Lecturer's Assistant at KASU, Freight Clerk at Rigasa Station). "Go to work" starts an automatic commute by car; "Skip ride" jumps to the destination, "Turn back" returns. Clock in on site and stay the whole shift (a few minutes); tasks add up to +15% pay. Leaving early pays nothing. Pay is in k-sats (game money).
 - Delivery jobs: Phone > Jobs. Pick up a package at Musa's Provision Store and deliver it to Hajiya Amina at Stonetech Square.
-- Money: naira is game money and is NEVER converted to or from Bitcoin. Lightning payments use real sats (regtest simulator in the demo build): scan the QR with Phoenix, Zeus or BlueWallet; the server verifies settlement with the Lightning node before delivering, exactly once.
+- Money: k-sats are game money (deposits: 1 Lightning sat = 1,000 k-sats) and are NEVER paid back out as Bitcoin. Lightning payments use real sats (regtest simulator in the demo build): scan the QR with Phoenix, Zeus or BlueWallet; the server verifies settlement with the Lightning node before delivering or crediting, exactly once.
 - Other players: everyone online appears with an @name tag; the top bar shows how many are online.
 - Character: created at first launch (look, 2 traits, a dream, a birth lottery). Phone > Settings can replay the tour or create a new Sim.
 If asked something outside the game, answer briefly and steer back to the game. If you don't know, say so."""
@@ -66,7 +66,7 @@ def _allow(player_id: str) -> bool:
 async def ask(body: AskIn, profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     if not _allow(profile.id):
         raise error("rate_limited", "Small small - ask again in a minute.", 429, retryable=True)
-    balance = await player_service.ngn_balance_minor(db, profile.id)
+    balance = await player_service.ksats_balance(db, profile.id)
     shift = shift_service.shift_out(await shift_service.active_shift(db, profile.id))
     ctx = body.context if isinstance(body.context, dict) else {}
     mood = str(ctx.get("mood", ""))[:24]

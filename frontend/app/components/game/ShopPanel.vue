@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// ShopPanel - server-listed goods with dual pricing (simulated NGN vs real sats).
+// ShopPanel - server-listed goods with dual pricing (k-sats vs real sats).
 // Purchases always create a Lightning invoice - the server owns pricing.
 
 const payments = usePaymentsStore()
@@ -7,8 +7,8 @@ const ui = useUiStore()
 
 const qty = ref(1)
 
-function fmtNgn(minor: number) {
-  return `₦${(minor / 100).toLocaleString('en-NG')}`
+function fmtKsats(minor: number) {
+  return `${Math.round(minor).toLocaleString('en')} ks`
 }
 </script>
 
@@ -41,7 +41,7 @@ function fmtNgn(minor: number) {
           <div class="truncate text-[11px] text-ink/50">{{ l.description }}</div>
           <div class="mt-1 flex flex-wrap items-center gap-1.5">
             <span class="kk-chip border-golddark/25 bg-kasand/15 text-golddark">⚡ {{ l.price_sats.toLocaleString() }} sats</span>
-            <span class="kk-chip">💰 {{ fmtNgn(l.price_ngn_minor) }} sim</span>
+            <span class="kk-chip">💰 {{ fmtKsats(l.price_ksats) }} sim</span>
             <span class="kk-chip" :class="l.quantity_available > 0 ? 'text-leaf' : 'text-red-600'">
               {{ l.quantity_available > 0 ? `${l.quantity_available} in stock` : 'sold out' }}
             </span>
@@ -59,7 +59,7 @@ function fmtNgn(minor: number) {
 
     <p class="mt-3 rounded-2xl bg-kasand/10 p-2.5 text-[11px] leading-relaxed text-ink/70">
       ⚡ Lightning prices are <b>real Bitcoin (sats)</b> paid from YOUR wallet - settled and verified by
-      the backend before delivery. 💰 NGN prices are simulated game money only, never convertible.
+      the backend before delivery. 💰 k-sats prices are game money only, never convertible.
     </p>
     <p v-if="payments.error" class="mt-2 rounded-2xl bg-red-50 p-2 text-xs font-semibold text-red-600">{{ payments.error }}</p>
   </div>

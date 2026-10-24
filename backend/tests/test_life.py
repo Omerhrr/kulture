@@ -115,13 +115,13 @@ async def test_games_vs_bots(client, auth_headers, game):
 
 
 async def test_stake_escrow_and_leave_refund(client, auth_headers):
-    before = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ngn_balance_minor"]
+    before = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ksats_balance"]
     m = (await client.post("/api/v1/games/join", json={"game": "ayo", "stake": 10_000}, headers=auth_headers)).json()
     assert m["status"] == "waiting"
-    mid = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ngn_balance_minor"]
+    mid = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ksats_balance"]
     assert mid == before - 10_000
     await client.post(f"/api/v1/games/match/{m['id']}/leave", headers=auth_headers)
-    after = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ngn_balance_minor"]
+    after = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ksats_balance"]
     assert after == before
     big = await client.post("/api/v1/games/join", json={"game": "ayo", "stake": 10**9}, headers=auth_headers)
     assert big.status_code == 409
@@ -192,7 +192,7 @@ async def test_travel_between_towns(client, auth_headers):
     r = await client.post("/api/v1/world/travel", json={"region": "zaria"}, headers=auth_headers)
     assert r.status_code == 200, r.text
     me = (await client.get("/api/v1/players/me", headers=auth_headers)).json()
-    assert me["region_slug"] == "zaria" and me["ngn_balance_minor"] == before["ngn_balance_minor"] - 250_000
+    assert me["region_slug"] == "zaria" and me["ksats_balance"] == before["ksats_balance"] - 250_000
     again = await client.post("/api/v1/world/travel", json={"region": "zaria"}, headers=auth_headers)
     assert again.status_code == 409
     back = await client.post("/api/v1/world/travel", json={"region": "kaduna"}, headers=auth_headers)
@@ -266,10 +266,10 @@ async def test_crews_gifts_town_jobs(client, auth_headers):
     await client.post("/api/v1/crews/say", json={"text": "Night meet at 9!"}, headers=auth_headers)
     cr = (await client.get("/api/v1/crews", headers=h2)).json()
     assert cr["messages"][-1]["text"] == "Night meet at 9!"
-    before = other["ngn_balance_minor"]
+    before = other["ksats_balance"]
     g = await client.post("/api/v1/gifts", json={"to": other["id"], "amount": 100_000}, headers=auth_headers)
     assert g.status_code == 200
-    after = (await client.get("/api/v1/players/me", headers=h2)).json()["ngn_balance_minor"]
+    after = (await client.get("/api/v1/players/me", headers=h2)).json()["ksats_balance"]
     assert after == before + 100_000
     assert (await client.post("/api/v1/gifts", json={"to": other["id"], "amount": 10**9}, headers=auth_headers)).status_code == 409
     # town jobs: Zaria jobs only in Zaria
@@ -301,3 +301,24 @@ async def test_private_head_to_head_invite(client, auth_headers):
     assert bad.status_code == 404
     b = (await client.post("/api/v1/games/join", json={"game": "whot", "match_id": a["id"]}, headers=h2)).json()
     assert b["id"] == a["id"] and b["status"] == "playing" and len(b["players"]) == 2
+
+
+async def test_own_car_paint_park_and_list(client, auth_headers):
+    me = (await client.get("/api/v1/players/me", headers=auth_headers)).json()
+    await _rich(me["id"])
+    r = await client.post("/api/v1/life/car", json={"tier": 1, "color": "#b8433a"}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    car = r.json()["car"]
+    assert car["color"] == "#b8433a" and car["plate"].startswith("KD") and car["x"] is None
+    p = await client.post("/api/v1/life/car/park", json={"x": 12.5, "z": -40.0, "heading": 1.2}, headers=auth_headers)
+    assert p.status_code == 200, p.text
+    cars = (await client.get("/api/v1/life/cars", headers=auth_headers)).json()["cars"]
+    mine = next(c for c in cars if c["owner_id"] == me["id"])
+    assert mine["parked"] and mine["x"] == 12.5 and mine["heading"] == 1.2
+    bad = await client.post("/api/v1/life/car/paint", json={"color": "#123456"}, headers=auth_headers)
+    assert bad.status_code == 409
+    ok = await client.post("/api/v1/life/car/paint", json={"color": "#2f7d5b"}, headers=auth_headers)
+    assert ok.status_code == 200 and ok.json()["car"]["color"] == "#2f7d5b"
+    # a player without a car can't park one
+    h2, _ = await _new(client)
+    assert (await client.post("/api/v1/life/car/park", json={"x": 0, "z": 0}, headers=h2)).status_code == 409

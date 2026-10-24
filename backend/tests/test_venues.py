@@ -10,10 +10,10 @@ pytestmark = pytest.mark.asyncio
 async def test_spend_and_unknown(client, auth_headers):
     svc = (await client.get("/api/v1/venues/services")).json()["services"]
     assert any(s["id"] == "bar_drink" for s in svc)
-    start = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ngn_balance_minor"]
+    start = (await client.get("/api/v1/players/me", headers=auth_headers)).json()["ksats_balance"]
     r = await client.post("/api/v1/venues/spend", json={"service": "bar_drink"}, headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert r.json()["balance_ngn_minor"] == start - 150_000
+    assert r.json()["balance_ksats"] == start - 150_000
     bad = await client.post("/api/v1/venues/spend", json={"service": "free_money"}, headers=auth_headers)
     assert bad.status_code == 404
 

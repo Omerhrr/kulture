@@ -43,7 +43,7 @@ async function act(kind: 'accept' | 'pickup' | 'complete', job: any) {
       ui.showToast('Package picked up! Deliver it now.', 'success')
     } else {
       await api.completeJob(job.id, [pos.value[0], pos.value[1], pos.value[2]])
-      ui.showToast('Delivery complete - NGN + reputation paid.', 'success')
+      ui.showToast('Delivery complete - k-sats + reputation paid.', 'success')
     }
     await refresh()
     await loadAvailable()
@@ -54,8 +54,8 @@ async function act(kind: 'accept' | 'pickup' | 'complete', job: any) {
   }
 }
 
-function fmtNgn(minor: number) {
-  return `₦${(minor / 100).toLocaleString('en-NG')}`
+function fmtKsats(minor: number) {
+  return `${Math.round(minor).toLocaleString('en')} ks`
 }
 </script>
 
@@ -74,7 +74,7 @@ function fmtNgn(minor: number) {
         <span class="kk-chip" :class="j.status === 'completed' ? 'text-leaf' : 'text-golddark'">{{ j.status }}</span>
       </div>
       <div class="mt-1 text-[11px] text-ink/50">
-        Reward: <b class="text-golddark">{{ fmtNgn(j.reward_ngn_minor) }} sim</b> + {{ j.reward_reputation }} rep ·
+        Reward: <b class="text-golddark">{{ fmtKsats(j.reward_ksats) }} sim</b> + {{ j.reward_reputation }} rep ·
         {{ j.pickup_entity?.name }} → {{ j.dropoff_entity?.name }}
       </div>
       <div class="mt-2 flex gap-2" v-if="j.status !== 'completed'">
@@ -108,7 +108,7 @@ function fmtNgn(minor: number) {
       <div class="text-sm font-extrabold text-ink">{{ j.title }}</div>
       <div class="mt-1 text-[11px] text-ink/55">{{ j.description }}</div>
       <div class="mt-2 flex items-center justify-between">
-        <span class="text-xs font-bold text-golddark">💰 {{ fmtNgn(j.reward_ngn_minor) }} sim + {{ j.reward_reputation }} rep</span>
+        <span class="text-xs font-bold text-golddark">💰 {{ fmtKsats(j.reward_ksats) }} sim + {{ j.reward_reputation }} rep</span>
         <button class="kk-btn-primary !px-3.5 !py-2 text-xs" :disabled="busy === j.id + 'accept'" @click="act('accept', j)">
           Accept
         </button>

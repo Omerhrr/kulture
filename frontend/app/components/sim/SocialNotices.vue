@@ -2,7 +2,7 @@
 // SocialNotices - pop-ups for things friends send you while you play:
 // game invites (Whot/Ludo/Ayo head-to-head), Street Brawl fight challenges
 // (live, relayed over the socket), gifts and crew chat.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const ui = useUiStore()
 const player = usePlayerStore()
@@ -31,7 +31,7 @@ function onWs(ev: Event) {
   if (d?.type === 'game.invite') {
     push({
       icon: '🎮',
-      text: `${p.name} challenges you to ${p.game_name}${p.stake ? ` (stake ${fmtNgn(p.stake)})` : ''}`,
+      text: `${p.name} challenges you to ${p.game_name}${p.stake ? ` (stake ${fmtKsats(p.stake)})` : ''}`,
       accept: () => {
         pending.value = { accept: p.id, game: p.game }
         goto.value = 'games'
@@ -39,13 +39,19 @@ function onWs(ev: Event) {
       }
     }, 170)
   } else if (d?.type === 'social.gift') {
-    ui.showToast(`🎁 ${p.name} sent you ${p.amount ? fmtNgn(p.amount) : p.item ?? 'a gift'}`, 'success')
+    ui.showToast(`🎁 ${p.name} sent you ${p.amount ? fmtKsats(p.amount) : p.item ?? 'a gift'}`, 'success')
     ;(window as any).__kk_ws_send?.('state.resync', {}) // refresh balance + bag
   } else if (d?.type === 'social.crew') {
     if (!(phoneOpen.value && (window as any).__kk_phone_page === 'crews')) ui.showToast(`👥 ${p.name}: ${String(p.text).slice(0, 60)}`, 'info')
   } else if (d?.type === 'arcade.fight') {
     const x = p.data ?? {}
-    if (x.k === 'invite') {
+    if (x.k === 'ride_invite') {
+      push({
+        icon: '🚗',
+        text: `${x.name} offers you a ride in ${x.own ? 'their own car' : `a ${x.label}`}`,
+        accept: () => window.dispatchEvent(new CustomEvent('kk-ride-accept', { detail: { from: p.from, name: x.name } }))
+      }, 40)
+    } else if (x.k === 'invite') {
       push({
         icon: '🥊',
         text: `${x.name} wants a live Street Brawl!`,

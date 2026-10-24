@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from sqlalchemy import select
 # NOTE: asyncio_mode = auto (pytest.ini) collects the async tests; no module
 # mark, or the sync tests below get stamped with asyncio and warn.
@@ -60,7 +59,7 @@ async def test_clock_in_requires_being_on_site(client, auth_headers):
 
 async def test_full_shift_pays_exactly_once(client, auth_headers):
     me = await _me(client, auth_headers)
-    start = me["ngn_balance_minor"]
+    start = me["ksats_balance"]
     x, z = await _place("musa_shop")
     await _move(me["id"], x + 3, z)
     r = await client.post("/api/v1/work/clock-in", json={"career": "shop"}, headers=auth_headers)
@@ -77,22 +76,22 @@ async def test_full_shift_pays_exactly_once(client, auth_headers):
     assert out.status_code == 200
     shift = out.json()["shift"]
     assert shift["status"] == "paid"
-    assert shift["paid_ngn_minor"] == int(12_000_00 * 1.15)
-    assert (await _me(client, auth_headers))["ngn_balance_minor"] == start + shift["paid_ngn_minor"]
+    assert shift["paid_ksats"] == int(12_000_00 * 1.15)
+    assert (await _me(client, auth_headers))["ksats_balance"] == start + shift["paid_ksats"]
     # clocking out again pays nothing more
     assert (await client.post("/api/v1/work/clock-out", headers=auth_headers)).status_code == 409
-    assert (await _me(client, auth_headers))["ngn_balance_minor"] == start + shift["paid_ngn_minor"]
+    assert (await _me(client, auth_headers))["ksats_balance"] == start + shift["paid_ksats"]
 
 
 async def test_leaving_early_pays_nothing(client, auth_headers):
     me = await _me(client, auth_headers)
-    start = me["ngn_balance_minor"]
+    start = me["ksats_balance"]
     x, z = await _place("rigasa_station")
     await _move(me["id"], x, z + 2)
     assert (await client.post("/api/v1/work/clock-in", json={"career": "rail"}, headers=auth_headers)).status_code == 200
     out = (await client.post("/api/v1/work/clock-out", headers=auth_headers)).json()["shift"]
-    assert out["status"] == "left_early" and out["paid_ngn_minor"] == 0
-    assert (await _me(client, auth_headers))["ngn_balance_minor"] == start
+    assert out["status"] == "left_early" and out["paid_ksats"] == 0
+    assert (await _me(client, auth_headers))["ksats_balance"] == start
 
 
 async def test_walking_off_site_forfeits_pay(client, auth_headers):

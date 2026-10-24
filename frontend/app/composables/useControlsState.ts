@@ -46,7 +46,7 @@ export function useIsTouch() {
 }
 
 // ------------------------------------------------------------------ riding
-export type RideKind = 'keke' | 'car' | 'okada' | 'bus' | 'bicycle' | 'boat' | 'plane'
+export type RideKind = 'keke' | 'car' | 'okada' | 'bus' | 'truck' | 'bicycle' | 'boat' | 'plane'
 
 export interface RideState {
   active: boolean
@@ -124,4 +124,25 @@ export function useMapOpen() {
  *  paths stay symmetric with the interact flow. */
 export function fireKkEvent(name: string) {
   if (import.meta.client) window.dispatchEvent(new CustomEvent(name))
+}
+
+/** Camera view: third person (behind), first person (through your eyes),
+ *  second person (in front, looking back at you). Remembered per browser. */
+export type CamMode = 'third' | 'first' | 'second'
+export const CAM_MODES: CamMode[] = ['third', 'first', 'second']
+export const CAM_LABEL: Record<CamMode, string> = { third: '3rd person', first: '1st person', second: '2nd person' }
+export function useCamMode() {
+  return useState<CamMode>('kk_cam_mode', () => {
+    try {
+      const m = localStorage.getItem('kk_cam_mode') as CamMode | null
+      if (m && CAM_MODES.includes(m)) return m
+    } catch {}
+    return 'third'
+  })
+}
+export function cycleCamMode(mode: Ref<CamMode>) {
+  mode.value = CAM_MODES[(CAM_MODES.indexOf(mode.value) + 1) % CAM_MODES.length]!
+  try {
+    localStorage.setItem('kk_cam_mode', mode.value)
+  } catch {}
 }

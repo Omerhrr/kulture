@@ -3,6 +3,27 @@
 // 1 Hz snapshot of nearby players (positions it already accepted); we glide
 // each avatar toward its latest position and float an @name tag above it.
 import * as THREE from 'three'
+import { vehicleSpec, paintedVehicle, vehicleMaterial, type VehicleKind } from '~/utils/vehicles'
+
+// people already in your vehicle are drawn by RideSystem (seated, in sync)
+const partyIds = useState<string[]>('kk_ride_party_ids', () => [])
+const KINDS = ['car', 'keke', 'okada', 'bus', 'truck', 'bicycle', 'boat', 'plane']
+/** "kind|driver|seat|colour" (or a bare kind from a commute) */
+interface RideInfo {
+  kind: VehicleKind
+  driver: string
+  seat: number
+  color: string
+}
+function parseRiding(r: string | null, self: string): RideInfo | null {
+  if (!r) return null
+  const [kind, driver, seat, color] = r.split('|')
+  if (!KINDS.includes(kind!)) return null
+  return { kind: kind as VehicleKind, driver: driver || self, seat: seat ? Number(seat) : -1, color: color || '' }
+}
+const vehRoot = new THREE.Group()
+const vehMat = vehicleMaterial()
+const vehicles = new Map<string, { key: string; group: THREE.Group }>()
 
 interface Remote {
   id: string
@@ -32,6 +53,13 @@ interface Shown {
   tagW: number
   action: string | null
   actionKey: number
+  ride: RideInfo | null
+  /** avatar placement (seated in a vehicle, or standing at x/z) */
+  ax: number
+  ay: number
+  seatH: number
+  az: number
+  ah: number
 }
 const shown = ref<Shown[]>([])
 
@@ -64,7 +92,7 @@ function tagFor(name: string) {
 watch(
   () => snap.value.players,
   (list) => {
-    const byId = new Map(shown.value.map((s) => [s.id, s]))
+    const byId = new Map<string, Shown>(shown.value.map((s) => [s.id, s] as [string, Shown]))
     const next: Shown[] = []
     for (const p of list) {
       const cur = byId.get(p.id)
@@ -74,6 +102,7 @@ watch(
         cur.tz = p.pos[2]
         cur.th = p.facing
         cur.moving = p.moving
+        cur.ride = parseRiding(p.riding, p.id)
         if (cur.name !== p.name) {
           const t = tagFor(p.name)
           cur.name = p.name
@@ -92,7 +121,7 @@ watch(
         next.push(cur)
       } else {
         const t = tagFor(p.name)
-        next.push({ id: p.id, name: p.name, x: p.pos[0], z: p.pos[2], h: p.facing, tx: p.pos[0], tz: p.pos[2], th: p.facing, moving: p.moving, look: p.look, lookKey, tag: t.tex, tagW: t.w, action: null, actionKey: 0 })
+        next.push({ id: p.id, name: p.name, x: p.pos[0], z: p.pos[2], h: p.facing, tx: p.pos[0], tz: p.pos[2], th: p.facing, moving: p.moving, look: p.look, lookKey, tag: t.tex, tagW: t.w, action: null, actionKey: 0, ride: parseRiding(p.riding, p.id), ax: p.pos[0], ay: 0, seatH: 0.5, az: p.pos[2], ah: p.facing })
       }
     }
     shown.value = next
@@ -120,14 +149,54 @@ onBeforeRender(({ delta }) => {
     dh = Math.atan2(Math.sin(dh), Math.cos(dh))
     s.h += dh * k
   }
+  // vehicles: one per remote driver (not the one you are riding in)
+  const keep = new Set<string>()
+  const byId = new Map<string, Shown>(shown.value.map((x: Shown) => [x.id, x] as [string, Shown]))
+  for (const s of shown.value) {
+    const r = s.ride
+    if (!r || r.driver !== s.id || partyIds.value.includes(s.id)) continue
+    const key = `${r.kind}${r.color}`
+    let v = vehicles.get(s.id)
+    if (!v || v.key !== key) {
+      if (v) vehRoot.remove(v.group)
+      v = { key, group: paintedVehicle(r.kind, r.color || undefined, vehMat).group }
+      vehicles.set(s.id, v)
+      vehRoot.add(v.group)
+    }
+    v.group.position.set(s.x, 0, s.z)
+    v.group.rotation.y = s.h
+    keep.add(s.id)
+  }
+  for (const [id, v] of vehicles) if (!keep.has(id)) (vehRoot.remove(v.group), vehicles.delete(id))
+  // seat everyone who is riding (passengers sit in their driver's vehicle)
+  for (const s of shown.value) {
+    const r = s.ride
+    if (!r) {
+      s.ax = s.x
+      s.ay = 0
+      s.az = s.z
+      s.ah = s.h
+      continue
+    }
+    const d = byId.get(r.driver) ?? s
+    const spec = vehicleSpec(r.kind)
+    const o = r.seat >= 0 ? spec.passengers[r.seat] ?? spec.seat : spec.seat
+    s.ax = d.x + Math.cos(d.h) * o[0] + Math.sin(d.h) * o[2]
+    s.ay = 0
+    s.seatH = o[1]
+    s.az = d.z - Math.sin(d.h) * o[0] + Math.cos(d.h) * o[2]
+    s.ah = d.h
+  }
 })
+onBeforeUnmount(() => vehicles.clear())
 if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_remotes = () => shown.value.map((s) => ({ name: s.name, x: +s.x.toFixed(1), z: +s.z.toFixed(1) }))
 </script>
 
 <template>
   <TresGroup>
-    <TresGroup v-for="s in shown" :key="s.id" :position="[s.x, 0, s.z]">
-      <TresGroup :rotation="[0, s.h, 0]">
+    <primitive :object="vehRoot" />
+    <TresGroup v-for="s in shown" :key="s.id" :visible="!partyIds.includes(s.id)" :position="[s.ax, s.ay, s.az]">
+      <TresGroup :rotation="[0, s.ah, 0]">
         <CharacterAvatar real
           :key="s.lookKey"
           :shirt="s.look.top || '#3f6fae'"
@@ -139,7 +208,8 @@ if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_remot
           :hair-color="s.look.hairColor || '#141114'"
           :outfit="(s.look.outfit as any) || 'kaftan'"
           :beard="s.look.body !== 'woman' && s.look.hair !== 'braids'"
-          :mode="s.moving ? 'walk' : 'idle'"
+          :mode="s.ride ? 'sit' : s.moving ? 'walk' : 'idle'"
+          :seat="s.seatH"
           :action="(s.action as any)"
           :action-key="s.actionKey"
         />

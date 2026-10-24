@@ -26,7 +26,7 @@ const landmarks = [
   {
     icon: '🏪',
     name: "Musa's Provision Store",
-    body: 'AI shopkeeper. Suya spice to power banks. Pay with Lightning, work deliveries for NGN.'
+    body: 'AI shopkeeper. Suya spice to power banks. Pay with Lightning, work deliveries for k-sats.'
   },
   {
     icon: '⚡',
@@ -105,7 +105,7 @@ const landmarks = [
           </h1>
           <p class="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-ink/60 sm:text-base">
             A 3D life simulator of Kaduna in your browser. Walk the streets, take delivery jobs for
-            naira, and shop from AI shopkeepers with Bitcoin Lightning. Every payment is verified
+            k-sats, and shop from AI shopkeepers with Bitcoin Lightning. Every payment is verified
             server side, exactly once.
           </p>
           <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -155,8 +155,8 @@ const landmarks = [
       <div class="rounded-3xl border border-golddark/20 bg-kasand/10 p-6 text-sm leading-relaxed text-ink/70">
         <b class="text-ink">Demo economics:</b>
         Lightning invoices are real Bitcoin (sats) paid from your own wallet. In this build they run
-        against a regtest-style simulator, so no real funds move. Simulated NGN is game currency and
-        is never convertible to Bitcoin. Player withdrawals, custody and cash-out are deliberately
+        against a regtest-style simulator, so no real funds move. k-sats are game currency and
+        are never convertible to Bitcoin. Player withdrawals, custody and cash-out are deliberately
         out of scope pending security and legal review.
       </div>
       <div class="mt-10 text-center text-xs text-ink/35">

@@ -2,7 +2,7 @@
 // Phone → Contacts / Connect: everyone you know (NPCs remember you), nearby
 // players, chats (NPCs answer with AI + memory; players get real DMs), the
 // Kulture Connect dating app, dates with choices, proposals and the owambe.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const props = defineProps<{ tab?: 'contacts' | 'connect' }>()
 const api = useGameApi()
@@ -40,7 +40,7 @@ async function sendGift(g: { amount?: number; item?: string }) {
   busy.value = true
   try {
     await api.apiPost('/gifts', { to: cur.value.other_id, ...g })
-    msgs.value.push({ me: true, text: g.amount ? `🎁 Sent you ${fmtNgn(g.amount)}` : `🎁 Sent you a ${bag.value.find((b) => b.code === g.item)?.name}` })
+    msgs.value.push({ me: true, text: g.amount ? `🎁 Sent you ${fmtKsats(g.amount)}` : `🎁 Sent you a ${bag.value.find((b) => b.code === g.item)?.name}` })
     ui.showToast('Gift sent 🎁', 'success')
     giftOpen.value = false
     loadBag()
@@ -219,7 +219,7 @@ function talkToPlayer(p: any) {
       <div v-if="giftOpen && cur.kind === 'player'" class="mb-2 space-y-1.5 rounded-2xl bg-amber-50 p-2 text-[11px]">
         <div class="font-bold text-amber-800">Send {{ cur.name }} a gift</div>
         <div class="flex flex-wrap gap-1">
-          <button v-for="v in [50000, 100000, 500000, 1000000]" :key="v" class="rounded-full bg-white px-2 py-1 font-bold" :disabled="busy" @click="sendGift({ amount: v })">{{ fmtNgn(v) }}</button>
+          <button v-for="v in [50000, 100000, 500000, 1000000]" :key="v" class="rounded-full bg-white px-2 py-1 font-bold" :disabled="busy" @click="sendGift({ amount: v })">{{ fmtKsats(v) }}</button>
         </div>
         <div v-if="bag.length" class="flex flex-wrap gap-1">
           <button v-for="it in bag" :key="it.code" class="rounded-full bg-white px-2 py-1 font-semibold" :disabled="busy" @click="sendGift({ item: it.code })">{{ it.name }} ×{{ it.qty }}</button>
@@ -249,6 +249,6 @@ function talkToPlayer(p: any) {
         <button class="w-full rounded-full bg-ink py-2 text-xs font-bold text-white" @click="tab = 'chat'">Back to chat</button>
       </template>
     </div>
-    <div v-if="feed && tab === 'connect'" class="mt-2 text-[10px] text-ink/45">Ring {{ fmtNgn(feed.ring_price) }} · Wedding & owambe {{ fmtNgn(feed.wedding_price) }}</div>
+    <div v-if="feed && tab === 'connect'" class="mt-2 text-[10px] text-ink/45">Ring {{ fmtKsats(feed.ring_price) }} · Wedding & owambe {{ fmtKsats(feed.wedding_price) }}</div>
   </div>
 </template>

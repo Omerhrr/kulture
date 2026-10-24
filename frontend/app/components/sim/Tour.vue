@@ -9,7 +9,7 @@ const STEPS = [
   { icon: '👋', title: 'Welcome to Kaduna!', text: 'Quick tour, under one minute. Oya!', target: null },
   { icon: '🍲', title: 'Your needs', text: 'Keep them green: eat, sleep, baff. Tap them for details.', target: 'needs' },
   { icon: '🙂', title: 'Your mood', text: 'Happy Sims work better. Mood comes from your needs.', target: 'mood' },
-  { icon: '💰', title: 'Your money', text: 'Naira is game money: work to earn it. Tap + for jobs.', target: 'money' },
+  { icon: '💰', title: 'Your money', text: 'k-sats are game money: work to earn them, or deposit Lightning sats (1 sat = 1,000 k-sats).', target: 'money' },
   { icon: '🏠', title: 'Home', text: 'Tap Home to go to your place. Use the fridge, bed and shower.', target: 'dock-home' },
   { icon: '⚡', title: 'Buy with Lightning', text: 'Buy opens the shop. Pay real sats; the server verifies every payment.', target: 'dock-buy' },
   { icon: '📱', title: 'Your phone', text: 'Jobs, wallet, maps, settings and help all live here.', target: 'dock-phone' },

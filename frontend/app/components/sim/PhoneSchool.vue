@@ -2,7 +2,7 @@
 // Phone → School: enrol at Kaduna Poly or KASU, attend lectures (3-question
 // quizzes), sit the exam (8 questions, 60% to pass). Certificates unlock the
 // professional careers in the Work app. All grading happens on the server.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const api = useGameApi()
 const ui = useUiStore()
@@ -100,7 +100,7 @@ const learning = computed(() => e.value && !e.value.certified)
         <div class="grid grid-cols-2 gap-2">
           <button v-for="(s, id) in st.prices.schools" :key="id" class="rounded-xl p-2 text-left text-xs" :class="school === id ? 'bg-violet-600 text-white' : 'bg-white'" @click="school = String(id)">
             <div class="font-bold">{{ s.name }}</div>
-            <div class="opacity-70">{{ fmtNgn(s.fee) }} · {{ s.lectures }} lectures</div>
+            <div class="opacity-70">{{ fmtKsats(s.fee) }} · {{ s.lectures }} lectures</div>
           </button>
         </div>
         <div class="grid grid-cols-2 gap-2">

@@ -115,7 +115,7 @@ async def create_ad(db: AsyncSession, player_id: str, data: dict[str, Any]) -> t
     item = await _ad_item(db)
     intent = PaymentIntent(
         player_id=player_id, business_id=None, listing_id=None, item_id=item.id, quantity=1,
-        amount_sats=price, amount_ngn_minor=0, currency="sats", status="created",
+        amount_sats=price, amount_ksats=0, currency="sats", status="created",
         purchase_reference=f"ad:{board}:{ad.id[:10]}",
         idempotency_key=f"ad-{ad.id}-{uuid.uuid4().hex[:6]}",
         expires_at=now + timedelta(seconds=settings.invoice_expiry_seconds * 2),

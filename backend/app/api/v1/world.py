@@ -74,7 +74,7 @@ async def travel(body: TravelIn, profile: PlayerProfile = Depends(get_current_pr
     try:
         out = await travel_service.travel(db, profile.id, body.region)
     except travel_service.TravelError as e:
-        msg = {"unknown_town": "That town isn't on the map.", "already_there": "You're already there.", "insufficient_funds": "Not enough naira for the fare."}
+        msg = {"unknown_town": "That town isn't on the map.", "already_there": "You're already there.", "insufficient_funds": "Not enough k-sats for the fare."}
         raise error(str(e), msg.get(str(e), str(e)), 409 if str(e) != "unknown_town" else 404)
     from app.events.presence import presence
 

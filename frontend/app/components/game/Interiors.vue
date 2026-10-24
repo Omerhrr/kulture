@@ -14,7 +14,9 @@ import { setInteriorWalls, type Box } from '~/utils/collision'
 import { makeLabelTexture } from '~/utils/sign'
 import { useInterior, useDoorPrompt, useRide, useCamOrbit } from '~/composables/useControlsState'
 import { housePlacements, NW, ND } from '~/utils/housing'
-import { buildRoom, cutaway, type BuiltRoom, type Hotspot } from '~/utils/interiorRoom'
+import { buildRoom, cutaway, type BuiltRoom, type Hotspot, type LocalBox } from '~/utils/interiorRoom'
+import { FLOOR_H, stairOf, stairT, onStairFootprint, stairLowerColliders, stairCorridor, buildStairs, buildUpperFloor, levelsFor, type Stair } from '~/utils/interiorFloors'
+import { interiorLevel } from '~/utils/interiorLevel'
 import { useSimStore, type NeedKey } from '~/stores/sim'
 import { usePlayerPose, fireKkEvent, useMoveTarget } from '~/composables/useControlsState'
 import { PLAYABLE_POS } from '~/utils/kaduna'
@@ -114,6 +116,8 @@ interface Door {
   named: boolean
   /** public place: office, mosque, restaurant ... */
   venue?: VenueType
+  /** storeys (duplexes 2, blocks of flats 3) */
+  levels?: number
 }
 
 /** Doorway dressing for the named open houses (awning, open door, mat). */
@@ -177,6 +181,8 @@ onMounted(() => {
   if (hd) {
     const [fx, fz] = doorFront(hd.house)
     useState<[number, number] | null>('kk_home_door').value = [fx + hd.house.nx * 0.8, fz + hd.house.nz * 0.8]
+    // gate + street-facing direction: your car park sits beside the gate
+    useState<{ x: number; z: number; nx: number; nz: number; w: number } | null>('kk_home_front').value = { x: fx, z: fz, nx: hd.house.nx, nz: hd.house.nz, w: hd.house.nz !== 0 ? hd.house.w : hd.house.d }
   }
 })
 
@@ -278,11 +284,11 @@ function doorForPlacement(idx: number): Door | null {
   const gz = pl.z + Math.cos(pl.yaw) * (depth / 2)
   const hx = gx - nx * (nz !== 0 ? d / 2 : w / 2)
   const hz = gz - nz * (nz !== 0 ? d / 2 : w / 2)
-  return { house: { x: hx, z: hz, w, d, rot: 0, nx, nz, name: 'Family Home' }, seed: hash01(pl.x, pl.z, 61) * 1000, named: false }
+  return { house: { x: hx, z: hz, w, d, rot: 0, nx, nz, name: 'Family Home' }, seed: hash01(pl.x, pl.z, 61) * 1000, named: false, levels: levelsFor(pl.type) }
 }
 
 // ---------------------------------------------------------------- active room
-let active: { door: Door; room: BuiltRoom; holder: THREE.Group; rot: number; W: number; D: number; home: boolean; vspots: VenueSpot[] } | null = null
+let active: { door: Door; room: BuiltRoom; holder: THREE.Group; rot: number; W: number; D: number; home: boolean; vspots: VenueSpot[]; floors: BuiltRoom[]; stairs: Stair[]; extra: LocalBox[][] } | null = null
 // the people inside a public place (rendered by the template)
 const actors = ref<Array<VenueActor & { look: ReturnType<typeof lookFor> }>>([])
 const actorFrame = ref<{ x: number; y: number; z: number; rot: number } | null>(null)
@@ -335,12 +341,68 @@ selBox.visible = false
 root.add(selBox) // BoxHelper works in world space
 
 function allSpots(): Array<Hotspot | VenueSpot> {
-  return active ? [...active.room.hotspots, ...furnSpots, ...visitSpots, ...active.vspots] : []
+  if (!active) return []
+  if (interiorLevel.stair >= 0) return []
+  if (interiorLevel.level > 0) return active.floors[interiorLevel.level]?.hotspots ?? []
+  return [...active.room.hotspots, ...furnSpots, ...visitSpots, ...active.vspots]
+}
+/** furniture never blocks the staircase (it was placed before stairs existed) */
+function clearOfStairs(b: LocalBox): boolean {
+  const s = active?.stairs[0]
+  if (!s) return true
+  const x0 = Math.min(s.xb, s.xt) - 0.3
+  const x1 = Math.max(s.xb, s.xt) + 0.3
+  return !(Math.abs(b.z - s.zs) < b.d / 2 + s.sw / 2 + 0.3 && b.x + b.w / 2 > x0 && b.x - b.w / 2 < x1)
 }
 function refreshColliders() {
   if (!active) return
-  const room = { ...active.room, colliders: [...active.room.colliders, ...furnColliders, ...visitColliders] }
-  setInteriorWalls(roomColliders(active.door, room as BuiltRoom, active.rot))
+  const L = interiorLevel.level
+  let boxes: LocalBox[]
+  if (interiorLevel.stair >= 0) boxes = stairCorridor(active.stairs[interiorLevel.stair]!, active.D)
+  else if (L > 0) boxes = [...active.floors[L]!.colliders, ...(active.extra[L] ?? [])]
+  else boxes = [...active.room.colliders, ...(active.extra[0] ?? []), ...[...furnColliders, ...visitColliders].filter(clearOfStairs)]
+  setInteriorWalls(roomColliders(active.door, { ...active.room, colliders: boxes } as BuiltRoom, active.rot))
+}
+/** world -> room-local */
+function toLocal(x: number, z: number): [number, number] {
+  const a = active!
+  const c = Math.cos(a.rot)
+  const sn = Math.sin(a.rot)
+  const dx = x - a.door.house.x
+  const dz = z - a.door.house.z
+  return [dx * c - dz * sn, dx * sn + dz * c]
+}
+/** Every frame: climb the stairs, change floor, show the floors below you. */
+function updateLevel() {
+  if (!active || active.floors.length < 2) return
+  const [lx, lz] = toLocal(playerPos.value[0], playerPos.value[2])
+  const L = interiorLevel.level
+  const before = `${interiorLevel.level}:${interiorLevel.stair}`
+  if (interiorLevel.stair < 0) {
+    // step onto the flight going up from this floor, or down into the well
+    const up = active.stairs[L]
+    const down = L > 0 ? active.stairs[L - 1] : undefined
+    if (up && onStairFootprint(up, lx, lz)) interiorLevel.stair = L
+    else if (down && onStairFootprint(down, lx, lz)) interiorLevel.stair = L - 1
+  }
+  if (interiorLevel.stair >= 0) {
+    const s = active.stairs[interiorLevel.stair]!
+    const t = Math.max(0, Math.min(1, stairT(s, lx)))
+    interiorLevel.y = (s.level + t) * FLOOR_H
+    if (!onStairFootprint(s, lx, lz)) {
+      // stepped off: top end = the floor above, bottom end = the floor below
+      interiorLevel.level = t > 0.5 ? s.level + 1 : s.level
+      interiorLevel.stair = -1
+      interiorLevel.y = interiorLevel.level * FLOOR_H
+    }
+  } else interiorLevel.y = interiorLevel.level * FLOOR_H
+  // the floors above you are hidden so the doll's-house view looks down into yours
+  const showUpTo = interiorLevel.stair >= 0 ? interiorLevel.stair + (stairT(active.stairs[interiorLevel.stair]!, lx) > 0.75 ? 1 : 0) : interiorLevel.level
+  active.floors.forEach((f, i) => (f.group.visible = i <= showUpTo))
+  if (`${interiorLevel.level}:${interiorLevel.stair}` !== before) {
+    refreshColliders()
+    if (interiorLevel.stair < 0) ui.showToast(interiorLevel.level === 0 ? 'Ground floor' : `${['', 'First', 'Second', 'Third'][interiorLevel.level]} floor`, 'info')
+  }
 }
 function syncFurniture() {
   if (!active?.home) return
@@ -423,6 +485,8 @@ function floorLocal(): [number, number] | null {
 // tap any piece of furniture: see what it is; in your own home it also
 // opens build mode with that piece selected (move / rotate / sell)
 function onInspect(e: PointerEvent) {
+  // furniture lives on the ground floor: upstairs, taps go to the floor you're on
+  if (interiorLevel.level > 0 || interiorLevel.stair >= 0) return
   if (home.build || !active || (e.target as HTMLElement)?.tagName !== 'CANVAS' || !pointerRay(e)) return
   const targets = active.home ? furnGroup.children : visitGroup.children
   const hit = ray.intersectObjects(targets, true).find((h) => h.object.userData.uid || h.object.userData.sku)
@@ -441,6 +505,7 @@ function onInspect(e: PointerEvent) {
   }
 }
 function onBuildDown(e: PointerEvent) {
+  if (interiorLevel.level > 0 || interiorLevel.stair >= 0) return
   if (!home.build || !active?.home || (e.target as HTMLElement)?.tagName !== 'CANVAS' || !pointerRay(e)) return
   const hits = ray.intersectObjects(furnGroup.children, true)
   const uid = hits.find((h) => h.object.userData.uid)?.object.userData.uid as string | undefined
@@ -521,7 +586,31 @@ function enter(door: Door) {
   holder.position.set(h.x, -INTERIOR_DROP, h.z)
   holder.rotation.y = rot
   root.add(holder)
-  active = { door, room, holder, rot, W, D, home: isHome, vspots: venue?.spots ?? [] }
+  // upper storeys + the staircases between them
+  const levels = venue ? 1 : Math.max(1, Math.min(4, door.levels ?? 1))
+  const floors: BuiltRoom[] = [room]
+  const stairs: Stair[] = []
+  const extra: LocalBox[][] = [[]]
+  for (let L = 0; L < levels; L++) {
+    if (L > 0) {
+      const up = buildUpperFloor(W, D, door.seed, L)
+      up.group.position.y = L * FLOOR_H
+      holder.add(up.group)
+      floors.push(up)
+      extra.push([])
+    }
+    if (L < levels - 1) {
+      const s = stairOf(W, D, L)
+      stairs.push(s)
+      const mesh = buildStairs(s, L % 2 ? '#8a5a3a' : '#a8784a', '#5a3a22')
+      // the flight belongs to the floor it leaves (hidden with it)
+      floors[L]!.group.add(mesh)
+      extra[L]!.push(...stairLowerColliders(W, s))
+    }
+  }
+  interiorLevel.reset()
+  interiorLevel.levels = levels
+  active = { door, room, holder, rot, W, D, home: isHome, vspots: venue?.spots ?? [], floors, stairs, extra }
   for (const sp of venue?.spots ?? []) venueActs[sp.id] = sp.act
   actors.value = (venue?.actors ?? []).map((a) => {
     const look = lookFor(a.id, !!a.female)
@@ -571,8 +660,8 @@ async function startUse() {
     // pay first (server prices and balance), then enjoy
     try {
       const r = await api.venueSpend(a.service)
-      if (playerStore.profile) playerStore.profile.ngn_balance_minor = r.balance_ngn_minor
-      ui.showToast(`Paid ₦${(r.price_ngn_minor / 100).toLocaleString()}`, 'success')
+      if (playerStore.profile) playerStore.profile.ksats_balance = r.balance_ksats
+      ui.showToast(`Paid ${r.price_ksats.toLocaleString()} ks`, 'success')
     } catch (e: any) {
       ui.showToast(e?.message || 'Payment failed', 'error')
       return
@@ -632,7 +721,8 @@ function exit() {
   interior.value = { inside: false, name: '' }
   doorPrompt.value = null
   root.remove(active.holder)
-  active.room.dispose()
+  for (const f of active.floors) f.dispose()
+  interiorLevel.reset()
   if (active.home) {
     for (const o of objs.values()) {
       furnGroup.remove(o.obj)
@@ -656,13 +746,14 @@ let scanTimer = 0
 const camLocal = new THREE.Vector3()
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta }) => {
+  updateLevel()
   // doll's house cut-away: drop the walls facing the camera
   if (active) {
     const cam = ctx.camera?.activeCamera?.value as THREE.Camera | undefined
     if (cam) {
       camLocal.copy(cam.position)
       active.holder.worldToLocal(camLocal)
-      cutaway(active.room, camLocal.x, camLocal.z)
+      cutaway(active.floors[interiorLevel.level] ?? active.room, camLocal.x, camLocal.z)
     }
   }
   // furniture in use: refill the need over the action's duration
@@ -748,7 +839,7 @@ onBeforeRender(({ delta }) => {
     const lz = active.D / 2 - 0.6
     const ex = h.x + lz * Math.sin(active.rot)
     const ez = h.z + lz * Math.cos(active.rot)
-    if (Math.hypot(px - ex, pz - ez) < 1.6) {
+    if (interiorLevel.level === 0 && interiorLevel.stair < 0 && Math.hypot(px - ex, pz - ez) < 1.6) {
       doorPrompt.value = { label: 'Exit to the street', action: 'exit', slot: 0 }
       return
     }
@@ -799,6 +890,19 @@ onMounted(() => {
     ;(window as any).__kk_venues = () => venueDoors.map((d) => ({ type: d.venue, name: d.house.name, door: doorFront(d.house).map((v) => +v.toFixed(1)) }))
     ;(window as any).__kk_doors = () => named.map((d) => ({ name: d.house.name, door: doorFront(d.house).map((v) => +v.toFixed(1)) }))
     ;(window as any).__kk_interior = () => ({ ...interior.value, prompt: doorPrompt.value, activity: sim.activity })
+    ;(window as any).__kk_enter_home = () => {
+      const d = homeDoor()
+      if (d) enter(d)
+      return !!d
+    }
+    ;(window as any).__kk_room_world = (lx: number, lz: number) => (active ? toWorld(lx, lz) : null)
+    ;(window as any).__kk_room_dims = () => (active ? { W: active.W, D: active.D, levels: active.floors.length } : null)
+    ;(window as any).__kk_level_tick = () => updateLevel()
+    ;(window as any).__kk_level = () => ({ level: interiorLevel.level, stair: interiorLevel.stair, y: +interiorLevel.y.toFixed(2), levels: interiorLevel.levels })
+    ;(window as any).__kk_home_type = () => {
+      homeDoor()
+      return housePlacements()[homeIdx]?.type
+    }
     ;(window as any).__kk_hotspots = () => (active ? allSpots().map((h) => ({ id: h.id, at: toWorld(h.x, h.z) })) : [])
   }
 })
@@ -806,7 +910,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('kk-door-use', onDoorUse)
   window.removeEventListener('kk-go-home', goHome)
   window.removeEventListener('kk-stand-up', onStandUp)
-  if (active) active.room.dispose()
+  if (active) for (const f of active.floors) f.dispose()
+  interiorLevel.reset()
 })
 </script>
 

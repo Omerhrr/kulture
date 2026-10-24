@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Timestamped, UUIDPk, new_uuid, utcnow
+from app.models.base import Timestamped, UUIDPk, utcnow
 from app.db.session import Base
 
 

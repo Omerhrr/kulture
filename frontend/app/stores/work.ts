@@ -9,7 +9,7 @@ export interface Career {
   place_name: string
   position: [number, number, number] | null
   needs_certificate?: string | null
-  pay_ngn_minor: number
+  pay_ksats: number
   reputation: number
   shift_seconds: number
 }
@@ -24,8 +24,8 @@ export interface Shift {
   required_seconds: number
   tasks_done: number
   tasks: string[]
-  pay_ngn_minor: number
-  paid_ngn_minor: number
+  pay_ksats: number
+  paid_ksats: number
 }
 export interface Commute {
   active: boolean

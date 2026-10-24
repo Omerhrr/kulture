@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Phone → Games: Whot, Ludo, Ayo and Naija Trivia against real players
-// (bots fill empty seats after ~15 s). Optional small stakes in naira or
+// (bots fill empty seats after ~15 s). Optional small stakes in k-sats or
 // sats are escrowed by the server; the winner takes the pot.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const api = useGameApi()
 const ui = useUiStore()
@@ -10,7 +10,7 @@ const games = ref<any[]>([])
 const cap = ref<Record<string, number>>({})
 const pick = ref('whot')
 const stake = ref(0)
-const asset = ref<'ngn_minor' | 'sats_ref'>('ngn_minor')
+const asset = ref<'ksats' | 'sats_ref'>('ksats')
 const m = ref<any>(null)
 const busy = ref(false)
 const shapeFor = ref<string | null>(null)
@@ -80,7 +80,7 @@ const nm = (id: string) => names.value[id] ?? '?'
 const myTurn = computed(() => m.value?.status === 'playing' && m.value.turn === m.value.you)
 const s = computed(() => m.value?.state)
 const logText = (l: string) => Object.entries(names.value).reduce((t, [id, n]) => t.split(id).join(String(n)), l)
-const fmtStake = (v: number) => (asset.value === 'sats_ref' ? `${v} sats` : fmtNgn(v))
+const fmtStake = (v: number) => (asset.value === 'sats_ref' ? `${v} sats` : fmtKsats(v))
 
 // ---- whot
 const SHAPE_ICON: Record<string, string> = { circle: '●', triangle: '▲', cross: '✚', square: '■', star: '★', whot: 'W' }
@@ -109,12 +109,12 @@ const tokLabel = (p: number) => (p < 0 ? 'Base' : p >= 57 ? 'Home' : p > 50 ? `R
         <div class="mb-1 flex items-center justify-between text-xs font-bold">
           <span>Stake</span>
           <span class="flex gap-1">
-            <button class="rounded-full px-2" :class="asset === 'ngn_minor' ? 'bg-ink text-white' : 'bg-white'" @click="(asset = 'ngn_minor'), (stake = 0)">₦</button>
+            <button class="rounded-full px-2" :class="asset === 'ksats' ? 'bg-ink text-white' : 'bg-white'" @click="(asset = 'ksats'), (stake = 0)">ks</button>
             <button class="rounded-full px-2" :class="asset === 'sats_ref' ? 'bg-amber-500 text-white' : 'bg-white'" @click="(asset = 'sats_ref'), (stake = 0)">⚡ sats</button>
           </span>
         </div>
         <div class="flex flex-wrap gap-1">
-          <button v-for="v in (asset === 'ngn_minor' ? [0, 10000, 50000, 100000, 500000] : [0, 21, 100, 500, 1000])" :key="v" class="rounded-full px-2.5 py-1 text-[11px] font-bold" :class="stake === v ? 'bg-violet-600 text-white' : 'bg-white'" @click="stake = v">{{ v ? fmtStake(v) : 'Free' }}</button>
+          <button v-for="v in (asset === 'ksats' ? [0, 10000, 50000, 100000, 500000] : [0, 21, 100, 500, 1000])" :key="v" class="rounded-full px-2.5 py-1 text-[11px] font-bold" :class="stake === v ? 'bg-violet-600 text-white' : 'bg-white'" @click="stake = v">{{ v ? fmtStake(v) : 'Free' }}</button>
         </div>
       </div>
       <button class="w-full rounded-full bg-violet-600 py-2.5 text-sm font-bold text-white" :disabled="busy" @click="join(false)">Find players</button>
@@ -124,7 +124,7 @@ const tokLabel = (p: number) => (p < 0 ? 'Base' : p >= 57 ? 'Home' : p > 50 ? `R
     <!-- table -->
     <template v-else>
       <div class="flex items-center justify-between text-xs font-bold">
-        <span>{{ m.name }} <span v-if="m.stake" class="text-amber-600">· pot {{ m.asset === 'sats_ref' ? `${m.stake * m.players.length} sats` : fmtNgn(m.stake * m.players.length) }}</span></span>
+        <span>{{ m.name }} <span v-if="m.stake" class="text-amber-600">· pot {{ m.asset === 'sats_ref' ? `${m.stake * m.players.length} sats` : fmtKsats(m.stake * m.players.length) }}</span></span>
         <button class="rounded-full bg-ink/10 px-2 py-0.5" @click="leave">{{ m.status === 'done' ? 'Close' : 'Leave' }}</button>
       </div>
       <div v-if="m.status === 'waiting'" class="rounded-2xl bg-sky-50 p-4 text-center text-xs font-semibold text-sky-700">

@@ -10,6 +10,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # backend/
@@ -101,7 +102,7 @@ class Settings(BaseSettings):
     # raw (bake) bounds of the city map; scaled by world_scale at use
     world_raw_bounds: tuple[float, float, float, float] = (-1400.0, 700.0, -1020.0, 1450.0)
     movement_rate_limit_hz: float = 20.0     # WS movement messages per second
-    job_reward_currency: str = "ngn_minor"
+    job_reward_currency: str = "ksats"
 
     # ------------------------------------------------------------------
     # Movement authority (P1 hardening) - the server reconciles client moves
@@ -142,6 +143,16 @@ class Settings(BaseSettings):
     # Dev-only endpoint that simulates an external wallet paying an
     # invoice. Hard-disabled unless env == "local" AND this flag is true.
     dev_payment_simulation: bool = True
+
+    @model_validator(mode="after")
+    def _production_guard(self) -> "Settings":
+        """A public server must never run on the built-in dev secrets."""
+        if self.env == "production":
+            if len(self.jwt_secret) < 32 or "change-me" in self.jwt_secret or self.jwt_secret.startswith("dev-only"):
+                raise ValueError("KK_JWT_SECRET must be a real random secret (32+ chars) in production")
+            if self.database_url.startswith("sqlite"):
+                raise ValueError("KK_DATABASE_URL must point at PostgreSQL in production")
+        return self
 
     @property
     def is_local(self) -> bool:

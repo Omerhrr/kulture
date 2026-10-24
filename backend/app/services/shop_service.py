@@ -43,7 +43,7 @@ async def get_business_out(db: AsyncSession, business_id: str) -> BusinessOut | 
             item_name=l.item.name,
             emoji=l.item.emoji,
             description=l.item.description,
-            price_ngn_minor=l.price_ngn_minor,
+            price_ksats=l.price_ksats,
             price_sats=l.price_sats,
             quantity_available=l.quantity_available,
         )
@@ -99,7 +99,7 @@ async def create_purchase(
         item_id=item.id,
         quantity=quantity,
         amount_sats=listing.price_sats * quantity,
-        amount_ngn_minor=listing.price_ngn_minor * quantity,
+        amount_ksats=listing.price_ksats * quantity,
         currency="sats",
         status="created",
         purchase_reference=f"purchase:{biz.code}:{item.code}:{uuid.uuid4().hex[:10]}",
@@ -123,7 +123,7 @@ def _job_out(job: Job, pickup: WorldEntity | None, dropoff: WorldEntity | None) 
         description=job.description,
         status=job.status,
         pickup_state=job.pickup_state,
-        reward_ngn_minor=job.reward_ngn_minor,
+        reward_ksats=job.reward_ksats,
         reward_reputation=job.reward_reputation,
         pickup_entity=(
             {"id": pickup.id, "code": pickup.code, "name": pickup.name,

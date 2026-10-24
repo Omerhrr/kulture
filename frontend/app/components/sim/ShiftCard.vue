@@ -3,7 +3,7 @@
 // clock out. Timing and pay are decided by the server.
 import { useWorkStore } from '~/stores/work'
 import { useSimStore } from '~/stores/sim'
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const work = useWorkStore()
 const sim = useSimStore()
@@ -25,7 +25,7 @@ const left = computed(() => {
 const tasksOpen = computed(() => Math.min(4, Math.floor(elapsed.value / Math.max(1, req.value / 5))))
 const nextTask = computed(() => work.shift?.tasks[work.shift.tasks_done] ?? null)
 const canTask = computed(() => !!work.shift && work.shift.tasks_done < tasksOpen.value)
-const payNow = computed(() => Math.round((work.shift?.pay_ngn_minor ?? 0) * (1 + (0.15 * Math.min(4, work.shift?.tasks_done ?? 0)) / 4)))
+const payNow = computed(() => Math.round((work.shift?.pay_ksats ?? 0) * (1 + (0.15 * Math.min(4, work.shift?.tasks_done ?? 0)) / 4)))
 const collapsed = ref(false)
 function rideHome() {
   setTimeout(() => window.dispatchEvent(new CustomEvent('kk-commute', { detail: { dest: 'home' } })), 400)
@@ -44,7 +44,7 @@ async function finish() {
   try {
     const r = await work.clockOut()
     if (r.status === 'paid') {
-      ui.showToast(`Paid ${fmtNgn(r.paid_ngn_minor)} for your shift as ${r.title}!`, 'success')
+      ui.showToast(`Paid ${fmtKsats(r.paid_ksats)} for your shift as ${r.title}!`, 'success')
       sim.bump('fun', -8)
       sim.bump('energy', -15)
     } else {
@@ -71,7 +71,7 @@ async function finish() {
     </div>
     <template v-if="!collapsed">
       <div class="mt-3 flex items-center justify-between">
-        <div class="text-sm font-bold">{{ done ? `Payday · ${fmtNgn(payNow)}` : `No pay yet · stay ${left}` }}</div>
+        <div class="text-sm font-bold">{{ done ? `Payday · ${fmtKsats(payNow)}` : `No pay yet · stay ${left}` }}</div>
         <div class="text-xs text-white/70">⭐ {{ work.shift.tasks_done }}/4 · +15% at 4</div>
       </div>
       <button
@@ -91,7 +91,7 @@ async function finish() {
       :disabled="work.busy"
       @click="finish"
     >
-      {{ done ? `Clock out · ${fmtNgn(payNow)}` : 'Leave now · no pay' }}
+      {{ done ? `Clock out · ${fmtKsats(payNow)}` : 'Leave now · no pay' }}
     </button>
     <button v-if="done" class="mt-2 w-full text-xs font-bold text-white/60 hover:text-white" @click="finish().then(rideHome)">Clock out and ride home ›</button>
   </div>

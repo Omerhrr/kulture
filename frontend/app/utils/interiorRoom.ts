@@ -366,8 +366,8 @@ export function buildRoom(W: number, D: number, seed: number, opts: { customFurn
   wall(D, 'z', W / 2, 0, 1, 0, false, [], [[(backZ + D / 2) / 2 + 0.6, 1.6]])
   wall(W, 'x', 0, D / 2, 0, 1, false, [[0, 1.6]], [[-W / 4 - 0.6, 1.6], [W / 4 + 0.6, 1.6]])
   // partitions (half height for the cut-away look) with door gaps
-  wall(bedW, 'x', -W / 2 + bedW / 2, backZ, 0, 1, true, [[1.2, 1.0]])
-  wall(bathW, 'x', xBed1 + bathW / 2, backZ, 0, 1, true, [[0, 0.9]])
+  wall(bedW, 'x', -W / 2 + bedW / 2, backZ, 0, 1, true, [[1.0, 1.3]])
+  wall(bathW, 'x', xBed1 + bathW / 2, backZ, 0, 1, true, [[0, 1.2]])
   wall(BACK, 'z', xBed1, -D / 2 + BACK / 2, 1, 0, true)
   wall(BACK, 'z', xBath1, -D / 2 + BACK / 2, 1, 0, true)
   // front door: open leaf + threshold

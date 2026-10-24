@@ -13,7 +13,7 @@ architecture, and contribution workflow are part of the product.
    `app/payments/`. No LLM calls outside `app/agents/`.
 4. **Agents are bounded** - new tools need: a Pydantic input schema, economic
    bounds, allowlist registration, and tests proving rejection paths.
-5. **Asset classes never mix** - real sats, simulated NGN, and reputation are
+5. **Asset classes never mix** - real sats, k-sats, and reputation are
    separate; conversions are forbidden by design.
 6. **Document decisions** that affect payments, custody, or persistent state.
 

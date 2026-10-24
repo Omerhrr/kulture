@@ -49,15 +49,22 @@ EMOTES = {"jump", "punch", "kick", "push", "wave"}
 
 
 class RateLimiter:
-    def __init__(self, max_per_second: float) -> None:
-        self._interval = 1.0 / max_per_second
-        self._last = 0.0
+    """Token bucket: `max_per_second` sustained, up to `burst` at once (a
+    driver sends the same frame to several passengers in one go)."""
+
+    def __init__(self, max_per_second: float, burst: float = 1.0) -> None:
+        self._rate = max_per_second
+        self._burst = max(1.0, burst)
+        self._tokens = self._burst
+        self._last = time.monotonic()
         self._dropped = 0
 
     def allow(self) -> bool:
         now = time.monotonic()
-        if now - self._last >= self._interval:
-            self._last = now
+        self._tokens = min(self._burst, self._tokens + (now - self._last) * self._rate)
+        self._last = now
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
             return True
         self._dropped += 1
         return False
@@ -80,7 +87,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
     logger.info("ws connect player=%s sockets=%s", player_id, len(manager._connections.get(player_id, ())))
     mover = RateLimiter(settings.movement_rate_limit_hz)
     interactor = RateLimiter(2.0)  # interactions ≤ 2/s
-    relayer = RateLimiter(40.0)  # live arcade head-to-head frames
+    relayer = RateLimiter(40.0, burst=12)  # arcade frames, ride poses to each passenger
     racer = RateLimiter(4.0)  # live race progress ≤ 4/s
     emoter = RateLimiter(3.0)  # jump / punch / kick / push / wave ≤ 3/s
 
@@ -102,19 +109,25 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
 
     # authoritative snapshot on connect
     # NOTE: get_player_out is keyed by USER id; profile.id is the PLAYER id.
-    async with AsyncSessionLocal() as db:
-        out = await player_service.get_player_out(db, profile.user_id)
-        inv_out = await inventory_service.get_inventory_out(db, player_id)
-        await ws.send_json(
-            {
-                "type": "player.state",
-                "payload": {
-                    "reason": "connected",
-                    "player": out.model_dump(mode="json") if out else None,
-                    "inventory": inv_out.model_dump(mode="json"),
-                },
-            }
-        )
+    try:
+        async with AsyncSessionLocal() as db:
+            out = await player_service.get_player_out(db, profile.user_id)
+            inv_out = await inventory_service.get_inventory_out(db, player_id)
+            await ws.send_json(
+                {
+                    "type": "player.state",
+                    "payload": {
+                        "reason": "connected",
+                        "player": out.model_dump(mode="json") if out else None,
+                        "inventory": inv_out.model_dump(mode="json"),
+                    },
+                }
+            )
+    except Exception:  # noqa: BLE001 - the client left during the handshake (page reload)
+        await manager.disconnect(player_id, ws)
+        if not manager.is_online(player_id):
+            presence.leave(player_id)
+        return
 
     try:
         while True:
@@ -123,6 +136,8 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 msg = json.loads(raw)
                 mtype = msg.get("type")
                 payload = msg.get("payload") or {}
+                if not isinstance(payload, dict):
+                    payload = {}
             except (json.JSONDecodeError, AttributeError):
                 await ws.send_json({"type": "error", "payload": {"code": "bad_json"}})
                 continue
@@ -138,6 +153,8 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 try:
                     x, y, z = float(pos[0]), float(pos[1]), float(pos[2])
                     facing = float(payload.get("facing", 0.0))
+                    if not all(math.isfinite(v) for v in (x, y, z, facing)):
+                        raise ValueError("non-finite")  # NaN would poison every presence broadcast
                 except (TypeError, ValueError, IndexError):
                     await ws.send_json({"type": "error", "payload": {"code": "bad_move"}})
                     continue
@@ -283,6 +300,24 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 presence.set_look(player_id, clean_look(payload.get("look")), name)
                 continue
 
+            if mtype == "ride.state":
+                # what you are riding, so other players see the vehicle (and
+                # you seated in it): "kind|driver|seat|colour"; driver is your
+                # own id when you drive, a friend's id when you ride along
+                kind = str(payload.get("kind") or "")
+                if kind not in ("car", "keke", "okada", "bus", "truck", "bicycle", "boat", "plane"):
+                    presence.set_riding(player_id, None)
+                    continue
+                driver = re.sub(r"[^A-Za-z0-9-]", "", str(payload.get("driver") or player_id))[:36]
+                try:
+                    seat = max(-1, min(8, int(payload.get("seat", -1))))
+                except (TypeError, ValueError):
+                    seat = -1
+                color = str(payload.get("color") or "")
+                color = color if re.fullmatch(r"#[0-9a-fA-F]{6}", color) else ""
+                presence.set_riding(player_id, f"{kind}|{driver}|{seat}|{color}")
+                continue
+
             if mtype == "commute.start":
                 commute_started = time.monotonic()
                 presence.set_riding(player_id, "car")
@@ -359,7 +394,10 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
         raise
     finally:
         await manager.disconnect(player_id, ws)
-        presence.leave(player_id)
+        # a reload opens the new socket before the old one closes: only drop
+        # the player from the map when no other socket of theirs is still open
+        if not manager.is_online(player_id):
+            presence.leave(player_id)
         logger.info("ws disconnect player=%s sockets=%s", player_id, len(manager._connections.get(player_id, ())))
         if position_dirty:
             try:

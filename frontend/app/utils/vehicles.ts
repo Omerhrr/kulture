@@ -39,6 +39,8 @@ export interface VehicleSpec {
   seat: [number, number, number]
   /** straddled (two-wheelers): rider legs hang down both sides */
   straddle: boolean
+  /** passenger seats (hip points, same frame as `seat`), front to back */
+  passengers: Array<[number, number, number]>
   label: string
 }
 
@@ -242,7 +244,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
         type: 'swing'
       }
       rider = seated(0.4, 0.5, 0.0, '#e8e2d2')
-      meta = { radius: 1.7, maxSpeed: 34, accel: 13, cockpit: [0.2, 1.22], seat: [0.4, 0.5, 0.0], straddle: false, label: 'Car' }
+      meta = { radius: 1.7, maxSpeed: 34, accel: 13, cockpit: [0.2, 1.22], seat: [0.4, 0.5, 0.0], straddle: false, passengers: [[-0.4, 0.5, 0.0], [0.38, 0.5, -0.95], [-0.38, 0.5, -0.95]], label: 'Car' }
       break
     }
     case 'bus': {
@@ -270,7 +272,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
         type: 'slide'
       }
       rider = [...seated(0.5, 0.8, 1.45, '#3f6fae'), ...seated(-0.45, 0.85, 0.2, '#b8433a'), ...seated(0.45, 0.85, -0.7, '#e8e2d2')]
-      meta = { radius: 2.3, maxSpeed: 24, accel: 9, cockpit: [1.5, 1.6], seat: [0.5, 0.8, 1.45], straddle: false, label: 'Danfo Bus' }
+      meta = { radius: 2.3, maxSpeed: 24, accel: 9, cockpit: [1.5, 1.6], seat: [0.5, 0.8, 1.45], straddle: false, passengers: [[-0.45, 0.85, 1.45], [-0.45, 0.85, 0.2], [0.45, 0.85, 0.2], [-0.45, 0.85, -0.7], [0.45, 0.85, -0.7], [-0.45, 0.85, -1.6], [0.45, 0.85, -1.6]], label: 'Danfo Bus' }
       break
     }
     case 'keke': {
@@ -278,18 +280,19 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
       parts.push(['#e6b93c', profile([[-1.2, 0.32], [-1.2, 0.98], [0.55, 0.98], [1.1, 0.82], [1.32, 0.48], [1.32, 0.32]], 1.3, 0.05)])
       parts.push(['#e6b93c', profile([[0.7, 0.82], [0.85, 1.55], [1.0, 1.55], [1.2, 0.82]], 1.22, 0.03)]) // cowl / screen frame
       parts.push([GLASS, bx(1.0, 0.6, 0.04, 0, 1.2, 1.0)])
-      parts.push(['#2f6e3a', profile([[-1.25, 1.62], [-1.2, 1.78], [0.95, 1.8], [1.08, 1.68], [1.0, 1.62]], 1.36, 0.04)]) // roof
-      for (const [px2, pz] of [[0.6, 0.92], [-0.6, 0.92], [0.6, -1.1], [-0.6, -1.1]] as const) parts.push([TRIM, tube([px2, 0.95, pz], [px2 * 0.98, 1.64, pz + (pz > 0 ? 0.04 : 0)], 0.03)])
-      parts.push(['#4a3b2f', bx(1.1, 0.16, 0.6, 0, 1.0, -0.65)]) // rear bench
-      parts.push(['#4a3b2f', bx(1.1, 0.5, 0.12, 0, 1.25, -0.98)])
-      parts.push(['#2f6e3a', cyl(0.07, 1.9, 0.68, 1.55, -0.1, 8).rotateX(Math.PI / 2).translate(0, 0, 0)]) // rolled side canvas
-      parts.push(['#2f6e3a', cyl(0.07, 1.9, -0.68, 1.55, -0.1, 8).rotateX(Math.PI / 2)])
+      parts.push(['#2f6e3a', profile([[-1.25, 1.9], [-1.2, 2.06], [0.95, 2.08], [1.08, 1.96], [1.0, 1.9]], 1.36, 0.04)]) // roof
+      for (const [px2, pz] of [[0.6, 0.92], [-0.6, 0.92], [0.6, -1.1], [-0.6, -1.1]] as const) parts.push([TRIM, tube([px2, 0.95, pz], [px2 * 0.98, 1.92, pz + (pz > 0 ? 0.04 : 0)], 0.03)])
+      parts.push(['#4a3b2f', bx(1.1, 0.16, 0.6, 0, 0.86, -0.65)]) // rear bench
+      parts.push(['#4a3b2f', bx(1.1, 0.5, 0.12, 0, 1.12, -0.98)])
+      // rolled-up side canvas under the roof edge (runs front to back)
+      parts.push(['#2f6e3a', cyl(0.07, 1.9, 0, 0, 0, 8).rotateX(Math.PI / 2).translate(0.68, 1.83, -0.1)])
+      parts.push(['#2f6e3a', cyl(0.07, 1.9, 0, 0, 0, 8).rotateX(Math.PI / 2).translate(-0.68, 1.83, -0.1)])
       parts.push(['#f6f1d8', bx(0.24, 0.14, 0.05, 0, 0.9, 1.34)])
       parts.push(...wheel(0.27, 0.16, 0, 0.27, 1.12))
       parts.push(...wheel(0.29, 0.18, 0.62, 0.29, -0.82))
       parts.push(...wheel(0.29, 0.18, -0.62, 0.29, -0.82))
       rider = [...seated(0, 0.95, 0.35, '#2e7d5b'), ...seated(-0.3, 1.08, -0.65, '#b8433a')]
-      meta = { radius: 1.25, maxSpeed: 22, accel: 9, cockpit: [0.35, 1.5], seat: [0, 0.95, 0.35], straddle: false, label: 'Keke NAPEP' }
+      meta = { radius: 1.25, maxSpeed: 22, accel: 9, cockpit: [0.35, 1.5], seat: [0, 0.95, 0.35], straddle: false, passengers: [[-0.3, 0.94, -0.65], [0.3, 0.94, -0.65]], label: 'Keke NAPEP' }
       break
     }
     case 'okada': {
@@ -308,7 +311,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
       parts.push(['#f6f1d8', sph(0.08, 0, 0.98, 0.6, 1, 1, 0.6)]) // lamp
       parts.push(['#3a3f46', bx(0.3, 0.03, 0.34, 0, 0.94, -0.85)]) // carrier
       rider = seated(0, 0.92, -0.18, '#3f7d5b', true)
-      meta = { radius: 0.95, maxSpeed: 30, accel: 14, cockpit: [0.25, 1.62], seat: [0, 0.92, -0.18], straddle: true, label: 'Okada' }
+      meta = { radius: 0.95, maxSpeed: 30, accel: 14, cockpit: [0.25, 1.62], seat: [0, 0.92, -0.18], straddle: true, passengers: [[0, 1.0, -0.62]], label: 'Okada' }
       break
     }
     case 'bicycle': {
@@ -329,7 +332,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
       parts.push(['#2a2d33', tube(ht, [0, 1.02, 0.45], 0.016)])
       parts.push(['#c8ccd2', cyl(0.09, 0.02, 0.05, 0.3, 0.02, 12).rotateZ(Math.PI / 2)])
       rider = seated(0, 0.94, -0.22, '#b8433a', true)
-      meta = { radius: 0.7, maxSpeed: 11, accel: 6, cockpit: [0.3, 1.6], seat: [0, 0.94, -0.22], straddle: true, label: 'Bicycle' }
+      meta = { radius: 0.7, maxSpeed: 11, accel: 6, cockpit: [0.3, 1.6], seat: [0, 0.94, -0.22], straddle: true, passengers: [], label: 'Bicycle' }
       break
     }
     case 'truck': {
@@ -352,7 +355,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
         type: 'swing'
       }
       rider = seated(0.55, 1.4, 1.75, '#e8e2d2')
-      meta = { radius: 2.4, maxSpeed: 19, accel: 7, cockpit: [2.2, 2.25], seat: [0.55, 1.4, 1.75], straddle: false, label: 'Lorry' }
+      meta = { radius: 2.4, maxSpeed: 19, accel: 7, cockpit: [2.2, 2.25], seat: [0.55, 1.4, 1.75], straddle: false, passengers: [[-0.55, 1.4, 1.75]], label: 'Lorry' }
       break
     }
     case 'boat': {
@@ -365,7 +368,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
         ['#c9764a', bx(1.3, 0.14, 1.0, 0, 0.86, -1.3)]
       ]
       rider = seated(0, 0.95, 0.1, '#3f6fae')
-      meta = { radius: 1.6, maxSpeed: 20, accel: 8, cockpit: [0.4, 1.75], seat: [0, 0.95, 0.1], straddle: false, label: 'River Boat' }
+      meta = { radius: 1.6, maxSpeed: 20, accel: 8, cockpit: [0.4, 1.75], seat: [0, 0.95, 0.1], straddle: false, passengers: [[-0.4, 0.95, -0.7], [0.4, 0.95, -0.7]], label: 'River Boat' }
       break
     }
     case 'plane':
@@ -384,7 +387,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
         ['#3a3f4a', bx(0.12, 2.1, 0.06, 0, 1.05, 4.2)]
       ]
       rider = seated(-0.3, 1.1, 1.15, '#3f6fae')
-      meta = { radius: 2.6, maxSpeed: 38, accel: 7, cockpit: [1.1, 1.75], seat: [-0.3, 1.1, 1.15], straddle: false, label: 'Light Aircraft' }
+      meta = { radius: 2.6, maxSpeed: 38, accel: 7, cockpit: [1.1, 1.75], seat: [-0.3, 1.1, 1.15], straddle: false, passengers: [[0.3, 1.1, 1.15], [-0.3, 1.1, 0.2], [0.3, 1.1, 0.2]], label: 'Light Aircraft' }
       break
     }
   }
@@ -492,4 +495,122 @@ export function buildInterior(kind: VehicleKind): THREE.BufferGeometry | null {
   }
   if (!parts.length) return null
   return build(parts)
+}
+
+
+/** A boardable-looking vehicle (body + opening door) painted one colour:
+ *  paint panels take the colour, glass / tyres / chrome keep theirs. Used
+ *  for owned cars and for other players' vehicles. */
+export function paintedVehicle(kind: VehicleKind, color?: string, mat: THREE.Material = vehicleMaterial()): { group: THREE.Group; door: THREE.Group | null } {
+  const spec = vehicleSpec(kind)
+  const c = new THREE.Color(color ?? '#3f6fae')
+  const geo = spec.geo.clone()
+  if (color) {
+    const base = spec.geo.attributes.color!.array as Float32Array
+    const gloss = spec.geo.attributes.aGloss?.array as Float32Array | undefined
+    const arr = new Float32Array(base.length)
+    for (let i = 0; i < base.length / 3; i++) {
+      const paint = !gloss || Math.abs(gloss[i]! - 0.7) <= 0.01
+      arr[i * 3] = base[i * 3]! * (paint ? c.r : 1)
+      arr[i * 3 + 1] = base[i * 3 + 1]! * (paint ? c.g : 1)
+      arr[i * 3 + 2] = base[i * 3 + 2]! * (paint ? c.b : 1)
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(arr, 3))
+  }
+  const group = new THREE.Group()
+  group.add(bodyWithGlass(geo, mat))
+  let door: THREE.Group | null = null
+  if (spec.door) {
+    const dg = spec.door.geo.clone()
+    if (color) {
+      const a = dg.attributes.color!.array as Float32Array
+      for (let i = 0; i < a.length; i += 3) {
+        if (a[i]! > 0.9 && a[i + 1]! > 0.9 && a[i + 2]! > 0.9) {
+          a[i] = a[i]! * c.r
+          a[i + 1] = a[i + 1]! * c.g
+          a[i + 2] = a[i + 2]! * c.b
+        }
+      }
+    }
+    door = new THREE.Group()
+    door.position.set(...spec.door.hinge)
+    door.add(bodyWithGlass(dg, mat))
+    group.add(door)
+  }
+  return { group, door }
+}
+
+/** A number plate / owner tag sprite ("KD123 ABC" over the owner's name). */
+export function plateSprite(plate: string, owner: string): THREE.Sprite {
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = 112
+  const g = c.getContext('2d')!
+  g.fillStyle = '#f4f4ee'
+  g.beginPath()
+  g.roundRect(4, 4, 248, 64, 10)
+  g.fill()
+  g.strokeStyle = '#1f6f4a'
+  g.lineWidth = 5
+  g.stroke()
+  g.fillStyle = '#1f6f4a'
+  g.font = '700 14px sans-serif'
+  g.textAlign = 'center'
+  g.fillText('KADUNA · CENTRE OF LEARNING', 128, 22)
+  g.fillStyle = '#16181c'
+  g.font = '800 34px sans-serif'
+  g.fillText(plate, 128, 58)
+  g.fillStyle = 'rgba(20,24,28,0.75)'
+  g.beginPath()
+  g.roundRect(28, 76, 200, 32, 16)
+  g.fill()
+  g.fillStyle = '#ffffff'
+  g.font = '700 18px sans-serif'
+  g.fillText(owner, 128, 98)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }))
+  s.scale.set(1.6, 0.7, 1)
+  return s
+}
+
+
+/** Split off the glass so it can be drawn see-through: you can see the
+ *  driver and passengers through the windows. Returns the body (glass
+ *  removed) and the glass triangles; the body keeps every other colour. */
+export function splitGlass(src: THREE.BufferGeometry): { body: THREE.BufferGeometry; glass: THREE.BufferGeometry | null } {
+  const g = src.index ? src.toNonIndexed() : src
+  const gl = g.attributes.aGloss as THREE.BufferAttribute | undefined
+  if (!gl) return { body: src, glass: null }
+  const bodyIdx: number[] = []
+  const glassIdx: number[] = []
+  const n = g.attributes.position!.count
+  for (let t = 0; t + 2 < n; t += 3) {
+    const isGlass = gl.getX(t) > 0.95 && gl.getX(t + 1) > 0.95 && gl.getX(t + 2) > 0.95
+    ;(isGlass ? glassIdx : bodyIdx).push(t, t + 1, t + 2)
+  }
+  if (!glassIdx.length) return { body: src, glass: null }
+  const body = g.clone()
+  body.setIndex(bodyIdx)
+  const glass = g.clone()
+  glass.setIndex(glassIdx)
+  return { body, glass }
+}
+let _glassMat: THREE.MeshStandardMaterial | null = null
+export function glassMaterial(): THREE.MeshStandardMaterial {
+  return (_glassMat ??= new THREE.MeshStandardMaterial({ color: '#a9cfdf', transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.3, depthWrite: false }))
+}
+/** body mesh + see-through glass mesh, grouped */
+export function bodyWithGlass(geo: THREE.BufferGeometry, mat: THREE.Material): THREE.Group {
+  const { body, glass } = splitGlass(geo)
+  const g = new THREE.Group()
+  const bm = new THREE.Mesh(body, mat)
+  bm.castShadow = true
+  g.add(bm)
+  if (glass) {
+    const gm = new THREE.Mesh(glass, glassMaterial())
+    gm.renderOrder = 2
+    g.add(gm)
+  }
+  return g
 }

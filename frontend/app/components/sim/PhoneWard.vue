@@ -3,7 +3,7 @@
 // reputation, file to run for ward councillor, campaign for 30 minutes
 // (rallies, posters, door-to-door, radio) and win the vote. Councillors
 // fund ward projects and draw an hourly allowance.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const api = useGameApi()
 const ui = useUiStore()
@@ -61,11 +61,11 @@ const share = computed(() => {
 
     <!-- in office -->
     <template v-if="pol.office === 'councillor'">
-      <button class="w-full rounded-full bg-emerald-600 py-2 text-sm font-bold text-white" :disabled="busy" @click="post('/politics/allowance', {}, `Allowance paid: ${fmtNgn(pol.allowance)}`)">💼 Draw allowance · {{ fmtNgn(pol.allowance) }}/hr</button>
+      <button class="w-full rounded-full bg-emerald-600 py-2 text-sm font-bold text-white" :disabled="busy" @click="post('/politics/allowance', {}, `Allowance paid: ${fmtKsats(pol.allowance)}`)">💼 Draw allowance · {{ fmtKsats(pol.allowance) }}/hr</button>
       <div class="text-xs font-bold">Fund a ward project</div>
       <div v-for="(p, k) in pol.projects" :key="k" class="flex items-center justify-between rounded-2xl bg-ink/[0.04] p-2.5 text-xs">
         <div><div class="font-bold">{{ p.name }}</div><div class="text-[10px] text-ink/55">+{{ p.rep }} reputation</div></div>
-        <button class="rounded-full bg-sky-600 px-3 py-1 text-[11px] font-bold text-white" :disabled="busy" @click="post('/politics/project', { action: k }, `${p.name} commissioned 🎉`)">{{ fmtNgn(p.cost) }}</button>
+        <button class="rounded-full bg-sky-600 px-3 py-1 text-[11px] font-bold text-white" :disabled="busy" @click="post('/politics/project', { action: k }, `${p.name} commissioned 🎉`)">{{ fmtKsats(p.cost) }}</button>
       </div>
     </template>
 
@@ -80,7 +80,7 @@ const share = computed(() => {
       <div class="grid grid-cols-2 gap-2">
         <button v-for="(a, k) in pol.actions" :key="k" class="rounded-2xl bg-ink/[0.05] p-2.5 text-left text-xs" :disabled="busy" @click="post('/politics/campaign', { action: k }, `${ACT[String(k)]} done: +support`)">
           <div class="font-bold">{{ ACT[String(k)] }}</div>
-          <div class="text-[10px] text-ink/55">{{ a.cost ? fmtNgn(a.cost) : 'Free' }} · +{{ a.support }} · every {{ Math.round(a.cooldown_s / 60) }} min</div>
+          <div class="text-[10px] text-ink/55">{{ a.cost ? fmtKsats(a.cost) : 'Free' }} · +{{ a.support }} · every {{ Math.round(a.cooldown_s / 60) }} min</div>
         </button>
       </div>
     </template>
@@ -89,7 +89,7 @@ const share = computed(() => {
     <template v-else>
       <div class="rounded-2xl bg-ink/[0.04] p-3 text-xs">
         <div class="font-bold">Run for ward councillor</div>
-        <div class="mt-1 text-[11px] text-ink/60">Needs reputation {{ pol.min_reputation }}+ (work, run a business, help people) and a nomination fee of {{ fmtNgn(pol.fee) }}. Campaign for 30 minutes, then the ward votes.</div>
+        <div class="mt-1 text-[11px] text-ink/60">Needs reputation {{ pol.min_reputation }}+ (work, run a business, help people) and a nomination fee of {{ fmtKsats(pol.fee) }}. Campaign for 30 minutes, then the ward votes.</div>
         <div class="mt-2 h-2 overflow-hidden rounded-full bg-white"><div class="h-full bg-emerald-500" :style="{ width: `${Math.min(100, (pol.reputation / pol.min_reputation) * 100)}%` }" /></div>
         <button class="mt-2 w-full rounded-full bg-emerald-600 py-2 font-bold text-white disabled:opacity-40" :disabled="busy || pol.reputation < pol.min_reputation" @click="post('/politics/declare', {}, '📣 You are on the ballot!')">Declare candidacy</button>
       </div>

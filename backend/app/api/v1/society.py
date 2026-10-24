@@ -19,7 +19,7 @@ from app.services.society_service import SocietyError
 router = APIRouter(tags=["society"])
 
 MSG = {
-    "insufficient_funds": "Not enough naira for that.",
+    "insufficient_funds": "Not enough k-sats for that.",
     "not_married": "You need to be married first (Phone → Connect).",
     "family_full": "Your house is full - four children is plenty!",
     "needs_name": "Give the baby a name.",
@@ -44,7 +44,7 @@ MSG = {
     "crew_full": "That crew is full.",
     "not_in_crew": "You're not in a crew.",
     "no_such_person": "Couldn't find that person.",
-    "bad_amount": "Gifts are up to ₦50,000.",
+    "bad_amount": "Gifts are up to 5M k-sats.",
     "no_such_item": "You don't have that item.",
     "empty": "Nothing to send.",
     "bad_action": "That isn't possible.",
@@ -101,7 +101,12 @@ class BizIn(BaseModel):
 
 @router.get("/business")
 async def biz(profile: PlayerProfile = Me, db: AsyncSession = Db) -> dict[str, Any]:
-    return await _run(ss.business_status(db, profile.id))
+    try:
+        return await ss.business_status(db, profile.id)
+    except SocietyError as e:
+        if str(e) == "no_business":
+            return {"none": True}  # a normal state, not an error
+        raise _err(e) from None
 
 
 @router.post("/business/action")

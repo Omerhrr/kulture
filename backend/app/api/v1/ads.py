@@ -8,14 +8,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import error, get_current_profile
 from app.api.v1.payments import _intent_out
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.payments import LightningInvoice
 from app.models.player import PlayerProfile
 from app.payments.lightning_service import PaymentError, create_invoice_for_intent, invoice_for_intent
 from app.services import ads_service

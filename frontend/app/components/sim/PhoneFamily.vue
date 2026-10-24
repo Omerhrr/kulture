@@ -2,7 +2,7 @@
 // Phone → Family & Health: your spouse and children (feed them, play, pay
 // school fees) plus your body: health, fitness → stamina, sickness and the
 // hospital. The gym (Kaduna) and the Kagoro hike (Kafanchan) raise fitness.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const api = useGameApi()
 const ui = useUiStore()
@@ -58,7 +58,7 @@ const bar = (v: number) => (v > 60 ? 'bg-emerald-500' : v > 30 ? 'bg-amber-400' 
       <div v-if="hp.sick" class="mt-2 text-[11px] font-semibold text-rose-700">🤒 You have {{ hp.sick }}. Work pays half until you're treated.</div>
       <div class="mt-2 flex items-center justify-between">
         <span class="text-[10px] text-ink/55">Gym sessions and the Kagoro hike build fitness → longer sprints.</span>
-        <button class="shrink-0 rounded-full bg-rose-600 px-3 py-1 text-[11px] font-bold text-white" :disabled="busy" @click="hospital">🏥 {{ hp.sick ? 'Treat' : 'Check-up' }} · {{ fmtNgn(hp.hospital_cost) }}</button>
+        <button class="shrink-0 rounded-full bg-rose-600 px-3 py-1 text-[11px] font-bold text-white" :disabled="busy" @click="hospital">🏥 {{ hp.sick ? 'Treat' : 'Check-up' }} · {{ fmtKsats(hp.hospital_cost) }}</button>
       </div>
     </div>
 
@@ -77,14 +77,14 @@ const bar = (v: number) => (v > 60 ? 'bg-emerald-500' : v > 30 ? 'bg-amber-400' 
         <div>😊 Happy <div class="h-1.5 overflow-hidden rounded-full bg-white"><div class="h-full" :class="bar(c.happiness)" :style="{ width: c.happiness + '%' }" /></div></div>
       </div>
       <div class="mt-2 flex flex-wrap gap-1">
-        <button class="rounded-full bg-white px-2 py-1 text-[10px] font-bold" :disabled="busy" @click="care(c.id, 'feed', `${c.name} ate well`)">🍲 Feed · {{ fmtNgn(fam.prices.feed) }}</button>
+        <button class="rounded-full bg-white px-2 py-1 text-[10px] font-bold" :disabled="busy" @click="care(c.id, 'feed', `${c.name} ate well`)">🍲 Feed · {{ fmtKsats(fam.prices.feed) }}</button>
         <button class="rounded-full bg-white px-2 py-1 text-[10px] font-bold" :disabled="busy" @click="care(c.id, 'play', `You played with ${c.name}`)">⚽ Play</button>
-        <button v-if="!c.schooling && c.stage !== 'baby'" class="rounded-full bg-violet-600 px-2 py-1 text-[10px] font-bold text-white" :disabled="busy" @click="care(c.id, 'school', `${c.name} is enrolled`)">🎒 School · {{ fmtNgn(fam.prices.school) }}</button>
+        <button v-if="!c.schooling && c.stage !== 'baby'" class="rounded-full bg-violet-600 px-2 py-1 text-[10px] font-bold text-white" :disabled="busy" @click="care(c.id, 'school', `${c.name} is enrolled`)">🎒 School · {{ fmtKsats(fam.prices.school) }}</button>
         <span v-else-if="c.schooling" class="rounded-full bg-violet-100 px-2 py-1 text-[10px] font-bold text-violet-700">🎒 In school</span>
       </div>
     </div>
     <form v-if="fam.spouse && fam.children.length < fam.max_children" class="space-y-1.5 rounded-2xl bg-sky-50 p-3" @submit.prevent="baby">
-      <div class="text-xs font-bold text-sky-800">👶 Have a baby · {{ fmtNgn(fam.prices.baby) }} (naming ceremony & care)</div>
+      <div class="text-xs font-bold text-sky-800">👶 Have a baby · {{ fmtKsats(fam.prices.baby) }} (naming ceremony & care)</div>
       <div class="flex gap-1">
         <input v-model="name" maxlength="40" placeholder="Name (e.g. Aisha)" class="min-w-0 flex-1 rounded-full border border-ink/10 px-3 py-1 text-xs" />
         <button type="button" class="rounded-full px-2 text-[11px] font-bold" :class="gender === 'girl' ? 'bg-pink-500 text-white' : 'bg-white'" @click="gender = 'girl'">👧</button>

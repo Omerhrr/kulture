@@ -5,8 +5,8 @@ import type { Placed } from '~/utils/furniture'
 export interface CatalogItem {
   sku: string
   name: string
-  price_ngn_minor: number
-  sell_ngn_minor: number
+  price_ksats: number
+  sell_ksats: number
   category: string
 }
 
@@ -27,10 +27,10 @@ export const useHomeStore = defineStore('home', {
     }
   },
   actions: {
-    apply(r: { items: any[]; catalog: any[]; balance_ngn_minor: number }) {
+    apply(r: { items: any[]; catalog: any[]; balance_ksats: number }) {
       this.items = r.items
       this.catalog = r.catalog
-      this.balance = r.balance_ngn_minor
+      this.balance = r.balance_ksats
       this.loaded = true
       this.version++
     },
@@ -65,7 +65,7 @@ export const useHomeStore = defineStore('home', {
         this.selected = null
         this.apply(r)
         useState<any>('kk_socket_send').value?.('state.resync', {})
-        return r.refund_ngn_minor
+        return r.refund_ksats
       } finally {
         this.busy = false
       }

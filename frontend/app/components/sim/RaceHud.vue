@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // RaceHud - countdown, timer, checkpoint count and position during a street
 // race, then the result card with the leaderboard and any prize.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 import type { RaceState } from '~/utils/raceRoutes'
 
 const race = useState<RaceState>('kk_race')
@@ -45,7 +45,7 @@ function close() {
     <div v-if="race.phase === 'done'" class="pointer-events-auto w-[min(340px,90vw)] rounded-3xl bg-white p-4 text-ink shadow-2xl">
       <div class="font-display text-xl font-semibold">{{ race.position === 1 ? '🏆 You won!' : `Finished ${ORD[race.position] ?? race.position + 'th'}` }}</div>
       <div class="text-sm text-ink/60">Time {{ fmt(race.ms) }}<span v-if="race.result?.personal_best"> · personal best!</span></div>
-      <div v-if="race.result?.prize" class="mt-1 text-sm font-bold text-emerald-600">Prize {{ fmtNgn(race.result.prize) }}</div>
+      <div v-if="race.result?.prize" class="mt-1 text-sm font-bold text-emerald-600">Prize {{ fmtKsats(race.result.prize) }}</div>
       <div v-if="race.result?.error" class="mt-1 text-xs text-rose-600">{{ race.result.error }}</div>
       <div v-if="race.result?.leaderboard" class="mt-2 space-y-0.5">
         <div v-for="(r, i) in race.result.leaderboard.slice(0, 5)" :key="i" class="flex justify-between text-xs"><span>{{ i + 1 }}. {{ r.name }}</span><span class="tabular-nums">{{ fmt(r.ms) }}</span></div>

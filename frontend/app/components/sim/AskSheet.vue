@@ -12,7 +12,7 @@ const FAQ: QA[] = [
   { q: 'How do I keep my Sim happy?', k: ['happy', 'mood', 'need', 'hungry', 'tired', 'sleep', 'eat'], a: 'Keep the six needs green. At home: fridge or cooker for hunger, bed for energy, TV for fun, toilet and shower. Talking to people fills social.' },
   { q: 'How do I go home?', k: ['home', 'house', 'apartment', 'inside'], a: 'Tap Home on the dock. You can also walk up to any compound gate in the city and press E to look inside.' },
   { q: 'How do I drive?', k: ['drive', 'car', 'keke', 'okada', 'bus', 'ride', 'vehicle'], a: 'Walk up to a parked keke, car, okada or bus and press E (or tap BOARD). Use WASD to drive, V for the inside view, E again to get out.' },
-  { q: 'Is the naira real money?', k: ['naira', 'ngn', 'real', 'withdraw'], a: 'No. Naira (₦) is game money you earn from jobs. Only Lightning sats are real Bitcoin, and the two are never converted.' }
+  { q: 'Are k-sats real money?', k: ['ksats', 'k-sats', 'naira', 'ngn', 'real', 'withdraw'], a: 'No. k-sats are game money you earn from jobs or by depositing Lightning sats (1 sat = 1,000 k-sats). Only sats are real Bitcoin, and k-sats are never paid back out.' }
 ]
 const thread = ref<Array<{ from: 'me' | 'bot'; text: string; ai?: boolean }>>([{ from: 'bot', text: 'Sannu! ✨ Ask me anything about Kaduna Kulture.' }])
 const input = ref('')

@@ -127,7 +127,7 @@ kaduna-kulture/
 ├── scripts/             # gateway.js (single-origin router), smoke tests
 ├── infra/               # Caddyfile
 ├── docs/                # architecture, payments, security, runbooks
-└── docker-compose.yml   # postgres + backend + frontend + caddy + bridge
+└── docker-compose.yml   # postgres + backend + frontend + caddy (production)
 ```
 
 ## Quickstart (local, no Docker)
@@ -163,12 +163,15 @@ last item, invoice expiry, reconciliation after missed notifications, job
 lifecycle, server-side distance validation, and agent tool authorization
 (prohibited tools are unregistered entirely).
 
-## Docker
+## Docker / production (https://kulture.rogan.live)
 
 ```bash
-docker compose up --build
-# Caddy serves the world on :80 - API on /api, WS on /ws
+cp infra/env.production.example .env   # fill in secrets (or let scripts/vps/setup.sh do it)
+docker compose up -d --build
+# Caddy serves KK_DOMAIN over HTTPS - API on /api, WS on /ws, Postgres inside
 ```
+
+Full VPS guide (DNS, one-command setup, updates, backups): [docs/deploy.md](docs/deploy.md).
 
 ## Documentation
 

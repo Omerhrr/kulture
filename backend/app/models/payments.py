@@ -34,10 +34,11 @@ class PaymentIntent(UUIDPk, Timestamped, Base):
     listing_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("shop_listings.id", ondelete="SET NULL"), nullable=True
     )
-    item_id: Mapped[str] = mapped_column(String(36), ForeignKey("items.id"), nullable=False)
+    # A deposit intent has no item; purchases always name the item bought.
+    item_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("items.id"), nullable=True)
     quantity: Mapped[int] = mapped_column(default=1, nullable=False)
     amount_sats: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    amount_ngn_minor: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    amount_ksats: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     currency: Mapped[str] = mapped_column(String(8), default="sats", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="created", nullable=False)
     # created -> invoice_pending -> awaiting_payment -> settled | expired | failed | cancelled | reconciliation_required

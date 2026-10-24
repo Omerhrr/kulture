@@ -2,7 +2,7 @@
 // Phone → Town: what's on in each town of Kaduna State. Zaria polo (with a
 // small friendly wager), the Kafanchan train ride, the Kagoro Hills hike and
 // Kachia market day. Each plays out as a short scene; travel to do them.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 import { REGION_ID, regionById } from '~/utils/regions'
 import { useSimStore } from '~/stores/sim'
 
@@ -38,7 +38,7 @@ async function go(id: string) {
   try {
     const r = await api.apiPost<any>('/activities/do', { id, result: id === 'polo' && bet.value ? { bet: bet.value } : null })
     let end = `${r.name} ✓`
-    if (r.winner) end = `${r.winner} win! ${r.won ? `Your wager pays ${fmtNgn(r.won)} 🎉` : 'Your team lost the wager.'}`
+    if (r.winner) end = `${r.winner} win! ${r.won ? `Your wager pays ${fmtKsats(r.won)} 🎉` : 'Your team lost the wager.'}`
     else if (id === 'polo') end = 'What a match! 🏆'
     if (id === 'kagoro_hike') end = 'Fitness up 💪 - you can sprint further now.'
     if (id === 'market_day') {
@@ -71,12 +71,12 @@ const goTravel = useState<string | null>('kk_phone_goto', () => null)
     <div v-for="(a, id) in acts" :key="id" class="rounded-2xl p-3" :class="String(a.town) === REGION_ID ? 'bg-amber-50' : 'bg-ink/[0.04]'">
       <div class="flex items-center justify-between">
         <div class="text-[14px] font-bold">{{ ICON[String(id)] }} {{ a.name }}</div>
-        <div class="text-[11px] font-bold text-emerald-700">{{ a.cost ? fmtNgn(a.cost) : 'Free' }}</div>
+        <div class="text-[11px] font-bold text-emerald-700">{{ a.cost ? fmtKsats(a.cost) : 'Free' }}</div>
       </div>
       <div class="text-[10px] text-ink/55">{{ BLURB[String(id)] }}</div>
       <template v-if="String(a.town) === REGION_ID">
         <div v-if="String(id) === 'polo'" class="mt-1.5 flex flex-wrap items-center gap-1 text-[10px] font-bold">
-          Wager ₦1,000 on:
+          Wager 1,000 ks on:
           <button v-for="t in ['Zazzau Riders', 'Kano Chargers']" :key="t" class="rounded-full px-2 py-0.5" :class="bet === t ? 'bg-amber-500 text-white' : 'bg-white'" @click="bet = bet === t ? null : t">{{ t }}</button>
         </div>
         <button class="mt-2 w-full rounded-full bg-amber-500 py-1.5 text-xs font-bold text-white" :disabled="busy" @click="go(String(id))">Go</button>

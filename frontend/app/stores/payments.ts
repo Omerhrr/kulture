@@ -33,6 +33,21 @@ export const usePaymentsStore = defineStore('payments', {
         this.paying = false
       }
     },
+    async startDeposit(sats: number) {
+      const api = useGameApi()
+      this.error = ''
+      this.paying = true
+      this.dialogOpen = true
+      try {
+        const { intent } = await api.deposit(sats)
+        this.current = await api.createInvoice(intent.id)
+      } catch (e: any) {
+        this.error = e.message || 'Could not create deposit invoice'
+        this.dialogOpen = false
+      } finally {
+        this.paying = false
+      }
+    },
     async simulateWalletPayment() {
       if (!this.current?.invoice_bolt11) return
       const api = useGameApi()

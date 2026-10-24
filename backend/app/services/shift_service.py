@@ -7,7 +7,7 @@ Rules (server-authoritative, like jobs and payments):
   are still on site; leaving early ends the shift with no pay
 - pay is written to the ledger exactly once (active -> paid transition and
   a unique transaction reference in one commit)
-- the task bonus is capped (+15% at 4 tasks) and only moves simulated NGN
+- the task bonus is capped (+15% at 4 tasks) and only moves simulated k-sats
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class Career:
     id: str
     title: str
     place_code: str
-    pay_ngn_minor: int
+    pay_ksats: int
     reputation: int
     tasks: tuple[str, ...]
     # which town this job is in (None = anywhere: office / remote careers)
@@ -137,8 +137,8 @@ def shift_out(shift: WorkShift | None) -> dict[str, Any] | None:
         "required_seconds": settings.shift_seconds,
         "tasks_done": shift.tasks_done,
         "tasks": list(c.tasks),
-        "pay_ngn_minor": c.pay_ngn_minor,
-        "paid_ngn_minor": shift.paid_ngn_minor,
+        "pay_ksats": c.pay_ksats,
+        "paid_ksats": shift.paid_ksats,
     }
 
 
@@ -153,7 +153,7 @@ async def careers_out(db: AsyncSession, region: str = "kaduna") -> list[dict[str
         if not c.place_code:
             place = f"{TOWN_NAMES.get(c.region or '', 'Kaduna')}" if c.region and c.region != "kaduna" else "Remote / office"
             out.append({"id": c.id, "title": c.title, "place_code": "", "place_name": place, "position": None,
-                        "pay_ngn_minor": c.pay_ngn_minor, "reputation": c.reputation, "shift_seconds": settings.shift_seconds,
+                        "pay_ksats": c.pay_ksats, "reputation": c.reputation, "shift_seconds": settings.shift_seconds,
                         "needs_certificate": NEEDS_CERT.get(c.id) or ("any" if c.needs_any_cert else None)})
             continue
         ent = await _entity(db, c.place_code)
@@ -166,7 +166,7 @@ async def careers_out(db: AsyncSession, region: str = "kaduna") -> list[dict[str
                 "place_code": c.place_code,
                 "place_name": ent.name,
                 "position": [ent.position_x, 0.0, ent.position_z],
-                "pay_ngn_minor": c.pay_ngn_minor,
+                "pay_ksats": c.pay_ksats,
                 "reputation": c.reputation,
                 "shift_seconds": settings.shift_seconds,
             }
@@ -236,13 +236,13 @@ async def clock_out(db: AsyncSession, player_id: str) -> WorkShift:
     # working while sick pays half (Phone → Health → hospital)
     st = await life_service.life_state(db, player_id)
     sick = 0.5 if st.sick else 1.0
-    pay = int(career.pay_ngn_minor * bonus * (1 + 0.1 * lvl) * sick)
+    pay = int(career.pay_ksats * bonus * (1 + 0.1 * lvl) * sick)
     shift.status = "paid"
-    shift.paid_ngn_minor = pay
+    shift.paid_ksats = pay
     db.add(
         GameLedgerEntry(
             account_reference=f"player:{player_id}",
-            asset_type="ngn_minor",
+            asset_type="ksats",
             amount_minor_units=pay,
             transaction_reference=f"shift:{shift.id}",
             entry_type="shift_pay",
@@ -264,7 +264,7 @@ async def clock_out(db: AsyncSession, player_id: str) -> WorkShift:
     db.add(
         OutboxEvent(
             event_type="player.balance", aggregate_id=shift.id, player_id=player_id,
-            payload={"reason": "shift_pay", "amount_ngn_minor": pay},
+            payload={"reason": "shift_pay", "amount_ksats": pay},
         )
     )
     await db.commit()

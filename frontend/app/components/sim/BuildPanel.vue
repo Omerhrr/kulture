@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // BuildPanel - build mode in your home: buy furniture from the catalogue,
 // tap a piece to select it, drag it on the floor, rotate it, sell it.
-// Prices are simulated naira (the server owns money and ownership).
+// Prices are k-sats (the server owns money and ownership).
 import { useHomeStore } from '~/stores/home'
 import { ITEMS } from '~/utils/furniture'
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const home = useHomeStore()
 const ui = useUiStore()
@@ -36,7 +36,7 @@ async function sell() {
   if (!confirmSell.value) return void (confirmSell.value = true)
   try {
     const r = await home.sell(it.uid)
-    ui.showToast(`Sold for ${fmtNgn(r)}`, 'success')
+    ui.showToast(`Sold for ${fmtKsats(r)}`, 'success')
   } catch (e: any) {
     ui.showToast(e.message || 'Could not sell', 'error')
   }
@@ -55,7 +55,7 @@ async function sell() {
         </div>
         <button class="rounded-full bg-ink/5 px-4 py-2.5 text-sm font-bold text-ink hover:bg-ink/10" @click="rotate">⟳ Rotate</button>
         <button class="rounded-full px-4 py-2.5 text-sm font-bold" :class="confirmSell ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'" :disabled="home.busy" @click="sell">
-          {{ confirmSell ? `Confirm · +${fmtNgn(selCat?.sell_ngn_minor ?? 0)}` : `Sell · ${fmtNgn(selCat?.sell_ngn_minor ?? 0)}` }}
+          {{ confirmSell ? `Confirm · +${fmtKsats(selCat?.sell_ksats ?? 0)}` : `Sell · ${fmtKsats(selCat?.sell_ksats ?? 0)}` }}
         </button>
         <button class="rounded-full bg-leaf px-4 py-2.5 text-sm font-bold text-white hover:bg-kadeep" @click="home.selected = null">Done</button>
       </div>
@@ -69,10 +69,10 @@ async function sell() {
           <button v-for="c in CATS" :key="c" class="whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold" :class="cat === c ? 'bg-ink text-white' : 'bg-ink/5 text-ink/70'" @click="cat = c">{{ c }}</button>
         </div>
         <div class="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-          <button v-for="c in list" :key="c.sku" class="flex w-28 shrink-0 flex-col items-center gap-1 rounded-2xl border border-ink/10 bg-white p-2.5 text-center hover:border-leaf disabled:opacity-40" :disabled="home.busy || home.balance < c.price_ngn_minor" @click="buy(c.sku)">
+          <button v-for="c in list" :key="c.sku" class="flex w-28 shrink-0 flex-col items-center gap-1 rounded-2xl border border-ink/10 bg-white p-2.5 text-center hover:border-leaf disabled:opacity-40" :disabled="home.busy || home.balance < c.price_ksats" @click="buy(c.sku)">
             <span class="text-3xl">{{ ICON[c.sku] ?? '📦' }}</span>
             <span class="line-clamp-2 text-[11px] font-bold leading-tight text-ink">{{ c.name }}</span>
-            <span class="text-xs font-extrabold text-leaf">{{ fmtNgn(c.price_ngn_minor) }}</span>
+            <span class="text-xs font-extrabold text-leaf">{{ fmtKsats(c.price_ksats) }}</span>
           </button>
         </div>
       </template>

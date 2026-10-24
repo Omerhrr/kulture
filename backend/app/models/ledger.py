@@ -1,7 +1,7 @@
 """Auditable simulated-economy ledger. Separation of asset classes is enforced
-by convention: ``asset_type`` is one of ngn_minor | reputation | item | sats_ref.
+by convention: ``asset_type`` is one of ksats | reputation | item | sats_ref.
 
-Real Bitcoin settlements are never recorded as spendable NGN - they are
+Real Bitcoin settlements are never recorded as spendable k-sats - they are
 references to verified Lightning payments (asset_type="sats_ref").
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import JSON, BigInteger, ForeignKey, String, Index
+from sqlalchemy import JSON, BigInteger, String, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base

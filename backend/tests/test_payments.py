@@ -52,7 +52,7 @@ async def test_settlement_fulfills_exactly_once(client, auth_headers, world_ctx)
     from app.payments.lightning_service import process_settlement
     from app.payments.mock_adapter import get_adapter
     from app.db.session import AsyncSessionLocal
-    from app.models.payments import PaymentIntent, LightningInvoice
+    from app.models.payments import PaymentIntent
     from sqlalchemy import select
 
     inv = await _buy_and_invoice(client, auth_headers, world_ctx, listing_index=1, qty=2)
@@ -120,7 +120,6 @@ async def test_concurrent_purchases_of_last_item_never_oversell(client, auth_hea
     from sqlalchemy import select, update
     from app.db.session import AsyncSessionLocal
     from app.models.business import ShopListing
-    from app.models.payments import PaymentIntent
     from app.payments.lightning_service import process_settlement
     from app.payments.mock_adapter import get_adapter
 

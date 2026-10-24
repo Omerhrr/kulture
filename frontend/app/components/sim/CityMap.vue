@@ -56,7 +56,7 @@ const pois = computed<Poi[]>(() => {
     if (!e.is_active || e.entity_type === 'npc' || e.entity_type === 'spawn') continue
     const isWork = workCodes.has(e.code)
     const career = work.careers.find((c) => c.place_code === e.code)
-    out.push({ id: 'e:' + e.code, layer: isWork ? 'work' : 'places', icon: isWork ? '💼' : ENT_ICON[e.entity_type] ?? '📍', label: e.name, sub: career ? `${career.title} · ₦${(career.pay_ngn_minor / 100).toLocaleString()} a shift` : e.entity_type.replace('_', ' '), x: e.position[0], z: e.position[2], y: 6, code: e.code })
+    out.push({ id: 'e:' + e.code, layer: isWork ? 'work' : 'places', icon: isWork ? '💼' : ENT_ICON[e.entity_type] ?? '📍', label: e.name, sub: career ? `${career.title} · ${career.pay_ksats.toLocaleString()} ks a shift` : e.entity_type.replace('_', ' '), x: e.position[0], z: e.position[2], y: 6, code: e.code })
   }
   for (const [i, c] of (BAKE.civic ?? []).entries()) {
     const [icon, label] = CIVIC[c.kind] ?? ['🏢', c.kind]

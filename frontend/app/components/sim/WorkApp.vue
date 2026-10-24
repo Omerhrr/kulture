@@ -2,7 +2,7 @@
 // WorkApp - Phone → Work: pick a career, see pay and hours, and go to work
 // (starts the automatic commute). Shows your last payslip.
 import { useWorkStore } from '~/stores/work'
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const open = useState<boolean>('kk_work_open', () => false)
 const work = useWorkStore()
@@ -46,7 +46,7 @@ function go() {
 
         <div v-if="work.lastResult" class="mx-6 mt-2 rounded-2xl px-4 py-3 text-sm" :class="work.lastResult.status === 'paid' ? 'bg-leaf/10 text-leaf' : 'bg-amber-50 text-amber-700'">
           <b>Last shift:</b> {{ work.lastResult.title }} ·
-          {{ work.lastResult.status === 'paid' ? `paid ${fmtNgn(work.lastResult.paid_ngn_minor)}` : 'left early, no pay' }}
+          {{ work.lastResult.status === 'paid' ? `paid ${fmtKsats(work.lastResult.paid_ksats)}` : 'left early, no pay' }}
         </div>
 
         <div class="kk-scroll min-h-0 flex-1 space-y-2.5 overflow-y-auto px-6 py-4">
@@ -64,12 +64,12 @@ function go() {
               <div v-if="c.needs_certificate" class="text-[10px] font-bold text-violet-600">🎓 {{ c.needs_certificate === 'any' ? 'Needs any school certificate' : `Needs a ${c.needs_certificate.replace('_', ' ')} certificate` }}</div>
             </div>
             <div class="text-right">
-              <div class="text-sm font-extrabold text-leaf">{{ fmtNgn(c.pay_ngn_minor) }}</div>
+              <div class="text-sm font-extrabold text-leaf">{{ fmtKsats(c.pay_ksats) }}</div>
               <div class="text-[11px] text-ink/45">per {{ mins(c.shift_seconds) }} shift</div>
             </div>
           </button>
           <p class="px-1 pt-1 text-[11px] leading-relaxed text-ink/45">
-            The server times your shift and checks you're on site when you clock in and out. Finish small tasks for up to +15%. Pay is simulated naira, never Bitcoin.
+            The server times your shift and checks you're on site when you clock in and out. Finish small tasks for up to +15%. Pay is in k-sats (game money), never Bitcoin.
           </p>
         </div>
         <div class="border-t border-ink/5 p-4">

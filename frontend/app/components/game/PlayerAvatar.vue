@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useCamMode } from '~/composables/useControlsState'
 import { useSimStore } from '~/stores/sim'
 import { useWorkStore } from '~/stores/work'
 import { usePlayerPose } from '~/composables/useControlsState'
@@ -17,6 +18,7 @@ import * as THREE from 'three'
 import { collides, clampBounds, unstick } from '~/utils/collision'
 import { impact } from '~/utils/impact'
 import { INTERIOR_DROP } from '~/utils/kadunaExtras'
+import { interiorLevel } from '~/utils/interiorLevel'
 import { hashDist, roadHash } from '~/utils/kadunaExtras'
 import { kkAudio } from '~/utils/audio'
 
@@ -26,6 +28,7 @@ const { onBeforeRender } = useLoop()
 
 const playerPos = useState<[number, number, number]>('kk_player_pos', () => [-294, 0, 120])
 const playerFacing = useState<number>('kk_player_facing', () => 0)
+const camMode = useCamMode()
 const sim = useSimStore()
 const work = useWorkStore()
 const pose = usePlayerPose()
@@ -143,12 +146,13 @@ const socketSend = useState<(type: string, payload: Record<string, unknown>) => 
 if (import.meta.dev) {
   ;(window as any).__kk_teleport = (x: number, z: number) => {
     ;(window as any).__kk_teleport_at = Date.now()
-    playerPos.value = [x, 0, z]
+    playerPos.value = [x, playerPos.value[1], z] // keep height (interiors sit below ground)
     moveTarget.value = null
     socketSend.value('player.move', { position: [x, 0, z], facing: 0 })
   }
   ;(window as any).__kk_pos = () => [+playerPos.value[0].toFixed(2), +playerPos.value[2].toFixed(2)]
   ;(window as any).__kk_collides = (x: number, z: number) => collides(x, z)
+  ;(window as any).__kk_collides_from = (x: number, z: number, ox: number, oz: number) => collides(x, z, ox, oz)
   ;(window as any).__kk_knock = () => ({ ...impact.knock, shake: impact.shake })
 }
 
@@ -182,8 +186,9 @@ onBeforeRender(({ delta }) => {
     if (targetRing.value) targetRing.value.visible = false
     return
   }
-  g.visible = true
-  const floorY = interior.value.inside ? -INTERIOR_DROP : heightAt(playerPos.value[0], playerPos.value[2])
+  // first person: you look out through your own eyes, so hide the body
+  g.visible = camMode.value !== 'first' || ride.value.active
+  const floorY = interior.value.inside ? -INTERIOR_DROP + interiorLevel.y : heightAt(playerPos.value[0], playerPos.value[2])
 
   // knocked down by a vehicle: fly, tumble, lie on the ground, get up.
   // Input is ignored until the character is back on their feet.

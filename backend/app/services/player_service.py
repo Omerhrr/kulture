@@ -1,23 +1,19 @@
-"""Player service - identity, profiles, authoritative state, NGN ledger views."""
+"""Player service - identity, profiles, authoritative state, k-sats ledger views."""
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models.business import NPCAgent
-from app.models.catalog import Inventory
 from app.models.ledger import GameLedgerEntry
 from app.models.player import PlayerProfile, PlayerState, User
 from app.models.world import WorldEntity, WorldRegion
 from app.schemas.auth import PlayerOut, TokenOut
 
-STARTING_NGN_MINOR = 25_000_00  # ₦25,000.00 simulated - clearly a game currency
+STARTING_KSATS = 25_000_00  # 2,500,000 k-sats starting grant - clearly game money
 STARTING_REPUTATION = 0
 
 
@@ -71,11 +67,11 @@ async def register_player(
     db.add(
         GameLedgerEntry(
             account_reference=f"player:{profile.id}",
-            asset_type="ngn_minor",
-            amount_minor_units=STARTING_NGN_MINOR,
+            asset_type="ksats",
+            amount_minor_units=STARTING_KSATS,
             transaction_reference=f"grant:{user.id}:{datetime.now(timezone.utc).timestamp():.0f}",
             entry_type="grant_initial",
-            description="Starting simulated NGN (game currency - not Bitcoin)",
+            description="Starting simulated k-sats (game currency - not Bitcoin)",
         )
     )
     await db.commit()
@@ -92,11 +88,11 @@ async def login_player(db: AsyncSession, username: str, password: str) -> TokenO
     return _token_for(user, profile)
 
 
-async def ngn_balance_minor(db: AsyncSession, player_id: str) -> int:
+async def ksats_balance(db: AsyncSession, player_id: str) -> int:
     total = await db.execute(
         select(func.coalesce(func.sum(GameLedgerEntry.amount_minor_units), 0)).where(
             GameLedgerEntry.account_reference == f"player:{player_id}",
-            GameLedgerEntry.asset_type == "ngn_minor",
+            GameLedgerEntry.asset_type == "ksats",
         )
     )
     return int(total.scalar_one())
@@ -119,7 +115,7 @@ async def get_player_out(db: AsyncSession, user_id: str) -> PlayerOut | None:
     state = (
         await db.execute(select(PlayerState).where(PlayerState.player_id == profile.id))
     ).scalar_one_or_none()
-    balance = await ngn_balance_minor(db, profile.id)
+    balance = await ksats_balance(db, profile.id)
     return PlayerOut(
         id=profile.id,
         user_id=user.id,
@@ -127,7 +123,7 @@ async def get_player_out(db: AsyncSession, user_id: str) -> PlayerOut | None:
         display_name=profile.display_name,
         avatar_id=profile.avatar_id,
         reputation=profile.reputation,
-        ngn_balance_minor=balance,
+        ksats_balance=balance,
         position=(state.position_x, state.position_y, state.position_z) if state else None,
         region_id=state.region_id if state else None,
         region_slug=(await _region_slug(db, state.region_id)) if state else None,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// LedgerPanel - auditable transaction history, with real-sats vs sim-NGN
+// LedgerPanel - auditable transaction history, with real-sats vs k-sats
 // clearly separated (spec acceptance KK-012).
 const player = usePlayerStore()
 const ui = useUiStore()
@@ -12,9 +12,9 @@ onMounted(() => {
 })
 
 function fmt(entry: any) {
-  if (entry.asset_type === 'ngn_minor') {
-    const v = entry.amount_minor_units / 100
-    return `${v >= 0 ? '+' : ''}₦${v.toLocaleString('en-NG')} (sim)`
+  if (entry.asset_type === 'ksats') {
+    const v = entry.amount_minor_units
+    return `${v >= 0 ? '+' : ''}${v.toLocaleString('en')} (sim ks)`
   }
   if (entry.asset_type === 'sats_ref') {
     return `${entry.amount_minor_units} sats (verified Lightning)`
@@ -45,7 +45,7 @@ function fmt(entry: any) {
     </div>
 
     <p class="mt-3 text-[11px] leading-relaxed text-ink/45">
-      Real sats entries reference verified Lightning settlements. Simulated NGN is game money only -
+      Real sats entries reference verified Lightning settlements. k-sats are game money only -
       the two are never converted.
     </p>
   </div>

@@ -17,7 +17,7 @@ from app.services.life_service import LifeError
 router = APIRouter(prefix="/life", tags=["life"])
 
 MSG = {
-    "insufficient_funds": "Not enough naira for that.",
+    "insufficient_funds": "Not enough k-sats for that.",
     "unknown_course": "That course isn't offered.",
     "already_enrolled": "Finish your current course first.",
     "already_certified": "You already hold that certificate.",
@@ -28,6 +28,8 @@ MSG = {
     "already_own": "You already own a house.",
     "rent_not_due": "Rent is paid up for now.",
     "bad_car": "Pick a better car than the one you drive.",
+    "no_car": "You don't own a car yet (Phone → Life).",
+    "bad_color": "Pick one of the paint colours.",
     "bad_business": "Unknown business type.",
     "already_have_business": "You already run a business.",
     "not_ready_for_business": "Move out of the family house or earn a Business Admin certificate first.",
@@ -56,6 +58,17 @@ class AnswersIn(BaseModel):
 
 class CarIn(BaseModel):
     tier: int
+    color: str | None = None
+
+
+class ParkIn(BaseModel):
+    x: float = Field(ge=-20000, le=20000, allow_inf_nan=False)
+    z: float = Field(ge=-20000, le=20000, allow_inf_nan=False)
+    heading: float = Field(default=0.0, ge=-100, le=100, allow_inf_nan=False)
+
+
+class PaintIn(BaseModel):
+    color: str
 
 
 class BizIn(BaseModel):
@@ -119,7 +132,30 @@ async def house(profile: PlayerProfile = Depends(get_current_profile), db: Async
 
 @router.post("/car")
 async def car(body: CarIn, profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
-    return await _do(ls.buy_car(db, profile.id, body.tier), db, profile.id)
+    return await _do(ls.buy_car(db, profile.id, body.tier, body.color), db, profile.id)
+
+
+@router.post("/car/paint")
+async def car_paint(body: PaintIn, profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    return await _do(ls.paint_car(db, profile.id, body.color), db, profile.id)
+
+
+@router.post("/car/park")
+async def car_park(body: ParkIn, profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    from app.services.travel_service import region_of
+
+    try:
+        await ls.park_car(db, profile.id, await region_of(db, profile.id), body.x, body.z, body.heading)
+    except LifeError as e:
+        raise _err(e)
+    return {"ok": True}
+
+
+@router.get("/cars")
+async def cars(profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    from app.services.travel_service import region_of
+
+    return {"cars": await ls.parked_cars(db, await region_of(db, profile.id))}
 
 
 @router.post("/business")

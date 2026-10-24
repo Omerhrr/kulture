@@ -2,7 +2,7 @@
 // Phone → Crews: start or join a crew (up to 20), chat with your crew in
 // real time, and fight for night-race turf - a route belongs to the crew of
 // whoever holds its best time. Members can meet at the crew clubhouse.
-import { fmtNgn } from '~/utils/format'
+import { fmtKsats } from '~/utils/format'
 
 const api = useGameApi()
 const ui = useUiStore()
@@ -112,7 +112,7 @@ function clubhouse() {
         <button class="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-bold text-white" :disabled="busy" @click="run(() => api.apiPost(`/crews/${c.id}/join`), `Welcome to ${c.name}!`)">Join</button>
       </div>
       <form class="space-y-1.5 rounded-2xl bg-amber-50 p-3" @submit.prevent="run(() => api.apiPost('/crews', form), 'Crew created 🎉')">
-        <div class="text-xs font-bold text-amber-800">Start a crew · {{ fmtNgn(d.fee) }}</div>
+        <div class="text-xs font-bold text-amber-800">Start a crew · {{ fmtKsats(d.fee) }}</div>
         <input v-model="form.name" maxlength="40" placeholder="Crew name (e.g. Barnawa Night Riders)" class="w-full rounded-full border border-ink/10 px-3 py-1 text-xs" />
         <div class="flex gap-1">
           <input v-model="form.tag" maxlength="5" placeholder="TAG" class="w-20 rounded-full border border-ink/10 px-3 py-1 text-xs uppercase" />

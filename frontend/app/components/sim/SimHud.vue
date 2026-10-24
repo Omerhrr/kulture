@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { CAM_LABEL, cycleCamMode, useCamMode } from '~/composables/useControlsState'
+const camMode = useCamMode()
 import { calendarDate } from '~/utils/lifeShared'
 // SimHud - the life-sim layer of the HUD:
 //   top centre : day + time | mood | weather | money (+ to earn)
@@ -96,7 +98,7 @@ const initials = computed(() => (sim.name || player.profile?.display_name || '?'
           <span class="h-2 w-2 rounded-full bg-leaf" />{{ online.toLocaleString() }}<span class="max-md:hidden">online</span>
         </span>
         <div data-tour="money" class="ml-1 flex items-center gap-1.5 rounded-full bg-paper py-1 pl-3.5 pr-1">
-          <span class="whitespace-nowrap font-display text-[15px] font-semibold tabular-nums text-ink" title="Simulated naira (game money, not Bitcoin)">{{ player.ngnDisplay }}</span>
+          <span class="whitespace-nowrap font-display text-[15px] font-semibold tabular-nums text-ink" title="k-sats (game money, not Bitcoin)">{{ player.ksatsDisplay }}</span>
           <button class="flex h-8 w-8 items-center justify-center rounded-full bg-leaf text-lg font-bold text-white hover:bg-kadeep" title="Earn money (jobs)" aria-label="Earn money" @click="ui.open('jobs')">+</button>
         </div>
         <button class="kk-close ml-0.5" title="Settings" aria-label="Settings" @click="emit('settings')">⚙️</button>
@@ -163,6 +165,8 @@ const initials = computed(() => (sim.name || player.profile?.display_name || '?'
       </div>
     </div>
 
+    <!-- camera view: 1st / 2nd / 3rd person (V on the keyboard) -->
+    <button class="pointer-events-auto absolute left-3 top-[7.25rem] z-20 rounded-full bg-white/85 px-3 py-1.5 text-xs font-bold text-ink/80 shadow backdrop-blur hover:text-ink" title="Change camera view (V)" @click="cycleCamMode(camMode)">🎥 {{ CAM_LABEL[camMode] }}</button>
     <button class="pointer-events-auto absolute right-3 top-3.5 z-20 rounded-full bg-white/80 px-3 py-1.5 text-xs font-bold text-ink/70 shadow backdrop-blur hover:text-ink max-xl:hidden" title="Hide the HUD" @click="sim.cleanScreen = true">˄ Clean screen</button>
   </template>
 </template>
