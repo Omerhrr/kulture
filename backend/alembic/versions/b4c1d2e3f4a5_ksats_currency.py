@@ -20,27 +20,36 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# The early migrations were later edited to create the k-sats names directly,
+# so a fresh database already has them. Only rename what is still old.
+RENAMES = [
+    ('shop_listings', 'price_ngn_minor', 'price_ksats'),
+    ('jobs', 'reward_ngn_minor', 'reward_ksats'),
+    ('work_shifts', 'paid_ngn_minor', 'paid_ksats'),
+    ('payment_intents', 'amount_ngn_minor', 'amount_ksats'),
+]
+
+
+def _cols(table: str) -> set[str]:
+    return {c['name'] for c in sa.inspect(op.get_bind()).get_columns(table)}
+
+
+def _rename(table: str, old: str, new: str) -> None:
+    cols = _cols(table)
+    if old in cols and new not in cols:
+        with op.batch_alter_table(table) as batch:
+            batch.alter_column(old, new_column_name=new, existing_type=sa.BigInteger())
+
+
 def upgrade() -> None:
-    op.alter_column('shop_listings', 'price_ngn_minor', new_column_name='price_ksats',
-                    existing_type=sa.BigInteger())
-    op.alter_column('jobs', 'reward_ngn_minor', new_column_name='reward_ksats',
-                    existing_type=sa.BigInteger())
-    op.alter_column('work_shifts', 'paid_ngn_minor', new_column_name='paid_ksats',
-                    existing_type=sa.BigInteger())
+    for table, old, new in RENAMES:
+        _rename(table, old, new)
     with op.batch_alter_table('payment_intents') as batch:
-        batch.alter_column('amount_ngn_minor', new_column_name='amount_ksats',
-                           existing_type=sa.BigInteger())
         batch.alter_column('item_id', existing_type=sa.String(length=36), nullable=True)
 
 
 def downgrade() -> None:
     with op.batch_alter_table('payment_intents') as batch:
-        batch.alter_column('amount_ksats', new_column_name='amount_ngn_minor',
-                           existing_type=sa.BigInteger())
         batch.alter_column('item_id', existing_type=sa.String(length=36), nullable=False)
-    op.alter_column('work_shifts', 'paid_ksats', new_column_name='paid_ngn_minor',
-                    existing_type=sa.BigInteger())
-    op.alter_column('jobs', 'reward_ksats', new_column_name='reward_ngn_minor',
-                    existing_type=sa.BigInteger())
-    op.alter_column('shop_listings', 'price_ksats', new_column_name='price_ngn_minor',
-                    existing_type=sa.BigInteger())
+    for table, old, new in reversed(RENAMES):
+        _rename(table, new, old)
