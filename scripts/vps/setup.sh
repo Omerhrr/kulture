@@ -23,12 +23,18 @@ if ! swapon --show | grep -q .; then
   echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
-echo "==> firewall: ssh + http + https only"
-ufw allow OpenSSH
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 443/udp
-ufw --force enable
+# Firewall only on request: on a server that already runs other services
+# (mail, other sites) a "web only" firewall would cut them off.
+if [ "${KK_FIREWALL:-0}" = "1" ]; then
+  echo "==> firewall: ssh + http + https only"
+  ufw allow OpenSSH
+  ufw allow 80/tcp
+  ufw allow 443/tcp
+  ufw allow 443/udp
+  ufw --force enable
+else
+  echo "==> firewall left unchanged (KK_FIREWALL=1 to restrict to ssh/http/https)"
+fi
 
 echo "==> code"
 if [ ! -d "$DIR/.git" ]; then git clone "$REPO" "$DIR"; fi

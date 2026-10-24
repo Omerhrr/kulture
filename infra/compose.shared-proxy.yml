@@ -1,0 +1,22 @@
+# Join the backend and frontend to an existing reverse proxy's Docker network
+# (for a server where another Caddy/nginx already owns ports 80/443).
+# Enable it in .env:
+#   COMPOSE_FILE=docker-compose.yml:infra/compose.shared-proxy.yml
+#   PROXY_NETWORK=<that proxy's network name>
+# The proxy then reaches the app as kulture-backend:8000 and kulture-frontend:3000.
+services:
+  backend:
+    networks:
+      default: {}
+      proxy:
+        aliases: [kulture-backend]
+  frontend:
+    networks:
+      default: {}
+      proxy:
+        aliases: [kulture-frontend]
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?set PROXY_NETWORK in .env}

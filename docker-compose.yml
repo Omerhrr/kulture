@@ -1,8 +1,13 @@
 # Kaduna Kulture - production stack (VPS).
 #   cp infra/env.production.example .env   # fill in the secrets
 #   docker compose up -d --build
-# Only Caddy is exposed (80/443); Postgres and the app stay on the private
-# compose network.
+# Postgres and the app stay on the private compose network.
+#
+# Two ways to put it online:
+#  - own server:    COMPOSE_PROFILES=standalone  -> this stack's Caddy takes 80/443
+#  - shared server: an existing reverse proxy (e.g. another Caddy) already owns
+#    80/443 -> leave the profile off and add infra/compose.shared-proxy.yml via
+#    COMPOSE_FILE (see docs/deploy.md, "Server already running other sites")
 
 x-logging: &logging
   driver: json-file
@@ -53,6 +58,7 @@ services:
 
   caddy:
     image: caddy:2-alpine
+    profiles: ["standalone"]
     restart: unless-stopped
     ports:
       - "80:80"

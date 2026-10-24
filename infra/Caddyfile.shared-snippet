@@ -1,0 +1,17 @@
+# Paste this into the Caddyfile of the proxy that already owns 80/443, then
+# reload it. Caddy gets the HTTPS certificate for the domain automatically.
+kulture.rogan.live {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+	@kulture_backend path /api/* /ws/*
+	handle @kulture_backend {
+		reverse_proxy kulture-backend:8000
+	}
+	handle {
+		reverse_proxy kulture-frontend:3000
+	}
+}
