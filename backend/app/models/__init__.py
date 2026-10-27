@@ -14,6 +14,7 @@ from app.models.events import OutboxEvent  # noqa: F401
 from app.models.work import WorkShift  # noqa: F401
 from app.models.ads import BillboardAd  # noqa: F401
 from app.models.home import HomeItem  # noqa: F401
+from app.models.story import StoryProgress  # noqa: F401
 from app.models.life import LifeState, Enrollment, Relationship, DirectMessage, GameMatch, RaceTime, ArcadeScore, Child, Crew, CrewMember, CrewMessage  # noqa: F401
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "AgentAction",
     "OutboxEvent",
     "WorkShift",
+    "StoryProgress",
     "BillboardAd",
     "HomeItem",
     "LifeState",
