@@ -22,20 +22,30 @@ export function useGameSocket() {
     if (!token || ws) return
     closedByUs = false
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const base =
+      (config.public.wsBase as string) ||
+      (import.meta.dev ? `${proto}://${location.hostname}:8000` : `${proto}://${location.host}`)
     status.value = 'connecting'
-    ws = new WebSocket(`${proto}://${location.host}${wsPath}?token=${encodeURIComponent(token)}`)
+    // every handler below is bound to THIS socket: a stale socket closing
+    // late (e.g. disconnect() then connect() on login) must not clobber the
+    // new connection or schedule a duplicate reconnect.
+    const sock = new WebSocket(`${base}${wsPath}?token=${encodeURIComponent(token)}`)
+    ws = sock
 
-    ws.onopen = () => {
+    sock.onopen = () => {
+      if (ws !== sock) return sock.close()
       retry = 0
       status.value = 'open'
-      ws?.send(JSON.stringify({ type: 'world.subscribe', payload: {} }))
+      sock.send(JSON.stringify({ type: 'world.subscribe', payload: {} }))
+      if (heartbeat) clearInterval(heartbeat)
       heartbeat = setInterval(() => {
-        if (ws?.readyState === WebSocket.OPEN)
-          ws.send(JSON.stringify({ type: 'ping', payload: {} }))
+        if (sock.readyState === WebSocket.OPEN)
+          sock.send(JSON.stringify({ type: 'ping', payload: {} }))
       }, 25000)
     }
 
-    ws.onmessage = (ev) => {
+    sock.onmessage = (ev) => {
+      if (ws !== sock) return
       try {
         const data = JSON.parse(ev.data) as ServerEvent
         handlers.forEach((h) => h(data))
@@ -47,11 +57,17 @@ export function useGameSocket() {
       }
     }
 
-    ws.onclose = () => {
+    sock.onclose = (ev) => {
+      if (ws !== sock) return // superseded or deliberately replaced
       status.value = 'closed'
       if (heartbeat) clearInterval(heartbeat)
       heartbeat = null
       ws = null
+      if (ev.code === 4401) {
+        // server rejected the token: retrying with it can never succeed
+        window.dispatchEvent(new Event('kk-auth-expired'))
+        return
+      }
       if (!closedByUs) {
         retry += 1
         const delay = Math.min(8000, 600 * 2 ** Math.min(retry, 4))
@@ -59,14 +75,16 @@ export function useGameSocket() {
       }
     }
 
-    ws.onerror = () => ws?.close()
+    sock.onerror = () => sock.close()
   }
 
   function disconnect() {
     closedByUs = true
-    ws?.close()
-    ws = null
+    const old = ws
+    ws = null // detach first so the old socket's late events are ignored
+    old?.close()
     if (heartbeat) clearInterval(heartbeat)
+    heartbeat = null
     status.value = 'closed'
   }
 

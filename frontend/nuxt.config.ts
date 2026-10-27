@@ -28,7 +28,12 @@ export default defineNuxtConfig({
     public: {
       // Same-origin API via the gateway (or Nuxt devProxy in direct dev).
       apiBase: '/api/v1',
-      wsPath: '/ws/game'
+      wsPath: '/ws/game',
+      // Origin for the game WebSocket, e.g. "wss://kulture.example". Empty =
+      // same origin (gateway / Caddy). In `nuxt dev` an empty value means the
+      // FastAPI backend on this host's :8000, because the dev proxy below
+      // cannot carry WebSocket upgrades. Override: NUXT_PUBLIC_WS_BASE.
+      wsBase: ''
     }
   },
 
@@ -53,7 +58,9 @@ export default defineNuxtConfig({
     },
     devProxy: {
       '/api': { target: 'http://127.0.0.1:8000/api', changeOrigin: true },
-      '/ws': { target: 'ws://127.0.0.1:8000/ws', ws: true },
+      // no '/ws' entry: nitro's dev proxy drops WebSocket upgrades (they fell
+      // through to the Vue router and crashed the dev server with ECONNRESET);
+      // the client dials the backend directly in dev instead (see wsBase).
       '/lightning': { target: 'http://127.0.0.1:8000/lightning', changeOrigin: true }
     }
   },
