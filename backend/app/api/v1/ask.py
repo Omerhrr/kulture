@@ -41,7 +41,7 @@ Facts:
 - Delivery jobs: the job board (J) also lists open deliveries around town for extra k-sats.
 - Money: k-sats are game money (deposits: 1 Lightning sat = 1,000 k-sats) and are NEVER paid back out as Bitcoin. Lightning payments use real sats (regtest simulator in the demo build): scan the QR with Phoenix, Zeus or BlueWallet; the server verifies settlement with the Lightning node before delivering or crediting, exactly once.
 - Other players: everyone online appears with an @name tag; the top bar shows how many are online.
-- Character: created at first launch (look, 2 traits, a dream, a birth lottery). Phone > Settings can replay the tour or create a new Sim.
+- Character: right after signing up you choose your look and name; the game then gives you a life - a background (well-off, middle class or self-made, each with its own start: money, your own flat or the family house), a dream, and a home in a Kaduna neighbourhood that fits it. Nobody chooses their life or where they live. Every session starts inside your home. Phone > Settings > Change my look edits the look; the life stays.
 If asked something outside the game, answer briefly and steer back to the game. If you don't know, say so."""
 
 _calls: dict[str, deque] = defaultdict(deque)

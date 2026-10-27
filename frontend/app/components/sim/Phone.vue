@@ -202,10 +202,7 @@ watch(page, (p: Page) => p !== 'shops' && (storeOwner.value = null))
                     <NuxtLink to="/arcade" class="flex w-full items-center justify-between px-3 py-2.5 text-sm font-semibold hover:bg-ink/5">Arcade (full screen) <span class="text-ink/30">›</span></NuxtLink>
                     <button class="flex w-full items-center justify-between px-3 py-2.5 text-sm font-semibold hover:bg-ink/5" @click="(sim.tourDone = false), sim.save(), (open = false)">Replay the tour <span class="text-ink/30">›</span></button>
                   </div>
-                  <div class="overflow-hidden rounded-2xl bg-white">
-                    <button class="flex w-full items-center justify-between px-3 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50" @click="sim.reset(), (open = false)">Create a new Sim <span>›</span></button>
-                  </div>
-                </div>
+                                  </div>
               </div>
             </template>
             <div class="absolute bottom-2 left-1/2 z-10 h-1 w-28 -translate-x-1/2 rounded-full" :class="page === 'home' ? 'bg-white/70' : 'bg-ink/30'" />

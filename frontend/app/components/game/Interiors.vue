@@ -19,7 +19,7 @@ import { FLOOR_H, stairOf, stairT, onStairFootprint, stairLowerColliders, stairC
 import { interiorLevel } from '~/utils/interiorLevel'
 import { useSimStore, type NeedKey } from '~/stores/sim'
 import { usePlayerPose, fireKkEvent, useMoveTarget } from '~/composables/useControlsState'
-import { PLAYABLE_POS } from '~/utils/kaduna'
+import { PLAYABLE_POS, IS_CITY } from '~/utils/kaduna'
 import { localName } from '~/utils/regions'
 import { nearestSeat } from '~/utils/seats'
 import { ITEMS, rotLocal, starterLayout, homeLayout, tintItem } from '~/utils/furniture'
@@ -73,13 +73,16 @@ const moveTarget = useMoveTarget()
 const ui = useUiStore()
 
 // ---------------------------------------------------------------- your home
-// The family house closest to where you start is yours. "Home" on the dock
-// walks you to its gate (the server only accepts real movement) and lets you in.
+// The game gives every character a home (server: a point in a Kaduna
+// neighbourhood); the family house nearest that point is yours. "Home" on
+// the dock walks you to its gate (the server only accepts real movement)
+// and lets you in. Every session starts inside it.
 let homeIdx = -1
 let goingHome = false
 function homeDoor(): Door | null {
   if (homeIdx < 0) {
-    const [sx, sz] = PLAYABLE_POS.spawn_roadside
+    const mine = IS_CITY ? sim.home : null
+    const [sx, sz] = mine ? [mine.x, mine.z] : PLAYABLE_POS.spawn_roadside
     let bd = Infinity
     for (const [i, pl] of housePlacements().entries()) {
       if (pl.type === 'shops' || pl.type === 'open') continue
@@ -177,14 +180,59 @@ onMounted(() => {
     a.push([fx, fz, i])
   }
   setupVenues()
-  const hd = homeDoor()
-  if (hd) {
-    const [fx, fz] = doorFront(hd.house)
-    useState<[number, number] | null>('kk_home_door').value = [fx + hd.house.nx * 0.8, fz + hd.house.nz * 0.8]
-    // gate + street-facing direction: your car park sits beside the gate
-    useState<{ x: number; z: number; nx: number; nz: number; w: number } | null>('kk_home_front').value = { x: fx, z: fz, nx: hd.house.nx, nz: hd.house.nz, w: hd.house.nz !== 0 ? hd.house.w : hd.house.d }
-  }
+  doorsReady = true
+  publishHome()
 })
+
+/** where your home is, for the commute, the map and your car park */
+function publishHome() {
+  const hd = homeDoor()
+  if (!hd) return
+  const [fx, fz] = doorFront(hd.house)
+  useState<[number, number] | null>('kk_home_door').value = [fx + hd.house.nx * 0.8, fz + hd.house.nz * 0.8]
+  // gate + street-facing direction: your car park sits beside the gate
+  useState<{ x: number; z: number; nx: number; nz: number; w: number } | null>('kk_home_front').value = { x: fx, z: fz, nx: hd.house.nx, nz: hd.house.nz, w: hd.house.nz !== 0 ? hd.house.w : hd.house.d }
+  arriveIfAsked()
+}
+// your home arrives from the server (or you got a new character): find it again
+watch(
+  () => (sim.home ? `${sim.home.x},${sim.home.z}` : ''),
+  () => {
+    homeIdx = -1
+    if (doorsReady) publishHome()
+  }
+)
+
+// ---------------------------------------------------------------- start at home
+// kk_arrive_home: put me inside my home (session start, a new character).
+// The server checks the spot is my home, moves me there, then we go in.
+const arriveHome = useState<boolean>('kk_arrive_home', () => false)
+let doorsReady = false
+let arriving: Door | null = null
+function arriveIfAsked() {
+  if (!arriveHome.value || !doorsReady || !sim.created || (IS_CITY && !sim.home)) return
+  arriveHome.value = false
+  const d = homeDoor()
+  if (!d) return
+  if (interior.value.inside) return
+  const [fx, fz] = doorFront(d.house)
+  arriving = d
+  ;(window as any).__kk_ws_send?.('home.arrive', { position: [fx + d.house.nx * 0.8, fz + d.house.nz * 0.8] })
+}
+watch(arriveHome, arriveIfAsked)
+function onHomeArrived(ev: Event) {
+  const m = (ev as CustomEvent).detail
+  if (m?.type !== 'home.arrived' || !arriving) return
+  const [x, z] = m.payload.position
+  ;(window as any).__kk_teleport_at = Date.now()
+  playerPos.value = [x, playerPos.value[1], z]
+  moveTarget.value = null
+  const d = arriving
+  arriving = null
+  enter(d)
+}
+onMounted(() => window.addEventListener('kk-ws', onHomeArrived))
+onBeforeUnmount(() => window.removeEventListener('kk-ws', onHomeArrived))
 
 // ---------------------------------------------------------------- venues
 // Shop-front plots along the main roads become the city's public places:
@@ -666,9 +714,7 @@ async function startUse() {
       return
     }
   }
-  let gain = a.gain
-  if (a.need === 'hunger' && sim.traits.includes('foodie')) gain *= 1.25
-  sim.activity = { id: sp.id, label: a.button, need: a.need, gain, dur: a.dur, t: 0 }
+  sim.activity = { id: sp.id, label: a.button, need: a.need, gain: a.gain, dur: a.dur, t: 0 }
   standAt = [sp.wx, sp.wz]
   if (sp.seat) {
     // onto the furniture: body on the seat, facing the way it faces
