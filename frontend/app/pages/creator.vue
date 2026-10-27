@@ -32,6 +32,9 @@ definePageMeta({ layout: false })
 useHead({ title: 'Character Studio · Kaduna Kulture' })
 
 const sim = useSimStore()
+// opened directly (refresh / bookmark): load the saved character first, or
+// "Save & play" would overwrite it with defaults
+if (import.meta.client && !sim.owner) sim.load()
 const SKINS = ['#3a2216', '#4a2e1e', '#5e3a26', '#6e4630', '#7a4e33', '#8a5a3a', '#94603e', '#b07a52', '#c9946a']
 const HAIR = ['#141114', '#3a2414', '#6b3e1e', '#9a6a2a', '#9a9a9a', '#7a2a3a']
 const TOPS = ['#2e7d5b', '#efe8d6', '#2f5fa8', '#b23a48', '#e0a020', '#5a3a7a', '#1d1c1f', '#e86a2c', '#1f2a44', '#d86a8a', '#3a7d8a', '#8a6a3a', '#f2f2f0', '#6a8a2a']

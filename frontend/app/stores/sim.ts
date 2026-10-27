@@ -62,7 +62,11 @@ export const BIRTHS = [
   { id: 'middle', icon: '📚', name: 'Middle Class', blurb: 'Civil-servant parents. Solid.', perk: 'A tidy flat in Barnawa', cash: 'Steady start' }
 ]
 
+// Saved per player (`kk_sim_v1:<player id>`) so two accounts on one browser
+// never share or overwrite each other's character. The old unscoped key is
+// adopted once by the first account that loads after the upgrade.
 const KEY = 'kk_sim_v1'
+const keyFor = (owner: string) => (owner ? `${KEY}:${owner}` : KEY)
 interface Saved {
   created: boolean
   name: string
@@ -91,7 +95,9 @@ export const useSimStore = defineStore('sim', {
     ...fresh(),
     /** what the player is doing right now (eating, sleeping, ...) */
     activity: null as null | { id: string; label: string; need: NeedKey; gain: number; dur: number; t: number },
-    cleanScreen: false
+    cleanScreen: false,
+    /** player id whose save this is ('' until loaded) */
+    owner: ''
   }),
   getters: {
     mood(s): { label: string; emoji: string; tone: 'good' | 'ok' | 'bad' } {
@@ -114,16 +120,25 @@ export const useSimStore = defineStore('sim', {
     }
   },
   actions: {
-    load() {
+    /** load the save of `owner` (defaults to the last signed-in player) */
+    load(owner?: string) {
       try {
-        const raw = localStorage.getItem(KEY)
-        if (raw) Object.assign(this, { ...fresh(), ...JSON.parse(raw) })
+        owner = owner ?? localStorage.getItem('kk_player_id') ?? ''
+        let raw = localStorage.getItem(keyFor(owner))
+        if (!raw && owner) {
+          raw = localStorage.getItem(KEY) // pre-upgrade save: adopt it once
+          if (raw) {
+            localStorage.setItem(keyFor(owner), raw)
+            localStorage.removeItem(KEY)
+          }
+        }
+        Object.assign(this, { ...fresh(), ...(raw ? JSON.parse(raw) : {}) }, { owner })
       } catch {}
     },
     save() {
       try {
         const { created, name, look, traits, dream, birth, needs, lastHour, tourDone } = this
-        localStorage.setItem(KEY, JSON.stringify({ created, name, look, traits, dream, birth, needs, lastHour, tourDone }))
+        localStorage.setItem(keyFor(this.owner), JSON.stringify({ created, name, look, traits, dream, birth, needs, lastHour, tourDone }))
       } catch {}
     },
     /** advance needs by the game-clock delta (hours, wraps at 24) */

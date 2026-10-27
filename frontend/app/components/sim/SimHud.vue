@@ -105,18 +105,23 @@ const initials = computed(() => (sim.name || player.profile?.display_name || '?'
       </div>
     </div>
 
-    <!-- top left column: urgent-need goal chip + the story guide (slot) -->
-    <div v-if="!work.commute?.active && !work.shift" class="pointer-events-none absolute left-3 top-[4.4rem] z-20 flex flex-col items-start gap-2 sm:left-4">
-      <transition enter-active-class="transition duration-300" enter-from-class="-translate-x-4 opacity-0">
-        <div v-if="urgentInfo" class="flex items-center gap-3 rounded-full bg-white/85 py-2 pl-2 pr-5 shadow-lg backdrop-blur">
-          <span class="flex h-9 w-9 items-center justify-center rounded-full bg-leaf/90 text-lg">{{ urgentInfo.icon }}</span>
-          <div class="leading-tight">
-            <div class="text-sm font-bold text-ink">{{ urgentInfo.title }}</div>
-            <div class="text-xs text-ink/55">{{ urgentInfo.hint }}</div>
+    <!-- top left column: camera view, urgent-need goal chip + the story guide
+         (slot). One flex column so the pieces stack and never overlap. -->
+    <div class="pointer-events-none absolute left-3 top-[4.4rem] z-20 flex flex-col items-start gap-2 sm:left-4">
+      <!-- camera view: 1st / 2nd / 3rd person (V on the keyboard) -->
+      <button class="pointer-events-auto rounded-full bg-white/85 px-3 py-1.5 text-xs font-bold text-ink/80 shadow backdrop-blur hover:text-ink" title="Change camera view (V)" @click="cycleCamMode(camMode)">🎥 {{ CAM_LABEL[camMode] }}</button>
+      <template v-if="!work.commute?.active && !work.shift">
+        <transition enter-active-class="transition duration-300" enter-from-class="-translate-x-4 opacity-0">
+          <div v-if="urgentInfo" class="flex items-center gap-3 rounded-full bg-white/85 py-2 pl-2 pr-5 shadow-lg backdrop-blur">
+            <span class="flex h-9 w-9 items-center justify-center rounded-full bg-leaf/90 text-lg">{{ urgentInfo.icon }}</span>
+            <div class="leading-tight">
+              <div class="text-sm font-bold text-ink">{{ urgentInfo.title }}</div>
+              <div class="text-xs text-ink/55">{{ urgentInfo.hint }}</div>
+            </div>
           </div>
-        </div>
-      </transition>
-      <slot />
+        </transition>
+        <slot />
+      </template>
     </div>
 
     <!-- portrait + needs (bottom left) -->
@@ -125,7 +130,9 @@ const initials = computed(() => (sim.name || player.profile?.display_name || '?'
         {{ initials }}
         <span class="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm shadow">{{ sim.mood.emoji }}</span>
       </button>
-      <button data-tour="needs" class="grid grid-cols-3 gap-x-3 gap-y-2 rounded-3xl bg-white/90 px-3.5 py-2.5 shadow-lg backdrop-blur" aria-label="Needs" @click="showNeeds = !showNeeds">
+      <!-- the bars would sit under the centred dock on narrower windows; the
+           portrait (mood ring) still opens the full needs card there -->
+      <button data-tour="needs" class="max-[1240px]:hidden grid grid-cols-3 gap-x-3 gap-y-2 rounded-3xl bg-white/90 px-3.5 py-2.5 shadow-lg backdrop-blur" aria-label="Needs" @click="showNeeds = !showNeeds">
         <div v-for="n in NEEDS" :key="n.key" class="flex items-center gap-1.5" :title="`${n.label}: ${Math.round(sim.needs[n.key])}%`">
           <span class="text-sm leading-none">{{ n.icon }}</span>
           <span class="h-2 w-12 overflow-hidden rounded-full bg-ink/10">
@@ -165,8 +172,6 @@ const initials = computed(() => (sim.name || player.profile?.display_name || '?'
       </div>
     </div>
 
-    <!-- camera view: 1st / 2nd / 3rd person (V on the keyboard) -->
-    <button class="pointer-events-auto absolute left-3 top-[7.25rem] z-20 rounded-full bg-white/85 px-3 py-1.5 text-xs font-bold text-ink/80 shadow backdrop-blur hover:text-ink" title="Change camera view (V)" @click="cycleCamMode(camMode)">🎥 {{ CAM_LABEL[camMode] }}</button>
     <button class="pointer-events-auto absolute right-3 top-3.5 z-20 rounded-full bg-white/80 px-3 py-1.5 text-xs font-bold text-ink/70 shadow backdrop-blur hover:text-ink max-xl:hidden" title="Hide the HUD" @click="sim.cleanScreen = true">˄ Clean screen</button>
   </template>
 </template>
