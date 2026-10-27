@@ -265,7 +265,6 @@ onBeforeRender(({ delta }) => {
         :kufi="false"
         :hijab="false"
         :outfit="q.female ? 'dress' : 'shirt'"
-        :gadgets="(q.look.gadgets ?? []) as any"
         :mode="q.mode as any"
         :seat="q.seat ?? 0.47"
         :scale="q.kid ? 0.68 : 1"

@@ -6,6 +6,8 @@
 // surging forward and easing off on every update. An @name tag floats above.
 import * as THREE from 'three'
 import { vehicleSpec, paintedVehicle, vehicleMaterial, type VehicleKind } from '~/utils/vehicles'
+import { jumpLift } from '~/utils/humanAnim'
+import { fromSimLook } from '~/utils/people'
 
 // people already in your vehicle are drawn by RideSystem (seated, in sync)
 const partyIds = useState<string[]>('kk_ride_party_ids', () => [])
@@ -55,6 +57,8 @@ interface Shown {
   tagW: number
   action: string | null
   actionKey: number
+  /** when their last jump started (s), for the body's arc */
+  jumpT0?: number
   ride: RideInfo | null
   /** avatar placement (seated in a vehicle, or standing at x/z) */
   ax: number
@@ -149,6 +153,7 @@ function onEmote(e: Event) {
   if (s) {
     s.action = d.action
     s.actionKey++
+    if (d.action === 'jump') s.jumpT0 = performance.now() / 1000
   }
 }
 onMounted(() => window.addEventListener('kk-remote-emote', onEmote))
@@ -190,7 +195,7 @@ onBeforeRender(({ delta }) => {
     const r = s.ride
     if (!r) {
       s.ax = s.x
-      s.ay = 0
+      s.ay = s.jumpT0 ? jumpLift(now - s.jumpT0) : 0
       s.az = s.z
       s.ah = s.h
       continue
@@ -214,17 +219,9 @@ if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_remot
     <primitive :object="vehRoot" />
     <TresGroup v-for="s in shown" :key="s.id" :visible="!partyIds.includes(s.id)" :position="[s.ax, s.ay, s.az]">
       <TresGroup :rotation="[0, s.ah, 0]">
-        <CharacterAvatar real
+        <CharacterAvatar
           :key="s.lookKey"
-          :shirt="s.look.top || '#3f6fae'"
-          :trouser="s.look.bottom || '#2b3440'"
-          :skin="s.look.skin || '#7a4e33'"
-          :kufi="(s.look.hair || 'cap') === 'cap'"
-          :hijab="s.look.outfit === 'dress'"
-          :hair-style="(s.look.hair as any) || 'cap'"
-          :hair-color="s.look.hairColor || '#141114'"
-          :outfit="(s.look.outfit as any) || 'kaftan'"
-          :beard="s.look.body !== 'woman' && s.look.hair !== 'braids'"
+          :person="fromSimLook(s.look as any)"
           :mode="s.ride ? 'sit' : s.moving ? 'walk' : 'idle'"
           :seat="s.seatH"
           :action="(s.action as any)"

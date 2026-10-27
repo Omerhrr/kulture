@@ -3,6 +3,8 @@
 // simulation (like The Sims): they decay with game time, objects at home
 // refill them, and together they set your mood. Persisted per browser.
 import { defineStore } from 'pinia'
+import type { BeardStyle, BottomStyle, HairStyle, ShoeStyle, TopStyle } from '~/utils/outfits'
+import { fromSimLook } from '~/utils/people'
 
 export type NeedKey = 'hunger' | 'energy' | 'fun' | 'social' | 'hygiene' | 'bladder'
 export const NEEDS: Array<{ key: NeedKey; label: string; icon: string; hint: string }> = [
@@ -19,17 +21,20 @@ const DECAY: Record<NeedKey, number> = { hunger: 5.5, energy: 4, fun: 5, social:
 export interface Look {
   body: 'man' | 'woman'
   skin: string
-  hair: 'cap' | 'afro' | 'braids' | 'bald'
+  hair: HairStyle
   hairColor: string
-  outfit: 'kaftan' | 'dress' | 'shirt'
+  beard: BeardStyle
+  /** garments (utils/outfits) and their colours */
+  topStyle: TopStyle
   top: string
+  bottomStyle: BottomStyle
   bottom: string
-  /** worn extras: phone, sunglasses, cap, headphones, backpack, bag, watch */
-  gadgets?: string[]
-  /** ankara print strength 0..1 (Character Studio) */
-  print?: number
-  /** body: modern clothes, or traditional (caftan for men, hijab for women) */
-  dress?: 'modern' | 'traditional'
+  shoes: ShoeStyle
+  shoeColor: string
+  /** face + build sliders 0..1 (utils/people SHAPES) */
+  shape: Record<string, number>
+  /** older saves only (kaftan / dress / shirt): migrated on load */
+  outfit?: string
 }
 export interface Trait {
   id: string
@@ -62,7 +67,11 @@ export const BIRTHS = [
   { id: 'middle', icon: '📚', name: 'Middle Class', blurb: 'Civil-servant parents. Solid.', perk: 'A tidy flat in Barnawa', cash: 'Steady start' }
 ]
 
+// Saved per player (`kk_sim_v1:<player id>`) so two accounts on one browser
+// never share or overwrite each other's character. The old unscoped key is
+// adopted once by the first account that loads after the upgrade.
 const KEY = 'kk_sim_v1'
+const keyFor = (owner: string) => (owner ? `${KEY}:${owner}` : KEY)
 interface Saved {
   created: boolean
   name: string
@@ -77,7 +86,7 @@ interface Saved {
 const fresh = (): Saved => ({
   created: false,
   name: '',
-  look: { body: 'man', skin: '#7a4e33', hair: 'cap', hairColor: '#141114', outfit: 'kaftan', top: '#2e7d5b', bottom: '#2b3440' },
+  look: { body: 'man', skin: '#6e4630', hair: 'lowcut', hairColor: '#141114', beard: 'none', topStyle: 'polo', top: '#2f5fa8', bottomStyle: 'jeans', bottom: '#3a4a6e', shoes: 'sneakers', shoeColor: '#f2f0ea', shape: {} },
   traits: [],
   dream: 'oga',
   birth: 'middle',
@@ -86,12 +95,34 @@ const fresh = (): Saved => ({
   tourDone: false
 })
 
+/** Saves from before the outfit system: everyday clothes instead of the
+ *  retired kaftan / gown, current hairstyle names, default shoes. */
+function migrateLook(l: Partial<Look> & Record<string, any>): Look {
+  const p = fromSimLook(l)
+  return {
+    body: l.body === 'woman' ? 'woman' : 'man',
+    skin: p.skin,
+    hair: p.outfit.hair,
+    hairColor: p.outfit.hairColor,
+    beard: p.outfit.beard ?? 'none',
+    topStyle: p.outfit.top,
+    top: p.outfit.topColor,
+    bottomStyle: p.outfit.bottom,
+    bottom: p.outfit.bottomColor,
+    shoes: p.outfit.shoes,
+    shoeColor: p.outfit.shoeColor,
+    shape: p.shape
+  }
+}
+
 export const useSimStore = defineStore('sim', {
   state: () => ({
     ...fresh(),
     /** what the player is doing right now (eating, sleeping, ...) */
     activity: null as null | { id: string; label: string; need: NeedKey; gain: number; dur: number; t: number },
-    cleanScreen: false
+    cleanScreen: false,
+    /** player id whose save this is ('' until loaded) */
+    owner: ''
   }),
   getters: {
     mood(s): { label: string; emoji: string; tone: 'good' | 'ok' | 'bad' } {
@@ -114,16 +145,27 @@ export const useSimStore = defineStore('sim', {
     }
   },
   actions: {
-    load() {
+    /** load the save of `owner` (defaults to the last signed-in player) */
+    load(owner?: string) {
       try {
-        const raw = localStorage.getItem(KEY)
-        if (raw) Object.assign(this, { ...fresh(), ...JSON.parse(raw) })
+        owner = owner ?? localStorage.getItem('kk_player_id') ?? ''
+        let raw = localStorage.getItem(keyFor(owner))
+        if (!raw && owner) {
+          raw = localStorage.getItem(KEY) // pre-upgrade save: adopt it once
+          if (raw) {
+            localStorage.setItem(keyFor(owner), raw)
+            localStorage.removeItem(KEY)
+          }
+        }
+        const saved = raw ? JSON.parse(raw) : {}
+        if (saved.look) saved.look = migrateLook(saved.look)
+        Object.assign(this, { ...fresh(), ...saved }, { owner })
       } catch {}
     },
     save() {
       try {
         const { created, name, look, traits, dream, birth, needs, lastHour, tourDone } = this
-        localStorage.setItem(KEY, JSON.stringify({ created, name, look, traits, dream, birth, needs, lastHour, tourDone }))
+        localStorage.setItem(keyFor(this.owner), JSON.stringify({ created, name, look, traits, dream, birth, needs, lastHour, tourDone }))
       } catch {}
     },
     /** advance needs by the game-clock delta (hours, wraps at 24) */

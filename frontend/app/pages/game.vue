@@ -6,6 +6,7 @@ import { useAdsStore } from '~/stores/ads'
 // Game page - auth gate, world bootstrap, socket wiring, panel orchestration.
 
 import { unstick } from '~/utils/collision'
+import { preloadHumans } from '~/utils/humanBody'
 import { useMapOpen, fireKkEvent } from '~/composables/useControlsState'
 
 useHead({
@@ -35,6 +36,7 @@ const ads = useAdsStore()
 const cityMap = useCityMap()
 const nearBoard = useState<string | null>('kk_billboard_near', () => null)
 const phoneOpen = useState<boolean>('kk_phone_open', () => false)
+const editLook = useState<boolean>('kk_edit_look', () => false)
 // true until we know whether a saved session exists (avoids login flash)
 const booting = ref(true)
 const showHint = ref(true)
@@ -125,26 +127,22 @@ async function bootstrap() {
   }
   useState('kk_player_id').value = me.id
   localStorage.setItem('kk_player_id', me.id)
+  if (sim.owner !== me.id) sim.load(me.id) // this account's character, not the last visitor's
   ready.value = true
 }
 
 const socket = useGameSocket()
 if (import.meta.client) (window as any).__kk_ws_send = (type: string, payload: Record<string, unknown>) => socket.send(type, payload)
 
-onMounted(async () => {
-  try {
-    window.addEventListener('keydown', onKey)
-    window.addEventListener('kk-do-interact', tryInteract)
-  player.token = localStorage.getItem('kk_token') || ''
-  player.authenticated = !!player.token
-  sim.load()
-  booting.value = false
-  hintTimer = setTimeout(() => (showHint.value = false), 15000)
-  if (!player.authenticated) return
-
-  // socket event wiring (server events are the only source of truth)
+// Socket event wiring (server events are the only source of truth). Used for
+// both a restored session and a fresh login, so the two can never drift apart.
+let unsubscribeSocket: Array<() => void> = []
+function wireSocket() {
+  unsubscribeSocket.forEach((off) => off())
+  unsubscribeSocket = []
+  socket.disconnect()
   useState('kk_socket_send').value = socket.send
-  socket.onMessage((ev) => {
+  unsubscribeSocket.push(socket.onMessage((ev) => {
     player.handleServerEvent(ev)
     world.handleServerEvent(ev)
     payments.onServerEvent(ev)
@@ -156,8 +154,8 @@ onMounted(async () => {
         engine: ev.payload?.engine || 'deterministic_fallback'
       }
     }
-  })
-  socket.onMessage((ev) => {
+  }))
+  unsubscribeSocket.push(socket.onMessage((ev) => {
     // other players nearby + the real online count (1 Hz from the server)
     if (ev.type === 'players.snapshot') {
       useState('kk_players').value = ev.payload
@@ -206,31 +204,62 @@ onMounted(async () => {
       const [x, y, z] = ev.payload.position as [number, number, number]
       useState<[number, number, number]>('kk_player_pos').value = [x, y, z]
     }
-  })
+  }))
   socket.connect()
-  watch(
-    () => [sim.name, JSON.stringify(sim.look)],
-    () => socket.send('player.look', { look: sim.look, name: sim.name })
-  )
+}
 
+// re-announce our look/name whenever the character changes (no-op when offline)
+watch(
+  () => [sim.name, JSON.stringify(sim.look)],
+  () => socket.send('player.look', { look: sim.look, name: sim.name })
+)
+
+async function startSession() {
+  wireSocket()
   try {
     await bootstrap()
   } catch (e: any) {
     if (e?.status === 401) {
       player.logout()
+      socket.disconnect()
     } else {
       ui.showToast(e.message || 'World failed to load', 'error')
     }
   }
-  } catch (e: any) {
-    ;(window as any).__kk_game_err = String(e?.stack || e)
-    throw e
-  }
+}
+
+// the server no longer accepts our token (expired after KK_JWT_EXPIRE_MINUTES)
+function onAuthExpired() {
+  if (!player.authenticated) return
+  unsubscribeSocket.forEach((off) => off())
+  unsubscribeSocket = []
+  socket.disconnect()
+  player.logout()
+  ready.value = false
+  authMode.value = 'login'
+  authError.value = 'Your session expired. Please log in again.'
+}
+
+onMounted(async () => {
+  // people's bodies + textures (~2 MB) download while the city builds
+  void preloadHumans().catch(() => {})
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('kk-do-interact', tryInteract)
+  window.addEventListener('kk-auth-expired', onAuthExpired)
+  player.token = localStorage.getItem('kk_token') || ''
+  player.authenticated = !!player.token
+  sim.load()
+  booting.value = false
+  hintTimer = setTimeout(() => (showHint.value = false), 15000)
+  if (player.authenticated) await startSession()
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('kk-do-interact', tryInteract)
+  window.removeEventListener('kk-auth-expired', onAuthExpired)
+  unsubscribeSocket.forEach((off) => off())
+  if (hintTimer) clearTimeout(hintTimer)
 })
 
 async function submitAuth() {
@@ -243,23 +272,7 @@ async function submitAuth() {
         ? await api.login(username.value, password.value)
         : await api.register(username.value, password.value, displayName.value || username.value)
     player.setToken(res.access_token)
-    // re-wire socket with the fresh token
-    socket.disconnect()
-    useState('kk_socket_send').value = socket.send
-    socket.onMessage((ev) => {
-      player.handleServerEvent(ev)
-      world.handleServerEvent(ev)
-      payments.onServerEvent(ev)
-      if (ev.type === 'npc.dialogue') {
-        ui.dialogue = {
-          npcName: ev.payload?.npc_name || 'NPC',
-          text: ev.payload?.dialogue || '',
-          engine: ev.payload?.engine || 'deterministic_fallback'
-        }
-      }
-    })
-    socket.connect()
-    await bootstrap()
+    await startSession()
   } catch (e: any) {
     authError.value = e.message || 'Authentication failed'
   } finally {
@@ -370,7 +383,7 @@ function fmtKsats(minor: number) {
       <ShiftCard v-if="!work.commute?.active" />
       <AskSheet />
       <Tour v-if="sim.created && !sim.tourDone" />
-      <CharacterCreator v-if="!sim.created" />
+      <CharacterCreator v-if="!sim.created || editLook" :edit-only="sim.created" @done="editLook = false" />
       <MapOverlay />
       <MobileControls />
       <InteractionPrompt v-show="!cityMap.active" />

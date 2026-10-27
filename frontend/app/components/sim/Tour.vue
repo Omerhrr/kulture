@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Tour - a 7-step first-run walkthrough. Each step spotlights a real HUD
+// Tour - an 8-step first-run walkthrough of the HUD. Each step spotlights a real HUD
 // element (by data-tour attribute) and the card sits away from it.
 import { useSimStore } from '~/stores/sim'
 

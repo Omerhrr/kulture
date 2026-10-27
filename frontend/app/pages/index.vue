@@ -161,8 +161,8 @@ const landmarks = [
     <section class="mx-auto max-w-5xl px-4 pb-14 sm:px-6">
       <div class="rounded-3xl border border-golddark/20 bg-kasand/10 p-6 text-sm leading-relaxed text-ink/70">
         <b class="text-ink">Demo economics:</b>
-        Lightning invoices are real Bitcoin (sats) paid from your own wallet. In this build they run
-        against a regtest-style simulator, so no real funds move. k-sats are game currency and
+        Lightning invoices are real Lightning payments on the Bitcoin testnet, paid from your own
+        testnet wallet: test sats have no market value, and mainnet is refused. k-sats are game currency and
         are never convertible to Bitcoin. Player withdrawals, custody and cash-out are deliberately
         out of scope pending security and legal review.
       </div>

@@ -15,6 +15,11 @@ os.environ["KK_DATABASE_URL"] = _PG_TEST or "sqlite+aiosqlite:///" + os.path.joi
     os.path.dirname(__file__), "test_kaduna.db"
 )
 os.environ["KK_LLM_ENABLED"] = "false"
+# the payment state machine runs against the in-process simulator in CI;
+# real play uses a testnet node (KK_LIGHTNING_PROVIDER=lnbits | lnd)
+os.environ["KK_LIGHTNING_PROVIDER"] = "mock"
+os.environ["KK_LIGHTNING_MOCK_ENABLED"] = "true"
+os.environ["KK_LIGHTNING_NETWORK"] = "regtest"
 # the suite signs up a fresh player per test from one address
 os.environ.setdefault("KK_AUTH_REGISTER_PER_IP_PER_HOUR", "100000")
 os.environ.setdefault("KK_AUTH_LOGIN_PER_IP_PER_10MIN", "100000")

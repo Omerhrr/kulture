@@ -18,7 +18,55 @@ Requirements encoded here: typed interface independent of the chosen
 implementation; timeouts and typed errors; development and production node
 config kept separate; an invoice is a payment request, NOT proof of payment.
 
-## Provider 1 - MockRegtestAdapter (dev/demo, default)
+## Testnet (how the game is meant to run)
+
+Players pay real Lightning invoices on the Bitcoin **testnet** (or signet /
+regtest). Mainnet is refused at three points:
+
+1. `KK_LIGHTNING_NETWORK` must be `testnet`, `signet` or `regtest`; the
+   adapters won't start otherwise.
+2. LND: the node's `getinfo` network must match before any invoice is made.
+3. Every invoice a node returns is decoded (`app/payments/bolt11.py`): its
+   prefix must be the configured network (`lntb` testnet, `lntbs` signet,
+   `lnbcrt` regtest) and its amount exactly the authorised price. Anything
+   else fails the purchase before a QR is shown.
+
+Settlement is read back from the node, never from the client: the payment
+screen polls `GET /payment-intents/{id}`, which asks the node about that
+invoice (at most every 2 s); the reconciler sweeps all awaiting invoices
+every `KK_RECONCILIATION_INTERVAL_SECONDS`. Both feed the same exactly-once
+`process_settlement` pipeline.
+
+### Option A - LNbits (easiest)
+
+Run LNbits with a testnet funding source (e.g. LND or CLN on testnet), create
+a wallet, and give the game its **Invoice/read key** (it can create and
+check invoices, never spend):
+
+    KK_LIGHTNING_PROVIDER=lnbits
+    KK_LIGHTNING_NETWORK=testnet
+    KK_LNBITS_URL=https://your-lnbits
+    KK_LNBITS_INVOICE_KEY=...
+
+### Option B - LND REST
+
+An LND on testnet with at least one channel with inbound liquidity:
+
+    KK_LIGHTNING_PROVIDER=lnd
+    KK_LIGHTNING_NETWORK=testnet
+    KK_LND_REST_URL=https://127.0.0.1:8080
+    KK_LND_MACAROON_HEX=$(xxd -p -c 1000 ~/.lnd/data/chain/bitcoin/testnet/invoice.macaroon)
+    KK_LND_TLS_CERT_PATH=~/.lnd/tls.cert
+
+Use the **invoice** macaroon, not admin. `GET /api/v1/lightning/health`
+shows the network, sync state and active channels.
+
+### Paying as a player
+
+Any testnet Lightning wallet pays the QR (for example a second LND/Polar
+node, or a mobile wallet set to testnet). Testnet coins have no value.
+
+## Provider - MockRegtestAdapter (automated tests only)
 
 - Generates **structurally valid BOLT11 invoices** (real bech32 encoding,
   `lnbcrt` human-readable part, payment_hash/description/expiry tags). Real

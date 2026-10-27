@@ -48,6 +48,21 @@ async def catalog() -> dict[str, Any]:
     return {"games": [{"id": k, "name": v["name"], "seats": list(v["seats"])} for k, v in GAMES.items()], "stake_cap": ms.STAKE_CAP}
 
 
+@router.get("/tables")
+async def tables(profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    return {"tables": await ms.tables(db)}
+
+
+@router.post("/match/{mid}/start")
+async def start_now(mid: str, profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    try:
+        m = await ms.start_now(db, profile.id, mid)
+    except MatchError as e:
+        raise _err(e)
+    await _push(m, profile.id)
+    return ms.view(m, profile.id)
+
+
 @router.post("/join")
 async def join(body: JoinIn, profile: PlayerProfile = Depends(get_current_profile), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     try:

@@ -9,6 +9,7 @@ import { BAKE } from './kaduna'
 
 const STEP = 10
 const LINK = 8
+const END_LINK = 18
 const CELL = 16
 
 interface Graph {
@@ -69,6 +70,31 @@ function build(): Graph {
           }
         }
       }
+    }
+  }
+  // T-junctions: a street often stops a few metres short of the road it
+  // meets (the grid ends where the arterial's verge begins), so its end
+  // node has no partner within LINK. Join each dead end to the nearest
+  // node of another road within END_LINK (well under the river's width,
+  // so this never invents a crossing).
+  for (let i = 0; i < xs.length; i++) {
+    if (adj[i].length > 1) continue
+    let best = -1
+    let bd = END_LINK
+    const cx = Math.floor(xs[i] / CELL)
+    const cz = Math.floor(zs[i] / CELL)
+    for (let a = -2; a <= 2; a++) {
+      for (let b = -2; b <= 2; b++) {
+        for (const j of hash.get(`${cx + a},${cz + b}`) ?? []) {
+          if (road[j] === road[i]) continue
+          const d = Math.hypot(xs[i] - xs[j], zs[i] - zs[j])
+          if (d < bd) (bd = d), (best = j)
+        }
+      }
+    }
+    if (best >= 0 && !adj[i].includes(best)) {
+      adj[i].push(best)
+      adj[best].push(i)
     }
   }
   return { x: Float32Array.from(xs), z: Float32Array.from(zs), adj, hash }

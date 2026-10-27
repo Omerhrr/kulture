@@ -126,20 +126,20 @@ const CITY_PLAYABLE: Record<string, [number, number]> = {
   kaduna_central_market: [-70.0, 98.0],
   arewa_house: [-34.667, -144.45],
   stonetech_square: [-42.0, 350.0],
-  keke_stop: [-245.0, 417.05],
+  keke_stop: [-240.667, 417.05],
   npc_musa: [-50.5, 82.583],
   npc_amina: [-43.667, 349.333],
   // districts (see seed_data.py ENTITIES - same raw coordinates)
   textile_market: [-186.0, 640.0],
   kawo_motor_park: [76.0, -546.0],
-  kasu_gate: [114.0, 108.0],
+  kasu_gate: [112.0, 108.0],
   rigasa_station: [-943.0, -134.0],
-  sabon_tasha_shop: [252.0, 1042.0],
+  sabon_tasha_shop: [247.667, 1032.0],
   npc_mama_chidi: [-181.0, 631.0],
   npc_bashir: [69.0, -542.0],
-  npc_prof_danjuma: [107.0, 104.0],
+  npc_prof_danjuma: [109.5, 106.5],
   npc_tunde: [-936.0, -130.0],
-  npc_ngozi: [246.0, 1036.0]
+  npc_ngozi: [247.0, 1034.067]
 }
 
 
@@ -181,6 +181,13 @@ export const ws = (v: number) => v * WORLD_SCALE
 /** Scale a raw [x, z] map point into world units. */
 export const wp = (p: readonly [number, number] | number[]): [number, number] => [p[0] * WORLD_SCALE, p[1] * WORLD_SCALE]
 
+/** Landmarks moved off the roads they were baked on top of (world m). The
+ *  Textile Mill's footprint covered Kachia Road, which is why OSM's road
+ *  stops at its fence; 40 m west it sits beside the road instead. */
+const LANDMARK_NUDGE: Record<string, [number, number]> = {
+  textile_mill: [-40, 0]
+}
+
 function scaleBake(raw: KadunaBake): KadunaBake {
   const S = WORLD_SCALE
   const pts = (a: [number, number][]) => a.map((p) => wp(p))
@@ -211,7 +218,7 @@ function scaleBake(raw: KadunaBake): KadunaBake {
     landmarks: raw.landmarks.map((l) =>
       l.kind === 'market' && IS_CITY
         ? { ...l, x: PLAYABLE_RAW.kaduna_central_market[0] * S, z: PLAYABLE_RAW.kaduna_central_market[1] * S, kw: 48, kd: 36 }
-        : { ...l, x: l.x * S, z: l.z * S }
+        : { ...l, x: l.x * S + (IS_CITY ? LANDMARK_NUDGE[l.key]?.[0] ?? 0 : 0), z: l.z * S + (IS_CITY ? LANDMARK_NUDGE[l.key]?.[1] ?? 0 : 0) }
     ),
     places: raw.places.map((p) => ({ ...p, x: p.x * S, z: p.z * S })),
     bridges: raw.bridges.map((b) => ({ ...b, x: b.x * S, z: b.z * S, w: b.w * S })),
@@ -305,6 +312,91 @@ function markTwins(b: KadunaBake) {
       }
     }
   }
+}
+
+/**
+ * Close short gaps in the named roads. The OSM extract breaks some roads
+ * (Kachia Road stopped dead for 110 m by the Textile Mill), leaving a main
+ * road that ends in grass and a route graph with no way through. A gap is
+ * closed when two dead ends of the same road face each other 20-220 m
+ * apart, each is the other's best match, no river lies between them and
+ * no road of that name already spans it. The twin carriageway (if any) is
+ * joined alongside.
+ */
+function healGaps(b: KadunaBake, water: PtHash) {
+  const roads = b.roads
+  const segD = (p: [number, number], a: [number, number], q: [number, number]) => {
+    const dx = q[0] - a[0]
+    const dz = q[1] - a[1]
+    const L = dx * dx + dz * dz || 1
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L))
+    return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz)
+  }
+  const touches = (p: [number, number], r: BakeRoad, d: number) => r.pts.some((_, k) => k < r.pts.length - 1 && segD(p, r.pts[k], r.pts[k + 1]) < d)
+  const isEnd = (p: [number, number], r: BakeRoad) => Math.hypot(p[0] - r.pts[0][0], p[1] - r.pts[0][1]) < 6 || Math.hypot(p[0] - r.pts[r.pts.length - 1][0], p[1] - r.pts[r.pts.length - 1][1]) < 6
+  interface End {
+    r: BakeRoad
+    p: [number, number]
+    dir: [number, number]
+  }
+  const ends: End[] = []
+  for (const r of roads) {
+    if (!r.name || r.class === 'residential' || r.pts.length < 2) continue
+    const n = r.pts.length
+    for (const [p, q] of [
+      [r.pts[0], r.pts[1]],
+      [r.pts[n - 1], r.pts[n - 2]]
+    ]) {
+      const l = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1
+      ends.push({ r, p, dir: [(p[0] - q[0]) / l, (p[1] - q[1]) / l] })
+    }
+  }
+  // dead: no other named road meets it, and it is not the middle of another
+  // stretch of the same road
+  const dead = ends.filter(
+    (e) => !roads.some((r) => r !== e.r && r.class !== 'residential' && (r.name !== e.r.name ? touches(e.p, r, 15) : touches(e.p, r, 4) && !isEnd(e.p, r)))
+  )
+  const score = (e: End, f: End) => {
+    if (e.r === f.r || e.r.name !== f.r.name) return Infinity
+    const gx = f.p[0] - e.p[0]
+    const gz = f.p[1] - e.p[1]
+    const L = Math.hypot(gx, gz)
+    if (L < 20 || L > 220) return Infinity
+    if ((gx * e.dir[0] + gz * e.dir[1]) / L < 0.5 || -(gx * f.dir[0] + gz * f.dir[1]) / L < 0.5) return Infinity
+    return L
+  }
+  const best = (e: End, pool: End[]) => {
+    let bf: End | null = null
+    let bs = Infinity
+    for (const f of pool) {
+      const s = score(e, f)
+      if (s < bs) (bs = s), (bf = f)
+    }
+    return bf
+  }
+  const dry = (a: [number, number], c: [number, number]) => {
+    for (let k = 0; k <= 20; k++) if (hnear(water, a[0] + ((c[0] - a[0]) * k) / 20, a[1] + ((c[1] - a[1]) * k) / 20) < 0) return false
+    return true
+  }
+  const used = new Set<End>()
+  const add: BakeRoad[] = []
+  const join = (e: End, f: End) => {
+    used.add(e)
+    used.add(f)
+    add.push({ name: e.r.name, class: e.r.class, pts: [e.p, f.p], twin: e.r.twin })
+  }
+  for (const e of dead) {
+    if (used.has(e)) continue
+    const f = best(e, dead)
+    if (!f || used.has(f) || best(f, dead) !== e || !dry(e.p, f.p)) continue
+    if (roads.some((r) => r.name === e.r.name && r.pts.some((q) => Math.hypot(q[0] - e.p[0], q[1] - e.p[1]) < 15) && r.pts.some((q) => Math.hypot(q[0] - f.p[0], q[1] - f.p[1]) < 15))) continue
+    join(e, f)
+    // the other carriageway: its dead ends beside these two
+    const e2 = dead.find((x) => !used.has(x) && x.r.name === e.r.name && Math.hypot(x.p[0] - e.p[0], x.p[1] - e.p[1]) < 16)
+    const f2 = dead.find((x) => !used.has(x) && x.r.name === e.r.name && Math.hypot(x.p[0] - f.p[0], x.p[1] - f.p[1]) < 16)
+    if (e2 && f2 && dry(e2.p, f2.p)) join(e2, f2)
+  }
+  roads.push(...add)
 }
 
 function addHashedRoad(h: PtHash, pts: [number, number][], half: number, step = 4) {
@@ -419,13 +511,29 @@ function streetGrid(b: KadunaBake, mains: PtHash, water: PtHash, keep: PtHash, r
   return { roads: out, dev }
 }
 
+/** Points along a polyline at most `step` apart. The river's vertices are
+ *  up to ~460 m apart after scaling, so testing only the vertices lets
+ *  streets and houses land in the water between them. */
+export function densePoints(pts: [number, number][], step: number): [number, number][] {
+  const out: [number, number][] = []
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [ax, az] = pts[i]
+    const [bx, bz] = pts[i + 1]
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / step))
+    for (let k = 0; k < n; k++) out.push([ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n])
+  }
+  if (pts.length) out.push(pts[pts.length - 1])
+  return out
+}
+
 function densify(b: KadunaBake): KadunaBake {
   markTwins(b)
+  const water: PtHash = new Map()
+  addHashedRoad(water, b.river.main, b.river.width / 2 + 8, 8)
+  for (const s of b.river.side) addHashedRoad(water, s, b.river.width * 0.35 + 6, 8)
+  if (IS_CITY) healGaps(b, water)
   const mains: PtHash = new Map()
   for (const r of b.roads) addHashedRoad(mains, r.pts, roadW(r) / 2 + SIDEWALK_W)
-  const water: PtHash = new Map()
-  for (const [x, z] of b.river.main) hput(water, x, z, b.river.width / 2 + 8)
-  for (const s of b.river.side) for (const [x, z] of s) hput(water, x, z, b.river.width * 0.35 + 6)
   const keep: PtHash = new Map()
   for (const l of b.landmarks) if (l.kw > 0) hput(keep, l.x, l.z, Math.hypot(l.kw, l.kd) / 2 + 10)
   // the playable spots get exactly their own footprint cleared (houses

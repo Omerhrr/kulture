@@ -48,7 +48,8 @@ const today = computed(() => {
 })
 const calOpen = ref(false)
 const wedding = ref<{ couple: string } | null>(null)
-const COUPLES = ['Aisha & Sadiq', 'Ngozi & Emeka', 'Hadiza & Kabiru', 'Grace & Tunde', 'Zainab & Bashir']
+// strangers' weddings: never a name the story or the dating app uses
+const COUPLES = ['Hauwa & Yusuf', 'Adaeze & Chinedu', 'Hadiza & Kabiru', 'Ramatu & Idris', 'Yemisi & Uche']
 let lastHourInt = -1
 watch(hour, (h) => {
   const hi = Math.floor(h)
@@ -83,7 +84,7 @@ function attendWedding() {
   const c = wedding.value
   wedding.value = null
   if (!c) return
-  window.dispatchEvent(new CustomEvent('kk-owambe', { detail: { partner: c.couple, guest: true } }))
+  window.dispatchEvent(new CustomEvent('kk-owambe', { detail: { partner: c.couple, guest: true, female: true } }))
 }
 
 // ------------------------------------------------------------ keke / okada calls
@@ -178,7 +179,7 @@ function startTalent(a: (typeof ACTS)[number]) {
   bars.value = []
   result.value = null
   rivals.value = [
-    { name: 'Halima (singer)', score: 60 + Math.round(Math.random() * 25) },
+    { name: 'Lantana (singer)', score: 60 + Math.round(Math.random() * 25) },
     { name: 'Mr Funny Kaduna', score: 55 + Math.round(Math.random() * 30) },
     { name: 'Sani the Juggler', score: 50 + Math.round(Math.random() * 30) }
   ]
@@ -237,6 +238,16 @@ async function buyAtBiz() {
   } finally {
     buying.value = false
   }
+}
+// walk in: the store's shelves open on your phone (Shops)
+const phoneOpen = useState<boolean>('kk_phone_open', () => false)
+const phoneGoto = useState<string | null>('kk_phone_goto', () => null)
+const phoneStore = useState<string | null>('kk_phone_store', () => null)
+function browseBiz() {
+  if (!biz.value) return
+  phoneStore.value = biz.value.owner_id
+  phoneGoto.value = 'shops'
+  phoneOpen.value = true
 }
 const townName = regionById(REGION_ID).name
 const fire = (name: string) => window.dispatchEvent(new CustomEvent(name))
@@ -310,7 +321,10 @@ if (import.meta.dev && typeof window !== 'undefined') {
 
     <!-- context actions -->
     <div v-if="!mini && !scene.football" class="pointer-events-auto absolute bottom-28 left-1/2 flex -translate-x-1/2 gap-2">
-      <button v-if="biz" class="rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white shadow-lg" :disabled="buying" @click="buyAtBiz">{{ biz.kind === 'restaurant' ? '🍲 Eat' : '🛒 Shop' }} at {{ biz.name }} <span class="text-[10px] opacity-75">({{ biz.owner }}'s)</span></button>
+      <template v-if="biz">
+        <button class="rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="browseBiz">🛍️ Browse {{ biz.name }} <span class="text-[10px] opacity-75">({{ biz.owner }}'s)</span></button>
+        <button v-if="biz.kind === 'restaurant'" class="rounded-full bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-lg" :disabled="buying" @click="buyAtBiz">🍲 Eat a plate</button>
+      </template>
       <button v-if="where === 'bar'" class="rounded-full bg-fuchsia-600 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="startDance">🕺 Dance battle</button>
       <button v-if="where === 'cinema'" class="rounded-full bg-amber-500 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="mini = 'talent'">🎤 Talent show</button>
       <button v-if="where === 'park'" class="rounded-full bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="fire('kk-football')">⚽ 5-a-side</button>

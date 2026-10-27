@@ -9,14 +9,15 @@
 // speeds stay under the server envelope (48 u/s), so no reconciliation
 // snaps occur while driving.
 import * as THREE from 'three'
-import { hitsBuilding, clampBounds, unstick, setVehicleObstacles } from '~/utils/collision'
+import { hitsBuilding, clampBounds, unstick, setVehicleObstacles, obbOverlap } from '~/utils/collision'
 import { waterDist } from '~/utils/kadunaExtras'
 import { ridePose } from '~/utils/rideState'
 import { trafficProbe } from '~/utils/trafficProbe'
 import { kkAudio } from '~/utils/audio'
 import { registerCrash } from '~/utils/impact'
-import { vehicleMaterial, vehicleSpec, buildInterior, paintedVehicle, plateSprite, bodyWithGlass, type VehicleKind } from '~/utils/vehicles'
+import { vehicleMaterial, vehicleSpec, buildInterior, paintedVehicle, plateSprite, bodyWithGlass, VEHICLE_HALF, type VehicleKind } from '~/utils/vehicles'
 import { lookFor } from '~/utils/wardrobe'
+import { fromSimLook, randomLook, type PersonLook } from '~/utils/people'
 import { useSimStore } from '~/stores/sim'
 import { hashDist, roadHash } from '~/utils/kadunaExtras'
 import { BAKE, ws, PLAYABLE_POS } from '~/utils/kaduna'
@@ -461,6 +462,32 @@ function collidesAt(x: number, z: number, r: number): boolean {
   return hitsBuilding(x, z, r)
 }
 
+/**
+ * Would vehicle `p`, moved to (x, z) facing h, overlap another vehicle - a
+ * parked / boardable one or live traffic (cars, buses, kekes, the train)?
+ * Oriented footprints, so cars in neighbouring lanes pass cleanly.
+ * Enter-block: if it already overlaps one at its current pose (summoned or
+ * shunted onto it), moves that open the gap stay allowed.
+ */
+function hitsVehicle(p: Parked, x: number, z: number, h: number): boolean {
+  const [hl, hw] = VEHICLE_HALF[p.kind]
+  const blocks = (ox: number, oz: number, oh: number, ohl: number, ohw: number) => {
+    if (!obbOverlap(x, z, h, hl, hw, ox, oz, oh, ohl, ohw)) return false
+    if (!obbOverlap(p.x, p.z, p.heading, hl, hw, ox, oz, oh, ohl, ohw)) return true
+    return Math.hypot(x - ox, z - oz) < Math.hypot(p.x - ox, p.z - oz)
+  }
+  for (const f of fleet) {
+    if (f === p || Math.abs(f.x - x) > 12 || Math.abs(f.z - z) > 12) continue
+    const [fl, fw] = VEHICLE_HALF[f.kind]
+    if (blocks(f.x, f.z, f.heading, fl, fw)) return true
+  }
+  for (const c of trafficProbe.cars) {
+    if (Math.abs(c.x - x) > 12 || Math.abs(c.z - z) > 12) continue
+    if (blocks(c.x, c.z, c.h, c.hl ?? c.r, c.hw ?? c.r)) return true
+  }
+  return false
+}
+
 /** Find a free parking spot near the anchor (houses crowd the city). */
 function freeSpotNear(ax: number, az: number, r: number): [number, number] {
   if (!collidesAt(ax, az, r + 1.5)) return [ax, az]
@@ -483,7 +510,7 @@ function onCrash(e: Event) {
   const shove = 0.6 + d.strength * 2.2 + d.push * 0.08
   const nx = p.x + d.dx * shove
   const nz = p.z + d.dz * shove
-  if (!collidesAt(nx, nz, vehicleSpec(p.kind).radius)) {
+  if (!collidesAt(nx, nz, vehicleSpec(p.kind).radius) && !hitsVehicle(p, nx, nz, p.heading)) {
     p.x = nx
     p.z = nz
   }
@@ -709,7 +736,7 @@ function nearestParked(): Parked | null {
 // Everyone else in the vehicle with you: passengers who were already on the
 // danfo / keke, friends you invited, and (when you ride along) the driver.
 const ui = useUiStore()
-interface RLook { skin: string; top: string; bottom: string; hair: string; hairColor: string; outfit: string; female: boolean; gadgets: string[] }
+type RLook = PersonLook
 interface Rider { key: string; seat: number; look: RLook; npc: boolean; id?: string; npcId?: number }
 const riders = ref<Rider[]>([])
 const riderObjs = new Map<string, THREE.Object3D>()
@@ -718,25 +745,13 @@ function setRiderRef(key: string, el: any) {
   if (o?.isObject3D) riderObjs.set(key, o)
   else riderObjs.delete(key)
 }
-function npcLook(id: number): RLook {
-  const female = id % 2 === 0
-  const l = lookFor(id, female)
-  return { skin: l.skin, top: l.top, bottom: l.bottom, hair: female ? 'braids' : 'cap', hairColor: l.hair ?? '#141114', outfit: female ? 'dress' : id % 3 ? 'kaftan' : 'shirt', female, gadgets: (l.gadgets ?? []) as string[] }
-}
+const npcLook = (id: number): RLook => randomLook(id, id % 2 === 0)
+/** a player's look as relayed between phones (current or older fields) */
 function playerLook(l: any): RLook {
-  l = l ?? {}
-  return {
-    skin: l.skin || '#7a4e33',
-    top: l.top || '#3f6fae',
-    bottom: l.bottom || '#2b3440',
-    hair: l.hair || 'cap',
-    hairColor: l.hairColor || '#141114',
-    outfit: l.outfit || 'kaftan',
-    female: l.body === 'woman' || l.outfit === 'dress' || !!l.female,
-    gadgets: (l.gadgets ?? []).slice(0, 4)
-  }
+  if (l && typeof l === 'object' && 'outfit' in l && typeof l.outfit === 'object') return l as RLook // already a PersonLook
+  return fromSimLook(l ?? {})
 }
-const myLook = () => playerLook({ ...sim.look, body: (sim.look as any).body })
+const myLook = () => fromSimLook(sim.look)
 
 // ---------------------------------------------------------------- party
 // Invite friends who are near you into your vehicle. The server relays a
@@ -1037,16 +1052,19 @@ onBeforeRender(({ delta }) => {
   const spec = vehicleSpec(p.kind)
 
   // throttle + steer from keys and the joystick (same token sets as the
-  // walking controls so layout-proof keys behave identically)
+  // walking controls so layout-proof keys behave identically).
+  // steer > 0 = turn LEFT: forward is (sin h, cos h), so a growing heading
+  // swings the nose to the driver's left (it used to be wired the other
+  // way round, so A / joystick-left turned the vehicle right).
   let throttle = 0
   let steer = 0
   if (isDown('KeyW', 'ArrowUp', 'z', 'w')) throttle += 1
   if (isDown('KeyS', 'ArrowDown', 's')) throttle -= 1
-  if (isDown('KeyA', 'ArrowLeft', 'q', 'a')) steer -= 1
-  if (isDown('KeyD', 'ArrowRight', 'd')) steer += 1
+  if (isDown('KeyA', 'ArrowLeft', 'q', 'a')) steer += 1
+  if (isDown('KeyD', 'ArrowRight', 'd')) steer -= 1
   if (touchMove.value.active) {
     throttle += touchMove.value.y
-    steer += touchMove.value.x
+    steer -= touchMove.value.x // joystick x is screen-right
   }
   throttle = Math.max(-1, Math.min(1, throttle))
   steer = Math.max(-1, Math.min(1, steer))
@@ -1113,30 +1131,40 @@ onBeforeRender(({ delta }) => {
     speed = Math.max(-spec.maxSpeed * 0.4, Math.min(spec.maxSpeed * boost, speed))
     if (Math.abs(speed) < 0.05 && throttle === 0) speed = 0
     const turn = 1.7 * Math.min(1, Math.abs(speed) / 9) * (speed < 0 ? -1 : 1)
-    p.heading += steer * turn * dt
-    let nx = p.x + Math.sin(p.heading) * speed * dt
-    let nz = p.z + Math.cos(p.heading) * speed * dt
-    ;[nx, nz] = clampBounds(nx, nz)
-    if (!collidesAt(nx, nz, spec.radius)) {
-      p.x = nx
-      p.z = nz
-    } else {
+    // solid = a building / prop / wall or another vehicle
+    const blocked = (x: number, z: number, h: number) => collidesAt(x, z, spec.radius) || hitsVehicle(p, x, z, h)
+    // turning can swing the bonnet into a car alongside: no turn then
+    const h1 = p.heading + steer * turn * dt
+    if (!hitsVehicle(p, p.x, p.z, h1)) p.heading = h1
+    // sub-steps of <= 0.5 m: at top speed a frame moves a car 4-5 m, enough
+    // to hop clean over a pole, a kiosk or a parked car between two tests
+    const steps = Math.min(12, Math.max(1, Math.ceil((Math.abs(speed) * dt) / 0.5)))
+    const sdt = dt / steps
+    let scraped = false // one crash effect per frame, not one per sub-step
+    for (let s = 0; s < steps; s++) {
+      const mx = Math.sin(p.heading) * speed * sdt
+      const mz = Math.cos(p.heading) * speed * sdt
+      const [nx, nz] = clampBounds(p.x + mx, p.z + mz)
+      if (!blocked(nx, nz, p.heading)) {
+        p.x = nx
+        p.z = nz
+        continue
+      }
       // try sliding along one axis before bouncing
-      const sx = p.x + Math.sin(p.heading) * speed * dt
-      const sz = p.z
-      const sx2 = p.x
-      const sz2 = p.z + Math.cos(p.heading) * speed * dt
-      if (Math.abs(speed) > 6) hitWall(speed * 0.45, spec.maxSpeed)
-      if (!collidesAt(sx, sz, spec.radius)) {
-        p.x = sx
+      if (!scraped && Math.abs(speed) > 6) hitWall(speed * 0.45, spec.maxSpeed)
+      scraped = true
+      if (!blocked(p.x + mx, p.z, p.heading)) {
+        p.x += mx
         speed *= 0.82
-      } else if (!collidesAt(sx2, sz2, spec.radius)) {
-        p.z = sz2
+      } else if (!blocked(p.x, p.z + mz, p.heading)) {
+        p.z += mz
         speed *= 0.82
       } else {
-        // head-on into a wall: a real crash, the vehicle bounces back
+        // head-on into a wall or another vehicle: a real crash, the
+        // vehicle bounces back
         hitWall(speed, spec.maxSpeed)
         speed *= -0.25
+        break
       }
     }
     ridePose.y = 0
@@ -1233,6 +1261,16 @@ if (import.meta.dev) {
     board()
     return phase.value
   }
+  // test hook: put the vehicle you are driving at (x, z) facing h
+  ;(window as any).__kk_drive_place = (x: number, z: number, h: number) => {
+    if (!current) return false
+    current.x = x
+    current.z = z
+    current.heading = h
+    speed = 0
+    return true
+  }
+  ;(window as any).__kk_drive_state = () => (current ? { x: current.x, z: current.z, h: current.heading, speed } : null)
 }
 </script>
 
@@ -1244,17 +1282,7 @@ if (import.meta.dev) {
       <CharacterAvatar
         real
         :key="lookKey"
-        :shirt="sim.look.top"
-        :trouser="sim.look.bottom"
-        :skin="sim.look.skin"
-        :kufi="sim.look.hair === 'cap'"
-        :hijab="sim.look.outfit === 'dress'"
-        :hair-style="sim.look.hair"
-        :hair-color="sim.look.hairColor"
-        :outfit="sim.look.outfit"
-        :gadgets="(sim.look.gadgets ?? []) as any"
-        :print="sim.look.print"
-        :scarf="sim.look.hairColor"
+        :person="fromSimLook(sim.look)"
         :mode="avatarMode"
         :seat="seatH"
         :gait-speed="10.5"
@@ -1263,17 +1291,7 @@ if (import.meta.dev) {
     <!-- everyone else in the vehicle: passengers, friends, the driver -->
     <TresGroup v-for="r in riders" :key="r.key" :ref="(el: any) => setRiderRef(r.key, el)">
       <CharacterAvatar
-        real
-        :female="r.look.female"
-        :skin="r.look.skin"
-        :shirt="r.look.top"
-        :trouser="r.look.bottom"
-        :hair-color="r.look.hairColor"
-        :hair-style="(r.look.hair as any)"
-        :kufi="r.look.hair === 'cap'"
-        :hijab="r.look.outfit === 'dress' && r.npc === false"
-        :outfit="(r.look.outfit as any)"
-        :gadgets="(r.look.gadgets ?? []) as any"
+        :person="r.look"
         :mode="riderMode"
         :seat="riderSeat(r.seat)"
         :phase="r.key.length * 0.37"

@@ -28,7 +28,9 @@ const PLAYABLE: Box[] = [
   // districts
   { ...at('textile_market'), w: 22, d: 13 }, // fabric stall block
   { ...at('kawo_motor_park'), w: 17, d: 6 }, // motor park canopy
-  { ...at('kasu_gate'), w: 14, d: 3.4 }, // campus gate arch line
+  // campus gate: only the two pillars are solid, the street runs through the arch
+  { x: at('kasu_gate').x - 5.6, z: at('kasu_gate').z, w: 1.8, d: 1.8 },
+  { x: at('kasu_gate').x + 5.6, z: at('kasu_gate').z, w: 1.8, d: 1.8 },
   { ...at('rigasa_station'), w: 32, d: 7 }, // platform canopy
   { ...at('sabon_tasha_shop'), w: 13, d: 10 } // community store
 ]
@@ -131,6 +133,28 @@ export function hitsBuilding(x: number, z: number, pad: number): boolean {
   }
   return false
 }
+/**
+ * Do two oriented rectangles overlap? (separating-axis test). Each is a
+ * centre, a heading h (forward = (sin h, cos h)) and half-length / half-width.
+ */
+export function obbOverlap(
+  ax: number, az: number, ah: number, ahl: number, ahw: number,
+  bx: number, bz: number, bh: number, bhl: number, bhw: number
+): boolean {
+  const afx = Math.sin(ah), afz = Math.cos(ah)
+  const bfx = Math.sin(bh), bfz = Math.cos(bh)
+  const dx = bx - ax, dz = bz - az
+  // the four candidate axes: each box's forward and right
+  const axes = [afx, afz, afz, -afx, bfx, bfz, bfz, -bfx]
+  for (let i = 0; i < 8; i += 2) {
+    const nx = axes[i]!, nz = axes[i + 1]!
+    const ra = ahl * Math.abs(afx * nx + afz * nz) + ahw * Math.abs(afz * nx - afx * nz)
+    const rb = bhl * Math.abs(bfx * nx + bfz * nz) + bhw * Math.abs(bfz * nx - bfx * nz)
+    if (Math.abs(dx * nx + dz * nz) > ra + rb) return false
+  }
+  return true
+}
+
 /** Buildings whose cell contains (x, z). Pad is small (< 1 cell). */
 export function buildingsNear(x: number, z: number): Box[] {
   return grid.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? EMPTY

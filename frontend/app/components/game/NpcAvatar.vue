@@ -12,19 +12,14 @@ import { collidesRadius } from '~/utils/collision'
 import { kkAudio } from '~/utils/audio'
 import { useInterior } from '~/composables/useControlsState'
 import type { ActionName } from '~/utils/humanAnim'
+import type { PersonLook } from '~/utils/people'
 
-const props = withDefaults(
-  defineProps<{
-    x: number
-    z: number
-    name: string
-    female?: boolean
-    shirt?: string
-    hairStyle?: 'cap' | 'afro' | 'braids' | 'bald'
-    beard?: boolean
-  }>(),
-  { female: false, shirt: '#b8433a', hairStyle: 'cap', beard: false }
-)
+const props = defineProps<{
+  x: number
+  z: number
+  name: string
+  person: PersonLook
+}>()
 
 type Mood = 'idle' | 'down' | 'fight' | 'flee' | 'return'
 // temperament per character (deterministic): most stand their ground
@@ -247,13 +242,8 @@ if (import.meta.dev) {
 
 <template>
   <TresGroup ref="group" :position="[props.x, 0, props.z]">
-    <CharacterAvatar real
-      :shirt="props.shirt"
-      trouser="#3a3f4a"
-      :kufi="!props.female"
-      :hijab="props.female"
-      :hair-style="props.female ? 'braids' : props.hairStyle"
-      :beard="props.beard"
+    <CharacterAvatar
+      :person="props.person"
       :mode="mode"
       :gait-speed="gaitSpeed"
       :action="action"

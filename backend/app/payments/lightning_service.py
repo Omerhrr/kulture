@@ -159,6 +159,30 @@ async def invoice_for_intent(db: AsyncSession, intent_id: str) -> tuple[PaymentI
     return intent, inv
 
 
+_last_check: dict[str, float] = {}
+
+
+async def check_with_node(db: AsyncSession, intent: PaymentIntent, inv: LightningInvoice | None) -> None:
+    """Ask the node about one awaiting invoice now (the player is looking at
+    the QR), at most every 2 s per invoice; the reconciler covers the rest."""
+    import time
+
+    if intent.status != "awaiting_payment" or inv is None or inv.status != "awaiting_payment":
+        return
+    now = time.monotonic()
+    if now - _last_check.get(inv.payment_hash, 0.0) < 2.0:
+        return
+    _last_check[inv.payment_hash] = now
+    if len(_last_check) > 5000:
+        _last_check.clear()
+    try:
+        events = await get_adapter().reconcile_pending_invoices([inv.payment_hash])
+    except LightningAdapterError:
+        return
+    for ev in events:
+        await process_settlement(db, ev)
+
+
 # --------------------------------------------------------------- settlement
 async def process_settlement(
     db: AsyncSession, event: SettlementEvent

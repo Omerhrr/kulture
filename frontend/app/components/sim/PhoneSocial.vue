@@ -7,6 +7,7 @@ import { fmtKsats } from '~/utils/format'
 const props = defineProps<{ tab?: 'contacts' | 'connect' }>()
 const api = useGameApi()
 const ui = useUiStore()
+const sim = useSimStore()
 const tab = ref<'contacts' | 'connect' | 'chat' | 'date'>(props.tab ?? 'contacts')
 const rels = ref<any[]>([])
 const nearby = ref<any[]>([])
@@ -39,7 +40,10 @@ function fightInvite() {
 async function sendGift(g: { amount?: number; item?: string }) {
   busy.value = true
   try {
-    await api.apiPost('/gifts', { to: cur.value.other_id, ...g })
+    // money goes through the wallet (one transfer, in both histories);
+    // items through gifts
+    if (g.amount) await api.apiPost('/wallet/send', { to: cur.value.other_id, amount: g.amount, note: `🎁 a gift`, idempotency_key: `gift-${Date.now()}` })
+    else await api.apiPost('/gifts', { to: cur.value.other_id, ...g })
     msgs.value.push({ me: true, text: g.amount ? `🎁 Sent you ${fmtKsats(g.amount)}` : `🎁 Sent you a ${bag.value.find((b) => b.code === g.item)?.name}` })
     ui.showToast('Gift sent 🎁', 'success')
     giftOpen.value = false
@@ -122,12 +126,18 @@ async function like(p: any) {
     ui.showToast(e.message, 'error')
   }
 }
+/** the other person's gender: the server knows it for the city's people;
+ *  for another player, the opposite of your own character */
+function partnerFemale(): boolean {
+  const g = cur.value?.gender
+  return g ? g === 'female' : sim.look.body !== 'woman'
+}
 async function startDate(place: string) {
   try {
     date.value = await api.apiPost<any>('/social/date/start', { rel_id: cur.value.id, place })
     tab.value = 'date'
     // the partner meets you there in the 3D world
-    window.dispatchEvent(new CustomEvent('kk-date', { detail: { place, name: cur.value.name, active: true } }))
+    window.dispatchEvent(new CustomEvent('kk-date', { detail: { place, name: cur.value.name, female: partnerFemale(), active: true } }))
   } catch (e: any) {
     ui.showToast(e.message, 'error')
   }
@@ -154,7 +164,7 @@ async function wed() {
   try {
     const r = await api.apiPost<any>('/social/wedding', { rel_id: cur.value.id })
     cur.value = r.relationship
-    window.dispatchEvent(new CustomEvent('kk-owambe', { detail: { partner: cur.value.name } }))
+    window.dispatchEvent(new CustomEvent('kk-owambe', { detail: { partner: cur.value.name, female: partnerFemale() } }))
     ui.showToast('Congratulations! The owambe has started 🎉', 'success')
   } catch (e: any) {
     ui.showToast(e.message, 'error')

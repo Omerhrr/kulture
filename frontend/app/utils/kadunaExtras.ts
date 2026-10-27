@@ -4,7 +4,7 @@
 // Everything here is derived from the baked OSM layout with a fixed seed,
 // so the render, the map and gameplay code all agree without a bake step.
 
-import { BAKE, WORLD_SCALE, ws, wp, IS_CITY } from './kaduna'
+import { BAKE, WORLD_SCALE, ws, wp, IS_CITY, densePoints } from './kaduna'
 
 export function mulberry32(seed: number) {
   let a = seed
@@ -107,8 +107,8 @@ let _waterHash: SpatialHash | null = null
 export function waterHash(): SpatialHash {
   if (!_waterHash) {
     const pts: Array<[number, number]> = []
-    for (let i = 0; i < BAKE.river.main.length; i += 2) pts.push(BAKE.river.main[i])
-    for (const s of BAKE.river.side) for (let i = 0; i < s.length; i += 2) pts.push(s[i])
+    pts.push(...densePoints(BAKE.river.main, 24))
+    for (const s of BAKE.river.side) pts.push(...densePoints(s, 24))
     for (const p of ROMI.pts) pts.push(p)
     _waterHash = buildHash(pts, 48)
   }

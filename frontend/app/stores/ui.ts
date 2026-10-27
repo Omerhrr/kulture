@@ -1,16 +1,19 @@
 import { defineStore } from 'pinia'
 import type { InteractionOption } from '~/types'
+import { useStoryStore } from '~/stores/story'
 
 export const useUiStore = defineStore('ui', {
   state: () => ({
     openPanel: '' as '' | 'shop' | 'inventory' | 'jobs' | 'ledger' | 'pos',
     interaction: null as { entity_id: string; entity_name: string; options: InteractionOption[] } | null,
     dialogue: null as { npcName: string; text: string; engine: string } | null,
+    /** story lines waiting to be read, one card per line (stores/story) */
+    story: [] as Array<{ name: string; role: string; text: string }>,
     toast: '' as string,
     toastKind: 'info' as 'info' | 'success' | 'error'
   }),
   getters: {
-    anyBlocking: (s) => !!s.openPanel || !!s.interaction || !!s.dialogue
+    anyBlocking: (s) => !!s.openPanel || !!s.interaction || !!s.dialogue || s.story.length > 0
   },
   actions: {
     open(panel: typeof this.openPanel) {
@@ -24,6 +27,15 @@ export const useUiStore = defineStore('ui', {
       this.openPanel = ''
       this.interaction = null
       this.dialogue = null
+      this.story = []
+    },
+    /** a story character speaks: their lines replace any small talk */
+    say(name: string, role: string, lines: string[]) {
+      this.dialogue = null
+      this.story.push(...lines.map((text) => ({ name, role, text })))
+    },
+    nextLine() {
+      this.story.shift()
     },
     showToast(msg: string, kind: 'info' | 'success' | 'error' = 'info') {
       this.toast = msg
@@ -54,6 +66,12 @@ export const useUiStore = defineStore('ui', {
           if (first && !/^talk to/i.test(first.label)) this.showToast(first.label, 'info')
         } else {
           this.interaction = { ...result, options: [...actionable, ...result.options.filter((o: InteractionOption) => !actionable.includes(o))] }
+        }
+        // the story first: if this person has your next chapter, they say so
+        // (and the AI small talk waits until another time)
+        if (await useStoryStore().talk(proximity.code)) {
+          this.interaction = null
+          return
         }
         // fire the WS event too so the DSH shopkeeper reacts (dialogue via WS)
         useGameSocketSend()('entity.interact', {

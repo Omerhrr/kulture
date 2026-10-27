@@ -71,14 +71,19 @@ def _encode_tagged(tag: int, payload: bytes) -> list[int]:
 
 
 def build_bolt11(
-    amount_sats: int, payment_hash: bytes, description: str, expiry_seconds: int, timestamp: int
+    amount_sats: int, payment_hash: bytes, description: str, expiry_seconds: int, timestamp: int, hrp: str = "lnbcrt"
 ) -> str:
-    """Structurally valid lnbcrt invoice (fake signature - regtest simulator)."""
-    hrp = "lnbcrt"
-    # amount in millisatoshi -> pico-btc digits (bech32 amount field)
-    msat = amount_sats * 1000
-    amt = f"{msat:08d}".rstrip("0")  # 8 decimals = picocurrency precision
-    hrp_full = hrp + (amt if amt else "")
+    """Structurally valid invoice (fake signature - regtest simulator; the
+    tests also use it to stand in for a testnet node's lntb invoices)."""
+    # BOLT11 amount: an integer and a multiplier of 1 BTC (m = 1e-3,
+    # u = 1e-6 = 100 sat, n = 1e-9 = 0.1 sat), shortest form like LND
+    if amount_sats % 100_000 == 0:
+        amt = f"{amount_sats // 100_000}m"
+    elif amount_sats % 100 == 0:
+        amt = f"{amount_sats // 100}u"
+    else:
+        amt = f"{amount_sats * 10}n"
+    hrp_full = hrp + amt
 
     data: list[int] = []
     data += _convertbits(timestamp.to_bytes(7, "big"), 8, 5, pad=False)
@@ -215,6 +220,32 @@ class MockRegtestAdapter(LightningAdapter):
         )
 
 
+class UnavailableAdapter(LightningAdapter):
+    """Stands in when the configured node can't be used (not configured,
+    mainnet): every call fails with the reason, health says why."""
+
+    def __init__(self, provider: str, reason: str) -> None:
+        self.provider = provider
+        self.reason = reason
+
+    async def create_invoice(self, request: InvoiceRequest) -> Invoice:
+        raise LightningAdapterError(self.reason)
+
+    async def get_invoice_status(self, payment_hash: str) -> Invoice:
+        raise LightningAdapterError(self.reason)
+
+    async def validate_settlement_event(self, event: SettlementEvent) -> bool:
+        return False
+
+    async def get_node_health(self) -> dict[str, Any]:
+        from app.core.config import settings
+
+        return {"provider": self.provider, "network": settings.lightning_network, "ready": False, "error": self.reason}
+
+    async def reconcile_pending_invoices(self, payment_hashes: list[str]) -> list[SettlementEvent]:
+        return []
+
+
 _adapter: LightningAdapter | None = None
 
 
@@ -223,12 +254,26 @@ def get_adapter() -> LightningAdapter:
     if _adapter is None:
         from app.core.config import settings
 
-        if settings.lightning_provider == "ldk_node":
-            from app.payments.ldk_node_adapter import LdkNodeAdapter
+        p = settings.lightning_provider
+        try:
+            if p == "lnbits":
+                from app.payments.lnbits_adapter import LnbitsAdapter
 
-            _adapter = LdkNodeAdapter()
-        else:
-            _adapter = MockRegtestAdapter()
+                _adapter = LnbitsAdapter()
+            elif p == "lnd":
+                from app.payments.lnd_adapter import LndRestAdapter
+
+                _adapter = LndRestAdapter()
+            elif p == "ldk_node":
+                from app.payments.ldk_node_adapter import LdkNodeAdapter
+
+                _adapter = LdkNodeAdapter()
+            elif p == "mock" and settings.lightning_mock_enabled:
+                _adapter = MockRegtestAdapter()
+            else:
+                _adapter = UnavailableAdapter(p, "unknown_provider" if p != "mock" else "mock_disabled")
+        except LightningAdapterError as exc:
+            _adapter = UnavailableAdapter(p, str(exc))
     return _adapter
 
 

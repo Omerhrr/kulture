@@ -3,72 +3,96 @@
 // Dream -> Birth lottery). A live 3D preview spins on the left; choices sit
 // in a card on the right (bottom sheet on phones). Saved to the sim store.
 import { useSimStore, TRAITS, DREAMS, BIRTHS, type Look } from '~/stores/sim'
+import { TOPS, BOTTOMS, SHOES, LABELS } from '~/utils/outfits'
+import { SKIN_TONES, CLOTH_COLORS, BOTTOM_COLORS, SHOE_COLORS, HAIR_COLORS, fromSimLook, randomLook } from '~/utils/people'
 
 const sim = useSimStore()
 const player = usePlayerStore()
 const emit = defineEmits<{ (e: 'done'): void }>()
+/** change the look of an existing Sim (just the Look step, then save) */
+const props = defineProps<{ editOnly?: boolean }>()
 
-const STEPS = ['Look', 'Personality', 'Dream', 'Birth lottery'] as const
+const STEPS = props.editOnly ? (['Look'] as const) : (['Look', 'Personality', 'Dream', 'Birth lottery'] as const)
 const step = ref(0)
 
-const look = reactive<Look>({ ...sim.look })
+const look = reactive<Look>({ ...sim.look, shape: { ...(sim.look.shape ?? {}) } })
 const name = ref(sim.name || player.profile?.display_name || '')
 const traits = ref<string[]>([...sim.traits])
 const dream = ref(sim.dream)
 const birth = ref<string | null>(null)
 const rolling = ref(false)
 
-const SKINS = ['#3a2216', '#4a2e1e', '#5e3a26', '#6e4630', '#7a4e33', '#8a5a3a', '#94603e', '#b07a52', '#c9946a']
-const HAIR_COLORS = ['#141114', '#3a2414', '#6b3e1e', '#9a6a2a', '#9a9a9a', '#7a2a3a']
-const TOPS = ['#2e7d5b', '#efe8d6', '#2f5fa8', '#b23a48', '#e0a020', '#5a3a7a', '#1d1c1f', '#e86a2c', '#1f2a44', '#d86a8a', '#3a7d8a', '#8a6a3a', '#f2f2f0', '#6a8a2a']
-const BOTTOMS = ['#2b3440', '#efe8d6', '#1d1c1f', '#6b4a2f', '#2f5fa8', '#7a2a2a', '#5a5a5e', '#2e4a6e', '#c9b78e', '#3a3a2a']
-const GADGETS = [
-  { id: 'phone', label: '📱 Phone' },
-  { id: 'sunglasses', label: '🕶️ Shades' },
-  { id: 'cap', label: '🧢 Cap' },
-  { id: 'headphones', label: '🎧 Headphones' },
-  { id: 'watch', label: '⌚ Watch' },
-  { id: 'backpack', label: '🎒 Backpack' },
-  { id: 'bag', label: '👜 Bag' }
+const SKINS = SKIN_TONES
+const HAIRS_FOR = computed(() => (look.body === 'woman' ? (['braids', 'cornrows', 'afro', 'puff', 'locs', 'lowcut', 'bald'] as const) : (['lowcut', 'fade', 'afro', 'cornrows', 'locs', 'braids', 'bald'] as const)))
+// face + build sliders (0..1 morph weights)
+const FACE: Array<{ id: string; label: string }> = [
+  { id: 'noseWide', label: 'Nose width' },
+  { id: 'noseFlare', label: 'Nostrils' },
+  { id: 'lipsFull', label: 'Lips' },
+  { id: 'jawWide', label: 'Jaw' },
+  { id: 'chinStrong', label: 'Chin' },
+  { id: 'cheekbones', label: 'Cheekbones' },
+  { id: 'eyesBig', label: 'Eyes' }
 ]
-function toggleGadget(id: string) {
-  const g = (look.gadgets ??= [])
-  const i = g.indexOf(id)
-  if (i >= 0) g.splice(i, 1)
-  else g.push(id)
+const HEADS = [
+  { id: 'headRound', label: 'Round' },
+  { id: 'headOval', label: 'Oval' },
+  { id: 'headSquare', label: 'Square' }
+]
+const BUILDS = [
+  { id: 'average', label: 'Average' },
+  { id: 'slim', label: 'Slim' },
+  { id: 'heavy', label: 'Heavy' },
+  { id: 'muscular', label: 'Muscular' }
+]
+const build = computed(() => (['slim', 'heavy', 'muscular'] as const).find((b) => (look.shape[b] ?? 0) > 0) ?? 'average')
+function setBuild(id: string) {
+  for (const b of ['slim', 'heavy', 'muscular']) delete look.shape[b]
+  if (id !== 'average') look.shape[id] = 0.6
 }
-const HAIRS: Array<{ id: Look['hair']; label: string }> = [
-  { id: 'cap', label: 'Kufi cap' },
-  { id: 'afro', label: 'Afro' },
-  { id: 'braids', label: 'Braids' },
-  { id: 'bald', label: 'Low cut' }
-]
-const OUTFITS: Array<{ id: Look['outfit']; label: string }> = [
-  { id: 'kaftan', label: 'Kaftan' },
-  { id: 'shirt', label: 'Shirt & trousers' },
-  { id: 'dress', label: 'Gown & hijab' }
-]
+const head = computed(() => HEADS.find((h) => (look.shape[h.id] ?? 0) > 0)?.id ?? null)
+function setHead(id: string) {
+  for (const h of HEADS) delete look.shape[h.id]
+  if (head.value !== id) look.shape[id] = 0.5
+}
+const faceVal = (id: string) => look.shape[id] ?? 0
+function setFace(id: string, v: number) {
+  if (v > 0.001) look.shape[id] = v
+  else delete look.shape[id]
+}
+// the preview camera: full figure, or close on the face while shaping it
+const camView = ref<'body' | 'face'>('body')
 
 function setBody(b: Look['body']) {
   look.body = b
   if (b === 'woman') {
-    look.outfit = 'dress'
     look.hair = 'braids'
+    look.beard = 'none'
+    look.topStyle = 'tee'
+    look.bottomStyle = 'skirt'
   } else {
-    look.outfit = 'kaftan'
-    look.hair = 'cap'
+    look.hair = 'lowcut'
+    look.topStyle = 'polo'
+    look.bottomStyle = 'jeans'
   }
 }
 const pick = <T,>(a: readonly T[]) => a[Math.floor(Math.random() * a.length)]
 function shuffle() {
   if (step.value === 0) {
-    setBody(pick(['man', 'woman'] as const))
-    look.skin = pick(SKINS)
-    look.hairColor = pick(HAIR_COLORS)
-    look.top = pick(TOPS)
-    look.bottom = pick(BOTTOMS)
-    if (look.body === 'man') look.hair = pick(['cap', 'afro', 'bald'] as const)
-    look.outfit = look.body === 'woman' ? pick(['dress', 'shirt'] as const) : pick(['kaftan', 'shirt'] as const)
+    // a whole new person: face, build and clothes
+    const r = randomLook(Math.floor(Math.random() * 1e6), Math.random() < 0.5)
+    look.body = r.female ? 'woman' : 'man'
+    look.skin = r.skin
+    look.shape = { ...r.shape }
+    look.hair = r.outfit.hair
+    look.hairColor = r.outfit.hairColor
+    look.beard = r.outfit.beard ?? 'none'
+    look.topStyle = r.outfit.top
+    look.top = r.outfit.topColor
+    look.bottomStyle = r.outfit.bottom
+    look.bottom = r.outfit.bottomColor
+    look.shoes = r.outfit.shoes
+    look.shoeColor = r.outfit.shoeColor
   } else if (step.value === 1) {
     const a = [...TRAITS].sort(() => Math.random() - 0.5)
     traits.value = [a[0].id, a[1].id]
@@ -92,6 +116,7 @@ const canNext = computed(() => {
 const cta = computed(() => {
   if (step.value === 1 && traits.value.length < 2) return `Choose ${2 - traits.value.length} more`
   if (step.value === 0 && !canNext.value) return 'Name your Sim'
+  if (props.editOnly) return 'Save my look'
   if (step.value === 3) return birth.value ? 'Move in and start living' : 'Rolling...'
   return 'Continue'
 })
@@ -107,12 +132,19 @@ function rollBirth() {
 }
 function next() {
   if (!canNext.value) return
+  if (props.editOnly) {
+    sim.look = { ...look, shape: { ...look.shape } }
+    sim.name = name.value.trim().replace(/^@/, '')
+    sim.save()
+    emit('done')
+    return
+  }
   if (step.value < 3) {
     step.value++
     if (step.value === 3 && !birth.value) rollBirth()
     return
   }
-  sim.look = { ...look }
+  sim.look = { ...look, shape: { ...look.shape } }
   sim.name = name.value.trim().replace(/^@/, '')
   sim.traits = [...traits.value]
   sim.dream = dream.value
@@ -135,7 +167,8 @@ const previewKey = computed(() => JSON.stringify(look))
   <div class="absolute inset-0 z-[60] flex flex-col bg-gradient-to-b from-[#dfeaf5] to-[#f3efe6] lg:flex-row">
     <!-- top bar -->
     <div class="absolute inset-x-0 top-0 z-10 flex items-center justify-between p-3 sm:p-4">
-      <button class="kk-close h-11 w-11 bg-white shadow-md" :class="{ invisible: step === 0 }" aria-label="Back" @click="back">‹</button>
+      <button v-if="props.editOnly" class="kk-close h-11 w-11 bg-white shadow-md" aria-label="Cancel" @click="emit('done')">✕</button>
+      <button v-else class="kk-close h-11 w-11 bg-white shadow-md" :class="{ invisible: step === 0 }" aria-label="Back" @click="back">‹</button>
       <div class="text-center">
         <div class="font-display text-lg font-semibold text-ink">{{ STEPS[step] }}</div>
         <div class="mt-1 flex justify-center gap-1.5">
@@ -143,7 +176,6 @@ const previewKey = computed(() => JSON.stringify(look))
         </div>
       </div>
       <div class="flex gap-2">
-        <NuxtLink v-if="step < 3" to="/creator" class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="3D Character Studio" aria-label="3D Character Studio" @click="(sim.name = sim.name || name), sim.save()">🎨</NuxtLink>
         <button v-if="step < 3" class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="Randomise" aria-label="Randomise" @click="shuffle">🔀</button>
         <button v-else class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="Roll again" aria-label="Roll again" @click="rollBirth">🎲</button>
       </div>
@@ -159,27 +191,12 @@ const previewKey = computed(() => JSON.stringify(look))
     >
       <ClientOnly>
         <TresCanvas :clear-color="'#e6edf3'" :alpha="true" :dpr="[1, 1.5]">
-          <TresPerspectiveCamera :position="[0, 1.15, 4.1]" :look-at="[0, 0.95, 0]" :fov="34" />
+          <TresPerspectiveCamera v-if="camView === 'body'" :position="[0, 1.1, 4.3]" :look-at="[0, 0.9, 0]" :fov="32" />
+          <TresPerspectiveCamera v-else :position="[0, look.body === 'woman' ? 1.56 : 1.66, 1.05]" :look-at="[0, look.body === 'woman' ? 1.54 : 1.64, 0]" :fov="24" />
           <TresHemisphereLight :args="['#ffffff', '#c8b89a', 1.4]" />
           <TresDirectionalLight :position="[2, 4, 3]" :intensity="1.6" />
           <TresGroup :rotation="[0, yaw, 0]">
-            <CharacterAvatar
-              real
-              :female="look.body === 'woman'"
-              :dress="look.outfit === 'shirt' ? 'modern' : 'traditional'"
-              :gadgets="(look.gadgets ?? []) as any"
-              :key="previewKey"
-              :shirt="look.top"
-              :trouser="look.bottom"
-              :skin="look.skin"
-              :kufi="look.hair === 'cap'"
-              :hijab="look.outfit === 'dress'"
-              :hair-style="look.hair"
-              :hair-color="look.hairColor"
-              :outfit="look.outfit"
-              :beard="look.body === 'man' && look.hair !== 'braids'"
-              mode="idle"
-            />
+            <CharacterAvatar :key="previewKey" :person="fromSimLook(look)" mode="idle" />
           </TresGroup>
           <TresMesh :rotation="[-Math.PI / 2, 0, 0]" :position="[0, 0, 0]">
             <TresCircleGeometry :args="[1.1, 48]" />
@@ -188,6 +205,9 @@ const previewKey = computed(() => JSON.stringify(look))
         </TresCanvas>
       </ClientOnly>
       <div class="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs font-semibold text-ink/40">Drag to spin</div>
+      <div v-if="step === 0" class="absolute right-3 top-20 flex rounded-full bg-white/90 p-1 shadow-md">
+        <button v-for="v in (['body', 'face'] as const)" :key="v" class="rounded-full px-3 py-1.5 text-xs font-bold" :class="camView === v ? 'bg-ink text-white' : 'text-ink/60'" @click="camView = v">{{ v === 'body' ? 'Full body' : 'Face' }}</button>
+      </div>
     </div>
 
     <!-- choices card -->
@@ -208,28 +228,53 @@ const previewKey = computed(() => JSON.stringify(look))
           <div class="flex flex-wrap gap-2">
             <button v-for="c in SKINS" :key="c" class="kk-swatch" :class="{ on: look.skin === c }" :style="{ background: c }" :aria-label="'Skin ' + c" @click="look.skin = c" />
           </div>
-          <div class="kk-sec">Hairstyle</div>
+          <div class="kk-sec">Build</div>
           <div class="flex flex-wrap gap-2">
-            <button v-for="h in HAIRS" :key="h.id" class="kk-opt" :class="{ on: look.hair === h.id }" @click="look.hair = h.id">{{ h.label }}</button>
+            <button v-for="o in BUILDS" :key="o.id" class="kk-opt" :class="{ on: build === o.id }" @click="setBuild(o.id)">{{ o.label }}</button>
+          </div>
+          <div class="kk-sec flex items-center justify-between">Face <button class="text-xs font-bold text-leaf" @click="camView = 'face'">Look closer</button></div>
+          <div class="flex flex-wrap gap-2">
+            <button v-for="o in HEADS" :key="o.id" class="kk-opt" :class="{ on: head === o.id }" @click="setHead(o.id)">{{ o.label }} head</button>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5">
+            <label v-for="f in FACE" :key="f.id" class="text-xs font-semibold text-ink/60">
+              {{ f.label }}
+              <input type="range" min="0" max="1" step="0.05" class="kk-range" :value="faceVal(f.id)" @input="setFace(f.id, +($event.target as HTMLInputElement).value), (camView = 'face')" />
+            </label>
+          </div>
+          <div class="kk-sec">Hair</div>
+          <div class="flex flex-wrap gap-2">
+            <button v-for="h in HAIRS_FOR" :key="h" class="kk-opt" :class="{ on: look.hair === h }" @click="look.hair = h">{{ LABELS[h] }}</button>
           </div>
           <div class="mt-2.5 flex flex-wrap gap-2">
             <button v-for="c in HAIR_COLORS" :key="c" class="kk-swatch !h-7 !w-7" :class="{ on: look.hairColor === c }" :style="{ background: c }" :aria-label="'Hair colour ' + c" @click="look.hairColor = c" />
           </div>
-          <div class="kk-sec">Outfit</div>
+          <template v-if="look.body === 'man'">
+            <div class="kk-sec">Facial hair</div>
+            <div class="flex flex-wrap gap-2">
+              <button v-for="b in (['none', 'stubble', 'full'] as const)" :key="b" class="kk-opt" :class="{ on: look.beard === b }" @click="look.beard = b">{{ LABELS[b] }}</button>
+            </div>
+          </template>
+          <div class="kk-sec">Top</div>
           <div class="flex flex-wrap gap-2">
-            <button v-for="o in OUTFITS" :key="o.id" class="kk-opt" :class="{ on: look.outfit === o.id }" @click="look.outfit = o.id">{{ o.label }}</button>
+            <button v-for="t in TOPS" :key="t" class="kk-opt" :class="{ on: look.topStyle === t }" @click="(look.topStyle = t), (camView = 'body')">{{ LABELS[t] }}</button>
           </div>
-          <div class="kk-sec">Top colour</div>
-          <div class="flex flex-wrap gap-2">
-            <button v-for="c in TOPS" :key="c" class="kk-swatch" :class="{ on: look.top === c }" :style="{ background: c }" :aria-label="'Top ' + c" @click="look.top = c" />
+          <div class="mt-2.5 flex flex-wrap gap-2">
+            <button v-for="c in CLOTH_COLORS" :key="c" class="kk-swatch" :class="{ on: look.top === c }" :style="{ background: c }" :aria-label="'Top ' + c" @click="look.top = c" />
           </div>
-          <div class="kk-sec">Trousers / wrapper</div>
+          <div class="kk-sec">Bottoms</div>
           <div class="flex flex-wrap gap-2">
-            <button v-for="c in BOTTOMS" :key="c" class="kk-swatch" :class="{ on: look.bottom === c }" :style="{ background: c }" :aria-label="'Bottom ' + c" @click="look.bottom = c" />
+            <button v-for="t in BOTTOMS" :key="t" class="kk-opt" :class="{ on: look.bottomStyle === t }" @click="(look.bottomStyle = t), (camView = 'body')">{{ LABELS[t] }}</button>
           </div>
-          <div class="kk-sec">Extras</div>
+          <div class="mt-2.5 flex flex-wrap gap-2">
+            <button v-for="c in BOTTOM_COLORS" :key="c" class="kk-swatch" :class="{ on: look.bottom === c }" :style="{ background: c }" :aria-label="'Bottoms ' + c" @click="look.bottom = c" />
+          </div>
+          <div class="kk-sec">Shoes</div>
           <div class="flex flex-wrap gap-2">
-            <button v-for="g in GADGETS" :key="g.id" class="kk-opt" :class="{ on: (look.gadgets ?? []).includes(g.id) }" @click="toggleGadget(g.id)">{{ g.label }}</button>
+            <button v-for="t in SHOES" :key="t" class="kk-opt" :class="{ on: look.shoes === t }" @click="(look.shoes = t), (camView = 'body')">{{ LABELS[t] }}</button>
+          </div>
+          <div class="mt-2.5 flex flex-wrap gap-2">
+            <button v-for="c in SHOE_COLORS" :key="c" class="kk-swatch" :class="{ on: look.shoeColor === c }" :style="{ background: c }" :aria-label="'Shoes ' + c" @click="look.shoeColor = c" />
           </div>
         </template>
 
@@ -300,6 +345,9 @@ const previewKey = computed(() => JSON.stringify(look))
 }
 .kk-swatch.on {
   @apply ring-leaf;
+}
+.kk-range {
+  @apply mt-1 w-full accent-leaf;
 }
 .kk-card-opt {
   @apply rounded-3xl border-2 border-transparent bg-ink/[0.04] p-4 text-left transition-colors hover:bg-ink/[0.07];

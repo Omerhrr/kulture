@@ -6,7 +6,7 @@
 //   - they dodge fast vehicles, including the one you are driving
 //   - stop next to anyone and a "Talk" prompt appears with a local line
 // Every person is drawn through instanced meshes with real faces (eyes,
-// brows, nose, mouth), hair, hijabs and wrappers, so the crowd reads human
+// brows, nose, mouth), hair and skirts, so the crowd reads human
 // at street distance while costing a couple of dozen draw calls.
 import * as THREE from 'three'
 import { BAKE, roadW, PLAYABLE_POS } from '~/utils/kaduna'
@@ -384,7 +384,6 @@ let browM: THREE.InstancedMesh | null = null
 let noseM: THREE.InstancedMesh | null = null
 let mouthM: THREE.InstancedMesh | null = null
 let hairM: THREE.InstancedMesh | null = null
-let hijabM: THREE.InstancedMesh | null = null
 let skirtM: THREE.InstancedMesh | null = null
 // carried items (one instance slot per ped, hidden with a zero matrix)
 let bagM: THREE.InstancedMesh | null = null
@@ -507,7 +506,7 @@ onMounted(() => {
   noseGeo.translate(0, 1.668, 0.108)
   const mouthGeo = new THREE.BoxGeometry(0.052, 0.012, 0.014)
   mouthGeo.translate(0, 1.618, 0.094)
-  // hair: cap shell + back volume (hidden for hijab wearers)
+  // hair: cap shell + back volume
   const hairCap = new THREE.SphereGeometry(0.116, 12, 8, 0, Math.PI * 2, 0, 1.45)
   hairCap.scale(0.93, 0.98, 1)
   hairCap.translate(0, 1.7, -0.008)
@@ -515,13 +514,6 @@ onMounted(() => {
   hairBack.scale(1, 1.1, 0.7)
   hairBack.translate(0, 1.66, -0.06)
   const hairGeo = mergeGeos([hairCap, hairBack])
-  const hijabHead = new THREE.SphereGeometry(0.13, 12, 9)
-  hijabHead.scale(0.95, 1.08, 1.02)
-  hijabHead.translate(0, 1.69, -0.012)
-  const hijabDrape = new THREE.CylinderGeometry(0.11, 0.26, 0.3, 12, 1, true)
-  hijabDrape.scale(1, 1, 0.85)
-  hijabDrape.translate(0, 1.52, -0.01)
-  const hijabGeo = mergeGeos([hijabHead, hijabDrape])
   const skirtGeo = new THREE.CylinderGeometry(0.19, 0.36, 0.98, 12, 1, true)
   skirtGeo.scale(1, 1, 0.8)
   skirtGeo.translate(0, 0.58, 0)
@@ -540,11 +532,10 @@ onMounted(() => {
   noseM = new THREE.InstancedMesh(noseGeo, new THREE.MeshLambertMaterial(), TOTAL)
   mouthM = new THREE.InstancedMesh(mouthGeo, plain('#5a3028'), TOTAL)
   hairM = new THREE.InstancedMesh(hairGeo, new THREE.MeshLambertMaterial(), TOTAL)
-  hijabM = new THREE.InstancedMesh(hijabGeo, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), TOTAL)
   skirtM = new THREE.InstancedMesh(skirtGeo, new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), TOTAL)
 
   torsoM.castShadow = headM.castShadow = legM.castShadow = true
-  const all = [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]
+  const all = [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, skirtM]
   // ---- things people carry
   const bagGeo = mergeGeos([
     new THREE.BoxGeometry(0.3, 0.32, 0.12).translate(0, -0.2, 0),
@@ -622,14 +613,12 @@ onMounted(() => {
     hairM!.setColorAt(i, c)
     c.set(p.female ? pick(colors.wrappers) : trouser)
     skirtM!.setColorAt(i, c)
-    c.set(pick(colors.shirts))
-    hijabM!.setColorAt(i, c)
   }
   for (const m of all) if (m.instanceColor) m.instanceColor.needsUpdate = true
 })
 
 onBeforeUnmount(() => {
-  for (const m of [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM]) m?.dispose()
+  for (const m of [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, skirtM]) m?.dispose()
 })
 
 // ---------------------------------------------------------------- update
@@ -742,7 +731,7 @@ let lastElapsed = 0
 
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta, elapsed }) => {
-  if (!torsoM || !headM || !legM || !armM || !trayM || !eyesM || !pupilsM || !browM || !noseM || !mouthM || !hairM || !hijabM || !skirtM) return
+  if (!torsoM || !headM || !legM || !armM || !trayM || !eyesM || !pupilsM || !browM || !noseM || !mouthM || !hairM || !skirtM) return
   const dt = Math.min(delta || 0.016, 0.1)
   lastElapsed = elapsed
   pedClock.hour = clockHour.value
@@ -1196,15 +1185,9 @@ onBeforeRender(({ delta, elapsed }) => {
     browM.setMatrixAt(i, rootM)
     noseM.setMatrixAt(i, rootM)
     mouthM.setMatrixAt(i, rootM)
-    if (p.female) {
-      hairM.setMatrixAt(i, partM.makeScale(0, 0, 0))
-      hijabM.setMatrixAt(i, rootM)
-      skirtM.setMatrixAt(i, rootM)
-    } else {
-      hairM.setMatrixAt(i, rootM)
-      hijabM.setMatrixAt(i, partM.makeScale(0, 0, 0))
-      skirtM.setMatrixAt(i, partM.makeScale(0, 0, 0))
-    }
+    // about half the women wear a skirt, the rest trousers
+    hairM.setMatrixAt(i, rootM)
+    skirtM.setMatrixAt(i, p.female && i % 2 === 0 ? rootM : partM.makeScale(0, 0, 0))
     if (p.kind === 'hawker') {
       trayM.setMatrixAt(i, rootM)
     } else {
@@ -1247,7 +1230,7 @@ onBeforeRender(({ delta, elapsed }) => {
       twoSeg(armM, armM2, i * 2 + 1, rootM, 0.225, 1.43, 0, shR, -0.29, elR)
     }
   }
-  for (const m of [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, hijabM, skirtM, bagM, phoneM, basinM, packM, caseM, umbM]) {
+  for (const m of [torsoM, headM, legM, legM2, armM, armM2, trayM, eyesM, pupilsM, browM, noseM, mouthM, hairM, skirtM, bagM, phoneM, basinM, packM, caseM, umbM]) {
     if (m) m.instanceMatrix.needsUpdate = true
   }
 

@@ -132,6 +132,22 @@ def test_presence_look_is_whitelisted():
     assert out == {"body": "woman", "top": "#2f5fa8"}
 
 
+def test_presence_look_outfit_and_face_sliders():
+    from app.events.presence import clean_look
+
+    out = clean_look(
+        {
+            "topStyle": "polo", "bottomStyle": "jeans", "shoes": "boots", "beard": "stubble", "hair": "locs",
+            "shoeColor": "#112233", "topStyle_x": "tank",
+            "shape": {"noseWide": 0.4, "heavy": 7, "lipsFull": -2, "evil": 0.5, "slim": "0.3", "eyesBig": float("nan"), "jawWide": True},
+        }
+    )
+    assert out == {
+        "topStyle": "polo", "bottomStyle": "jeans", "shoes": "boots", "beard": "stubble", "hair": "locs",
+        "shoeColor": "#112233", "shape": {"noseWide": 0.4, "heavy": 1.0, "lipsFull": 0.0},
+    }
+
+
 def test_melee_targets_only_players_in_front_and_in_reach():
     from app.events.presence import PresenceRegistry
 

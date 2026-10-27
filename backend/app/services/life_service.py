@@ -57,14 +57,16 @@ async def balance(db: AsyncSession, player_id: str, asset: str = "ksats") -> int
 _charge_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
-async def charge(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ksats") -> None:
+async def charge(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ksats",
+                 ref: str | None = None, meta: dict | None = None) -> None:
     if amount <= 0:
         return
     async with _charge_locks[f"{player_id}:{asset}"]:
         if await balance(db, player_id, asset) < amount:
             raise LifeError("insufficient_funds")
         entry = GameLedgerEntry(account_reference=f"player:{player_id}", asset_type=asset, amount_minor_units=-amount,
-                                transaction_reference=f"{kind}:{uuid.uuid4().hex[:12]}", entry_type=kind, description=description)
+                                transaction_reference=ref or f"{kind}:{uuid.uuid4().hex[:12]}", entry_type=kind, description=description,
+                                metadata_json=meta or {})
         db.add(entry)
         # re-check after the debit is written: two purchases racing each other
         # (double tap, two tabs) must not both pass the check above
@@ -75,11 +77,13 @@ async def charge(db: AsyncSession, player_id: str, amount: int, kind: str, descr
             raise LifeError("insufficient_funds")
 
 
-def credit(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ksats") -> None:
+def credit(db: AsyncSession, player_id: str, amount: int, kind: str, description: str, asset: str = "ksats",
+           ref: str | None = None, meta: dict | None = None) -> None:
     if amount <= 0:
         return
     db.add(GameLedgerEntry(account_reference=f"player:{player_id}", asset_type=asset, amount_minor_units=amount,
-                           transaction_reference=f"{kind}:{uuid.uuid4().hex[:12]}", entry_type=kind, description=description))
+                           transaction_reference=ref or f"{kind}:{uuid.uuid4().hex[:12]}", entry_type=kind, description=description,
+                           metadata_json=meta or {}))
 
 
 # --------------------------------------------------------------- school

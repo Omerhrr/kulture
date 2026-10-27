@@ -615,13 +615,12 @@ function enter(door: Door) {
   actors.value = (venue?.actors ?? []).map((a) => {
     const look = lookFor(a.id, !!a.female)
     // uniforms for staff, prayer clothes in the mosque
-    if (a.staff === 'chef') Object.assign(look, { top: '#f2f2f0', bottom: '#2b2b2f', gadgets: [] })
-    else if (a.staff === 'waiter' || a.staff === 'bartender') Object.assign(look, { top: '#1d1f24', bottom: '#1d1f24', gadgets: [] })
-    else if (a.staff === 'reception' || a.staff === 'cashier' || a.staff === 'porter') Object.assign(look, { top: '#1f2a44', bottom: '#2b3440', gadgets: [] })
-    else if (a.staff === 'pastor') Object.assign(look, { top: '#2b2b2f', bottom: '#2b2b2f', gadgets: [] })
-    else if (a.staff === 'choir') Object.assign(look, { top: '#7a2a4a', bottom: '#7a2a4a', gadgets: [] })
-    if (door.venue === 'mosque') Object.assign(look, { top: ['#efe8d6', '#f2f2f0', '#c9b78e', '#3f6fae'][a.id % 4], bottom: '#efe8d6', gadgets: ['kufi'] })
-    if (a.mode === 'run' || a.mode === 'lift') look.gadgets = (look.gadgets ?? []).filter((g) => g === 'watch' || g === 'headphones')
+    if (a.staff === 'chef') Object.assign(look, { top: '#f2f2f0', bottom: '#2b2b2f' })
+    else if (a.staff === 'waiter' || a.staff === 'bartender') Object.assign(look, { top: '#1d1f24', bottom: '#1d1f24' })
+    else if (a.staff === 'reception' || a.staff === 'cashier' || a.staff === 'porter') Object.assign(look, { top: '#1f2a44', bottom: '#2b3440' })
+    else if (a.staff === 'pastor') Object.assign(look, { top: '#2b2b2f', bottom: '#2b2b2f' })
+    else if (a.staff === 'choir') Object.assign(look, { top: '#7a2a4a', bottom: '#7a2a4a' })
+    if (door.venue === 'mosque') Object.assign(look, { top: ['#efe8d6', '#f2f2f0', '#c9b78e', '#3f6fae'][a.id % 4] })
     return { ...a, look }
   })
   actorFrame.value = { x: h.x, y: -INTERIOR_DROP, z: h.z, rot }
@@ -931,7 +930,6 @@ onBeforeUnmount(() => {
           :kufi="false"
           :hijab="false"
           :outfit="a.female ? 'dress' : 'shirt'"
-          :gadgets="(a.look.gadgets ?? []) as any"
           :mode="a.mode as any"
           :seat="a.seat ?? 0.47"
           :phase="(a.id % 17) * 0.37"

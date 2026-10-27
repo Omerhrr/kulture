@@ -27,6 +27,8 @@ export function useGameApi() {
     if (t) headers.Authorization = `Bearer ${t}`
     const res = await fetch(`${base}${path}`, { ...opts, headers })
     const body = await res.json().catch(() => ({}))
+    // our session token expired or was revoked: hand back to the login screen
+    if (res.status === 401 && t && !path.startsWith('/auth/')) window.dispatchEvent(new Event('kk-auth-expired'))
     if (!res.ok) {
       const detail = (body as any)?.detail
       // 422 = form validation: say which field is wrong, in plain words

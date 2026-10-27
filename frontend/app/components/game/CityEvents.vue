@@ -9,6 +9,7 @@ import { BAKE } from '~/utils/kaduna'
 import { heightAt } from '~/utils/terrain'
 import { hitsBuilding } from '~/utils/collision'
 import { lookFor } from '~/utils/wardrobe'
+import { legacyLook, type PersonLook } from '~/utils/people'
 import { useClock } from '~/composables/useTimeOfDay'
 import { useInterior } from '~/composables/useControlsState'
 import { weekdayOf } from '~/utils/lifeShared'
@@ -19,7 +20,7 @@ const day = useState<number>('kk_day', () => 1)
 const playerPos = useState<[number, number, number]>('kk_player_pos')
 const interior = useInterior()
 
-interface Person { id: number; x: number; z: number; y: number; yaw: number; female: boolean; mode: string; top: string; bottom: string; kufi: boolean; hijab: boolean }
+interface Person { id: number; x: number; z: number; y: number; yaw: number; female: boolean; mode: string; top: string; bottom: string; look?: PersonLook }
 const people = shallowRef<Person[]>([])
 const bunting = new THREE.Group()
 bunting.visible = false
@@ -69,7 +70,10 @@ function build(ev: { key: string; kind: string }) {
   const push = (x: number, z: number, yaw: number, mode: string, female: boolean, dress?: Partial<Person>) => {
     if (hitsBuilding(x, z, 0.4)) return
     const look = lookFor(id, female)
-    out.push({ id: id++, x, z, y: heightAt(x, z), yaw, mode, female, top: look.top, bottom: look.bottom, kufi: false, hijab: false, ...dress })
+    const p: Person = { id, x, z, y: heightAt(x, z), yaw, mode, female, top: look.top, bottom: look.bottom, ...dress }
+    p.look = legacyLook({ female, skin: look.skin, shirt: p.top, trouser: p.bottom, seed: id })
+    out.push(p)
+    id++
   }
   const off = Math.max(l.kw, l.kd) / 2 + 6
   // find an open block next to the landmark (streets count - Jumu'ah
@@ -89,7 +93,7 @@ function build(ev: { key: string; kind: string }) {
     return [l.x, l.z + off]
   }
   if (ev.kind === 'jumuah') {
-    // rows facing the qibla (roughly north-east from Kaduna), men in white
+    // rows facing the qibla (roughly north-east from Kaduna)
     // Jumu'ah overflow: rows of worshippers on mats in the street right
     // outside the mosque (as happens every Friday), facing the qibla
     const qibla = Math.atan2(0.6, -0.8)
@@ -101,7 +105,7 @@ function build(ev: { key: string; kind: string }) {
     for (let r = 0; r < 5; r++) for (let c = -8; c <= 8; c++) {
       const x = rx + ax * c * 1.1 + px * (r - 2) * 1.35
       const z = rz + az * c * 1.1 + pz * (r - 2) * 1.35
-      push(x, z, qibla, 'pray', false, { top: ['#efe8d6', '#f2f2f0', '#c9b78e', '#d9e4ea'][(r + c + 16) % 4], bottom: '#efe8d6', kufi: true })
+      push(x, z, qibla, 'pray', false, { top: ['#efe8d6', '#f2f2f0', '#c9b78e', '#d9e4ea'][(r + c + 16) % 4], bottom: ['#2b3440', '#3a3f4a', '#1d1c1f'][(r + c + 16) % 3] })
     }
     mats.push({ x: rx, z: rz, rot: rh, w: 19, d: 7.4, color: '#2f6b4f' })
   } else if (ev.kind === 'service') {
@@ -111,7 +115,7 @@ function build(ev: { key: string; kind: string }) {
     for (let i = 0; i < 34; i++) {
       const a = (i / 34) * Math.PI * 2
       const rr = off + 4 + (i % 4) * 2.5
-      push(l.x + Math.cos(a) * rr, l.z + Math.sin(a) * rr * 0.8, a + Math.PI / 2, i % 3 === 0 ? 'talk' : 'browse', i % 2 === 0, { hijab: i % 5 === 0 })
+      push(l.x + Math.cos(a) * rr, l.z + Math.sin(a) * rr * 0.8, a + Math.PI / 2, i % 3 === 0 ? 'talk' : 'browse', i % 2 === 0)
     }
   } else {
     // festival: dancers + people chatting around the square
@@ -120,7 +124,7 @@ function build(ev: { key: string; kind: string }) {
       const rr = 18 + (i % 3) * 3
       const fest = ev.kind === 'sallah'
       push(l.x + Math.cos(a) * rr, l.z + Math.sin(a) * rr, a + Math.PI, i % 3 === 0 ? 'talk' : 'dance', i % 2 === 0,
-        fest ? { top: ['#0e7c66', '#efe8d6', '#6b2fa0', '#d4a017'][i % 4], bottom: '#efe8d6', kufi: i % 2 === 1 } : { top: ['#c81d25', '#1aa34a', '#ffffff'][i % 3] })
+        fest ? { top: ['#0e7c66', '#efe8d6', '#6b2fa0', '#d4a017'][i % 4] } : { top: ['#c81d25', '#1aa34a', '#ffffff'][i % 3] })
     }
   }
   // bunting / fairy lights strung around the square for festivals
@@ -174,6 +178,6 @@ if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_citye
   <primitive :object="bunting" />
   <primitive :object="matGroup" />
   <TresGroup v-for="p in people" :key="p.id" :position="[p.x, p.y, p.z]" :rotation-y="p.yaw">
-    <CharacterAvatar real :female="p.female" :skin="lookFor(p.id, p.female).skin" :shirt="p.top" :trouser="p.bottom" :outfit="p.female ? 'dress' : 'shirt'" :hair-style="p.female ? 'braids' : 'cap'" :kufi="p.kufi" :hijab="p.hijab" :gadgets="(p.kufi ? ['kufi'] : []) as any" :mode="p.mode as any" :phase="(p.id % 11) * 0.37" />
+    <CharacterAvatar :person="p.look" :mode="p.mode as any" :phase="(p.id % 11) * 0.37" />
   </TresGroup>
 </template>

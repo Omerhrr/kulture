@@ -3,9 +3,10 @@ import { useCamMode } from '~/composables/useControlsState'
 import { useSimStore } from '~/stores/sim'
 import { useWorkStore } from '~/stores/work'
 import { usePlayerPose } from '~/composables/useControlsState'
-import { ACTION_DUR, type ActionName } from '~/utils/humanAnim'
+import { ACTION_DUR, JUMP_G, JUMP_LAND, JUMP_TAKEOFF, type ActionName } from '~/utils/humanAnim'
 import { throwMelee, hitNamed } from '~/utils/impact'
 import { heightAt } from '~/utils/terrain'
+import { fromSimLook } from '~/utils/people'
 // PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
 // Inputs: WASD / arrow keys, the touch joystick (mobile), plus
@@ -42,6 +43,9 @@ const actKey = ref(0)
 let actUntil = 0
 let jumpY = 0
 let jumpVy = 0
+// the legs crouch first: the body leaves the ground at the animation's
+// take-off and lands on its landing key
+let jumpAt = 0
 let slideX = 0
 let slideZ = 0
 const MELEE: Partial<Record<ActionName, { delay: number; power: number; reach: number }>> = {
@@ -54,8 +58,8 @@ function doAction(a: ActionName) {
   const now = performance.now()
   if (now < actUntil && a !== 'jump') return
   if (a === 'jump') {
-    if (jumpY > 0.01) return
-    jumpVy = 4.7
+    if (jumpY > 0.01 || jumpAt) return
+    jumpAt = now + JUMP_TAKEOFF * 1000
     kkAudio.init()
   }
   pose.value = null
@@ -395,8 +399,12 @@ onBeforeRender(({ delta }) => {
   // the CharacterAvatar runs the gait cycle; keep the group on the floor
   bobT.value = moving ? bobT.value + dt : 0
   // jump arc
+  if (jumpAt && performance.now() >= jumpAt) {
+    jumpAt = 0
+    jumpVy = (JUMP_G * (JUMP_LAND - JUMP_TAKEOFF)) / 2
+  }
   if (jumpVy !== 0 || jumpY > 0) {
-    jumpVy -= 14 * dt
+    jumpVy -= JUMP_G * dt
     jumpY = Math.max(0, jumpY + jumpVy * dt)
     if (jumpY === 0 && jumpVy < 0) {
       jumpVy = 0
@@ -439,22 +447,10 @@ onBeforeRender(({ delta }) => {
 <template>
   <TresGroup ref="group" :position="[playerPos[0], 0, playerPos[2]]">
     <TresGroup ref="bodyRef">
-    <CharacterAvatar real
+    <CharacterAvatar
       v-if="!ride.active"
       :key="lookKey"
-      :shirt="sim.look.top"
-      :trouser="sim.look.bottom"
-      :skin="sim.look.skin"
-      :kufi="sim.look.hair === 'cap'"
-      :hijab="sim.look.outfit === 'dress'"
-      :hair-style="sim.look.hair"
-      :hair-color="sim.look.hairColor"
-      :outfit="sim.look.outfit"
-      :gadgets="(sim.look.gadgets ?? []) as any"
-      :print="sim.look.print"
-      :scarf="sim.look.hairColor"
-      :dress="sim.look.dress ?? (sim.look.outfit === 'kaftan' || sim.look.outfit === 'dress' ? 'traditional' : 'modern')"
-      :beard="sim.look.body === 'man' && sim.look.hair !== 'braids'"
+      :person="fromSimLook(sim.look)"
       :mode="(pose ?? (walking ? 'walk' : 'idle')) as any"
       :gait-speed="sprinting ? 15.5 : 10.5"
       :action="actName"

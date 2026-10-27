@@ -48,8 +48,8 @@ ENTITIES = [
     ("arewa_pos", "Arewa QuickPOS Kiosk", "pos_kiosk", -34.667, -2.683, 0.0, 6.0),
     ("kaduna_central_market", "Kaduna Central Market", "market", -70.0, 98.0, -0.5, 14.0),
     ("arewa_house", "Arewa House", "landmark", -34.667, -144.45, 0.9, 10.0),
-    ("stonetech_square", "Stonetech Square, Barnawa", "landmark", -42.0, 350.0, -0.4, 10.0),
-    ("keke_stop", "Keke Napep Stop, Kaduna Junction", "transport_stop", -245.0, 417.05, 0.2, 8.0),
+    ("stonetech_square", "Stonetech Square", "landmark", -42.0, 350.0, -0.4, 10.0),
+    ("keke_stop", "Keke Napep Stop, Kaduna Junction", "transport_stop", -240.667, 417.05, 0.2, 8.0),
     ("npc_musa", "Mallam Musa", "npc", -50.5, 82.583, 0.5, 4.0),
     ("npc_amina", "Hajiya Amina", "npc", -43.667, 349.333, -0.3, 4.0),
 ]
@@ -59,14 +59,14 @@ ENTITIES = [
 NEW_ENTITIES = [
     ("textile_market", "Kaduna Textile Market", "market", -186.0, 640.0, -0.4, 12.0),
     ("kawo_motor_park", "Kawo Motor Park", "transport_stop", 76.0, -546.0, 0.1, 12.0),
-    ("kasu_gate", "KASU Main Gate", "landmark", 114.0, 108.0, 0.0, 10.0),
+    ("kasu_gate", "KASU Main Gate", "landmark", 112.0, 108.0, 0.0, 10.0),
     ("rigasa_station", "Rigasa Station Freight Office", "transport_stop", -943.0, -134.0, -0.2, 12.0),
-    ("sabon_tasha_shop", "Sabon Tasha Community Shop", "shop", 252.0, 1042.0, 0.3, 10.0),
+    ("sabon_tasha_shop", "Sabon Tasha Community Shop", "shop", 247.667, 1032.0, 0.3, 10.0),
     ("npc_mama_chidi", "Mama Chidi", "npc", -181.0, 631.0, 0.5, 4.0),
     ("npc_bashir", "Bashir the Union Man", "npc", 69.0, -542.0, -0.4, 4.0),
-    ("npc_prof_danjuma", "Professor Danjuma", "npc", 107.0, 104.0, 0.2, 4.0),
+    ("npc_prof_danjuma", "Professor Danjuma", "npc", 109.5, 106.5, 0.2, 4.0),
     ("npc_tunde", "Tunde the Freight Officer", "npc", -936.0, -130.0, 0.3, 4.0),
-    ("npc_ngozi", "Ngozi of Sabon Tasha", "npc", 246.0, 1036.0, -0.5, 4.0),
+    ("npc_ngozi", "Ngozi of Sabon Tasha", "npc", 247.0, 1034.067, -0.5, 4.0),
 ]
 
 SHOP_LISTINGS = [
@@ -187,11 +187,11 @@ JOB_DEFS = [
      "sabon_tasha_stores", "sabon_tasha_shop", "kaduna_central_market", 11_000_00, 7),
     ("deliv-rigasa-kawo-0007", "Station waybill to Kawo Motor Park",
      "A waybill came in on the morning train. Tunde needs it at the Kawo "
-     "Motor Park union point, south across the river.",
+     "Motor Park union point, north-east across town.",
      "station_freight", "rigasa_station", "kawo_motor_park", 12_000_00, 7),
     ("deliv-kasu-stonetech-0008", "Lab supplies to Stonetech Square",
      "Professor Danjuma has a box of lab supplies for Hajiya Amina at "
-     "Stonetech Square in Barnawa.",
+     "Stonetech Square by the stadium.",
      "campus_kiosk", "kasu_gate", "stonetech_square", 9_500_00, 6),
 ]
 
@@ -217,7 +217,18 @@ async def reconcile_world_scale(db: AsyncSession) -> int:
             changed += 1
         if code == "spawn_roadside":
             spawn = (tx, tz)
-    if changed and spawn is not None:
+    moved_core = changed
+    # district spots (and their keepers) are only nudged to stay off the
+    # streets: move the rows, players stay where they are
+    for code, _name, _etype, x, z, _rot, _radius in NEW_ENTITIES:
+        e = (await db.execute(select(WorldEntity).where(WorldEntity.code == code))).scalar_one_or_none()
+        if e is None:
+            continue
+        tx, tz = x * k, z * k
+        if abs(e.position_x - tx) > 0.01 or abs(e.position_z - tz) > 0.01:
+            e.position_x, e.position_z = tx, tz
+            changed += 1
+    if moved_core and spawn is not None:
         # entities moved => old saved player positions belong to the old
         # scale; put everyone back on Ahmadu Bello Way
         for ps in (await db.execute(select(PlayerState))).scalars().all():
@@ -486,6 +497,32 @@ async def seed_if_empty(db: AsyncSession) -> bool:
 
     await db.commit()
     return True
+
+
+async def refresh_seed_text(db: AsyncSession) -> int:
+    """Keep seeded names and job texts in step with this file on databases
+    created by an older build (wrong district names, wrong directions).
+    Only rows still carrying a seeded code are touched. Idempotent."""
+    n = 0
+    names = {code: name for code, name, *_ in [*ENTITIES, *NEW_ENTITIES]}
+    for e in (await db.execute(select(WorldEntity).where(WorldEntity.code.in_(list(names))))).scalars():
+        if e.name != names[e.code]:
+            e.name = names[e.code]
+            n += 1
+    texts = {code: (title, desc) for code, title, desc, *_ in JOB_DEFS}
+    texts["deliv-musa-stonetech-0001"] = (
+        "Deliver Suya Spice to Stonetech Square",
+        "Collect a sealed package from Musa's Provision Store and deliver it to "
+        "Hajiya Amina at Stonetech Square.",
+    )
+    for j in (await db.execute(select(Job).where(Job.code.in_(list(texts))))).scalars():
+        title, desc = texts[j.code]
+        if (j.title, j.description) != (title, desc):
+            j.title, j.description = title, desc
+            n += 1
+    if n:
+        await db.commit()
+    return n
 
 
 DEMO_USERNAME = "demo_player"

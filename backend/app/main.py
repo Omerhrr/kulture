@@ -18,7 +18,7 @@ from app.agents.llm_client import llm_client
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal, engine
 from app.api.router import api_root
-from app.seed.seed_data import reconcile_content, reconcile_world_scale, retire_demo_account, seed_if_empty
+from app.seed.seed_data import reconcile_content, reconcile_world_scale, refresh_seed_text, retire_demo_account, seed_if_empty
 from app.workers.runner import start_all
 
 logging.basicConfig(
@@ -54,6 +54,12 @@ async def lifespan(app: FastAPI):
         await ensure_regions(db)
         if content:
             log.info("District content reconciled: %d rows added.", content)
+        if await refresh_seed_text(db):
+            log.info("Seeded names and job texts refreshed.")
+        from app.services.social_service import migrate_persona_ids
+
+        if await migrate_persona_ids(db):
+            log.info("Dating persona relationships moved to their new ids.")
     workers = start_all()
     log.info("Kaduna Kulture backend up (env=%s, lightning=%s)", settings.env, settings.lightning_provider)
     try:
