@@ -28,7 +28,9 @@ const PLAYABLE: Box[] = [
   // districts
   { ...at('textile_market'), w: 22, d: 13 }, // fabric stall block
   { ...at('kawo_motor_park'), w: 17, d: 6 }, // motor park canopy
-  { ...at('kasu_gate'), w: 14, d: 3.4 }, // campus gate arch line
+  // campus gate: only the two pillars are solid, the street runs through the arch
+  { x: at('kasu_gate').x - 5.6, z: at('kasu_gate').z, w: 1.8, d: 1.8 },
+  { x: at('kasu_gate').x + 5.6, z: at('kasu_gate').z, w: 1.8, d: 1.8 },
   { ...at('rigasa_station'), w: 32, d: 7 }, // platform canopy
   { ...at('sabon_tasha_shop'), w: 13, d: 10 } // community store
 ]

@@ -4,6 +4,7 @@
 // (see CameraRig / SunLight / PlayerAvatar / NpcAvatar).
 
 import { getQuality, perf } from '~/utils/quality'
+import { CAST } from '~/utils/cast'
 const world = useWorldStore()
 const low = getQuality() === 'low'
 
@@ -21,20 +22,11 @@ onMounted(() => {
 })
 onUnmounted(() => stageTimer && clearInterval(stageTimer))
 
-// Distinct look per server NPC (positions come from the world store).
-const NPC_LOOKS: Record<string, { female?: boolean; shirt: string; hairStyle?: 'cap' | 'afro' | 'braids' | 'bald'; beard?: boolean }> = {
-  npc_musa: { shirt: '#efe8d6', hairStyle: 'cap', beard: true },
-  npc_amina: { female: true, shirt: '#3f6fae', hairStyle: 'braids' },
-  npc_mama_chidi: { female: true, shirt: '#8a3a5a', hairStyle: 'braids' },
-  npc_bashir: { shirt: '#2e7d5b', hairStyle: 'cap', beard: true },
-  npc_prof_danjuma: { shirt: '#4a6a8a', hairStyle: 'afro', beard: true },
-  npc_tunde: { shirt: '#c47a2a', hairStyle: 'cap' },
-  npc_ngozi: { female: true, shirt: '#a84a6a', hairStyle: 'braids' }
-}
+// The named story people (utils/cast); positions come from the world store.
 const npcs = computed(() =>
   world.npcEntities
-    .filter((e) => NPC_LOOKS[e.code])
-    .map((e) => ({ code: e.code, x: e.position[0], z: e.position[2], ...NPC_LOOKS[e.code] }))
+    .filter((e) => CAST[e.code])
+    .map((e) => ({ code: e.code, x: e.position[0], z: e.position[2], person: CAST[e.code]!.look }))
 )
 
 // mount telemetry (headless debugging)
@@ -88,6 +80,6 @@ if (import.meta.dev) {
     <CrewClubhouse v-if="stage >= 10" />
     <CarParks v-if="stage >= 10" />
     <AmbientHeli v-if="stage >= 11" />
-    <template v-if="stage >= 5"><NpcAvatar v-for="n in npcs" :key="n.code" :x="n.x" :z="n.z" :name="n.code" :female="n.female" :shirt="n.shirt" :hair-style="n.hairStyle" :beard="n.beard" /></template>
+    <template v-if="stage >= 5"><NpcAvatar v-for="n in npcs" :key="n.code" :x="n.x" :z="n.z" :name="n.code" :person="n.person" /></template>
   </TresCanvas>
 </template>

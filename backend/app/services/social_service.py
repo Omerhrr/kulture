@@ -20,16 +20,18 @@ class SocialError(Exception):
     pass
 
 
-# Dating-app personas (NPCs that live in the city)
+# Dating-app personas (NPCs that live in the city). Their ids and names
+# never reuse a story character's (npc_musa, npc_amina, npc_tunde... are the
+# shopkeeper, the Stonetech coordinator, the freight officer).
 PERSONAS: dict[str, dict[str, Any]] = {
-    "npc_amina": {"name": "Amina", "gender": "female", "age": 24, "job": "Nurse at Barau Dikko", "likes": ["park", "restaurant"], "bio": "Suya lover, Kannywood critic, early riser."},
+    "npc_aisha": {"name": "Aisha", "gender": "female", "age": 24, "job": "Nurse at Barau Dikko", "likes": ["park", "restaurant"], "bio": "Suya lover, Kannywood critic, early riser."},
     "npc_zainab": {"name": "Zainab", "gender": "female", "age": 27, "job": "Banker, Ahmadu Bello Way", "likes": ["restaurant", "cinema"], "bio": "Numbers by day, novels by night."},
     "npc_grace": {"name": "Grace", "gender": "female", "age": 25, "job": "Choir singer & designer", "likes": ["cinema", "park"], "bio": "Ankara designs and Sunday harmonies."},
     "npc_halima": {"name": "Halima", "gender": "female", "age": 23, "job": "KASU medical student", "likes": ["park", "cinema"], "bio": "Future doctor. Fura da nono fan."},
-    "npc_musa": {"name": "Musa", "gender": "male", "age": 28, "job": "Software developer", "likes": ["cinema", "restaurant"], "bio": "Codes in Barnawa, plays 5-a-side on Saturdays."},
+    "npc_sadiq": {"name": "Sadiq", "gender": "male", "age": 28, "job": "Software developer", "likes": ["cinema", "restaurant"], "bio": "Codes in Barnawa, plays 5-a-side on Saturdays."},
     "npc_emeka": {"name": "Emeka", "gender": "male", "age": 30, "job": "Trader, Central Market", "likes": ["restaurant", "park"], "bio": "Hustler with a big heart. Pepper soup expert."},
     "npc_ibrahim": {"name": "Ibrahim", "gender": "male", "age": 26, "job": "Teacher, Kaduna Poly", "likes": ["park", "restaurant"], "bio": "Poetry, tea and long walks by the river."},
-    "npc_tunde": {"name": "Tunde", "gender": "male", "age": 29, "job": "DJ at the bar", "likes": ["cinema", "restaurant"], "bio": "Afrobeats all day. I'll make you dance."},
+    "npc_kunle": {"name": "Kunle", "gender": "male", "age": 29, "job": "DJ at the bar", "likes": ["cinema", "restaurant"], "bio": "Afrobeats all day. I'll make you dance."},
 }
 
 GREETINGS = ["Sannu!", "Ina kwana?", "Ina wuni?", "Barka da yamma!", "Lafiya lau?", "Yaya aiki?"]
@@ -54,6 +56,30 @@ DATE_ROUNDS: list[dict[str, Any]] = [
 ]
 
 
+# dating personas that used to share a story character's id: (old id, old
+# name) -> (new id, new name). Applied to saved relationships on boot.
+PERSONA_RENAMES: dict[str, tuple[str, str, str]] = {
+    "npc_amina": ("Amina", "npc_aisha", "Aisha"),
+    "npc_musa": ("Musa", "npc_sadiq", "Sadiq"),
+    "npc_tunde": ("Tunde", "npc_kunle", "Kunle"),
+}
+
+
+async def migrate_persona_ids(db: AsyncSession) -> int:
+    """Move relationships with the renamed dating personas to their new ids
+    (only rows that are about the persona - same old name). Idempotent."""
+    n = 0
+    for old_id, (old_name, new_id, new_name) in PERSONA_RENAMES.items():
+        rows = (await db.execute(select(Relationship).where(
+            Relationship.other_kind == "npc", Relationship.other_id == old_id, Relationship.name == old_name))).scalars().all()
+        for r in rows:
+            r.other_id, r.name = new_id, new_name
+            n += 1
+    if n:
+        await db.commit()
+    return n
+
+
 def _clamp(v: int) -> int:
     return max(0, min(100, v))
 
@@ -62,6 +88,7 @@ def rel_out(r: Relationship) -> dict[str, Any]:
     p = PERSONAS.get(r.other_id, {})
     return {"id": r.id, "kind": r.other_kind, "other_id": r.other_id, "name": r.name, "friendship": r.friendship,
             "romance": r.romance, "status": r.status, "memory": list(r.memory or [])[-5:], "job": p.get("job"),
+            "gender": p.get("gender"),
             "on_date": bool((r.date_state or {}).get("place"))}
 
 

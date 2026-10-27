@@ -12,7 +12,8 @@ import { INTERIOR_DROP } from '~/utils/kadunaExtras'
 import { PARK_AREAS, PITCH } from '~/utils/parksShared'
 import { hitsBuilding } from '~/utils/collision'
 import { hashDist, roadHash } from '~/utils/kadunaExtras'
-import { lookFor } from '~/utils/wardrobe'
+import { randomLook, type PersonLook } from '~/utils/people'
+import type { Outfit } from '~/utils/outfits'
 import { useInterior, usePlayerPose } from '~/composables/useControlsState'
 import type { SceneState } from '~/utils/lifeShared'
 
@@ -37,7 +38,7 @@ function onDate(e: Event) {
     return
   }
   scene.value.date = { name: d.name, place: d.place }
-  dateFemale.value = !/^(Musa|Emeka|Ibrahim|Tunde)/.test(d.name)
+  dateFemale.value = d.female ?? true
   const f = facing.value
   const [px, , pz] = playerPos.value
   datePos.value = [px + Math.sin(f) * 1.4, floorY(), pz + Math.cos(f) * 1.4]
@@ -71,8 +72,10 @@ const canopy = new THREE.Group()
   }
   canopy.visible = false
 }
+const owambeFemale = ref(true)
 function onOwambe(e: Event) {
   const partner = (e as CustomEvent).detail?.partner ?? 'your partner'
+  owambeFemale.value = (e as CustomEvent).detail?.female ?? true
   const guest = !!(e as CustomEvent).detail?.guest
   const [px, , pz] = playerPos.value
   const y = floorY()
@@ -400,7 +403,11 @@ onBeforeUnmount(() => {
 if (import.meta.dev && typeof window !== 'undefined') {
   ;(window as any).__kk_social = () => ({ ...scene.value, ball: ballBody ? ballBody.translation() : null, ballers: ballers.value.length })
 }
-const look = (id: number, female: boolean) => lookFor(id, female)
+/** an everyday person (utils/people) wearing what the scene asks for */
+const dressed = (seed: number, female: boolean, over: Partial<Outfit> = {}): PersonLook => {
+  const b = randomLook(seed, female)
+  return { ...b, outfit: { ...b.outfit, ...over } }
+}
 </script>
 
 <template>
@@ -411,24 +418,24 @@ const look = (id: number, female: boolean) => lookFor(id, female)
 
   <!-- date partner -->
   <TresGroup v-if="scene.date" :position="datePos" :rotation-y="dateYaw">
-    <CharacterAvatar real :female="dateFemale" :skin="look(77, dateFemale).skin" :shirt="dateFemale ? '#b0306a' : '#1f3b5a'" :trouser="look(77, dateFemale).bottom" :outfit="dateFemale ? 'dress' : 'shirt'" :hair-style="dateFemale ? 'braids' : 'cap'" :kufi="false" :hijab="false" :mode="'talk' as any" />
+    <CharacterAvatar :key="`date-${scene.date.name}-${dateFemale}`" :person="dressed(77, dateFemale, dateFemale ? { top: 'shirt', topColor: '#b0306a', bottom: 'skirt' } : { top: 'shirt', topColor: '#1f3b5a', bottom: 'trousers' })" :mode="'talk' as any" />
   </TresGroup>
 
   <!-- dance battle rival -->
   <TresGroup v-if="scene.dance" :position="rivalPos" :rotation-y="rivalYaw">
-    <CharacterAvatar real :female="false" :skin="look(55, false).skin" shirt="#e8b923" trouser="#1b1b1b" outfit="shirt" hair-style="cap" :kufi="false" :mode="'dance' as any" :phase="0.7" />
+    <CharacterAvatar :person="dressed(55, false, { top: 'tee', topColor: '#e8b923', bottom: 'jeans', bottomColor: '#1b1b1b' })" :mode="'dance' as any" :phase="0.7" />
   </TresGroup>
 
   <!-- owambe crowd in aso-ebi -->
   <TresGroup v-for="c in crowd" :key="c.id" :position="[c.x, owambeAt[1], c.z]" :rotation-y="c.yaw">
-    <CharacterAvatar real :female="c.female" :skin="look(c.id, c.female).skin" :shirt="c.top" :trouser="c.top" :outfit="c.female ? 'dress' : 'shirt'" :hair-style="c.female ? 'braids' : 'cap'" :kufi="false" :hijab="false" :mode="'dance' as any" :phase="(c.id % 7) * 0.5" />
+    <CharacterAvatar :person="dressed(c.id, c.female, { top: 'shirt', topColor: c.top, ...(c.female ? { bottom: 'skirt', bottomColor: c.top } : {}) })" :mode="'dance' as any" :phase="(c.id % 7) * 0.5" />
   </TresGroup>
   <TresGroup v-if="scene.owambe" :position="[owambeAt[0] + 1.1, owambeAt[1], owambeAt[2]]" :rotation-y="-Math.PI / 2">
-    <CharacterAvatar real :female="!/^(Musa|Emeka|Ibrahim|Tunde)/.test(scene.owambe.partner)" skin="#6e4630" shirt="#d4a017" trouser="#d4a017" outfit="dress" hair-style="braids" :kufi="false" :hijab="false" :mode="'dance' as any" />
+    <CharacterAvatar :key="`owambe-${scene.owambe.partner}-${owambeFemale}`" :person="dressed(88, owambeFemale, { top: 'shirt', topColor: '#d4a017', bottom: owambeFemale ? 'skirt' : 'trousers', bottomColor: '#d4a017' })" :mode="'dance' as any" />
   </TresGroup>
 
   <!-- footballers: green bibs vs red bibs -->
   <TresGroup v-for="p in ballers" :key="p.id" :ref="setRef(p.id)" :position="[pc.x + p.hx, pc.y, pc.z + p.hz]">
-    <CharacterAvatar real :female="p.female" :skin="look(300 + p.id, p.female).skin" :shirt="p.team === 0 ? '#1aa34a' : '#c81d25'" trouser="#1b1b1b" outfit="shirt" hair-style="cap" :kufi="false" :hijab="false" :mode="(p.moving ? 'walk' : 'idle') as any" :gait-speed="12" />
+    <CharacterAvatar :person="dressed(300 + p.id, p.female, { top: 'tee', topColor: p.team === 0 ? '#1aa34a' : '#c81d25', bottom: 'shorts', bottomColor: '#1b1b1b', shoes: 'sneakers' })" :mode="(p.moving ? 'walk' : 'idle') as any" :gait-speed="12" />
   </TresGroup>
 </template>

@@ -66,3 +66,32 @@ async def test_reconcile_heals_old_scale_and_is_idempotent():
 
         # second run: nothing left to do
         assert await reconcile_world_scale(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_moves_district_spots_without_resetting_players():
+    """District spots nudged off the streets are moved on boot; players
+    keep their positions (only a scale change sends them to the spawn)."""
+    from app.db.session import AsyncSessionLocal
+    from app.models.player import PlayerState
+    from app.models.world import WorldEntity
+    from app.seed.seed_data import NEW_ENTITIES
+
+    k = settings.world_scale
+    async with AsyncSessionLocal() as db:
+        await reconcile_world_scale(db)
+        shop = (await db.execute(select(WorldEntity).where(WorldEntity.code == "sabon_tasha_shop"))).scalar_one()
+        shop.position_x, shop.position_z = 756.0, 3126.0  # the old spot, on the street
+        players = (await db.execute(select(PlayerState))).scalars().all()
+        for ps in players:
+            ps.position_x, ps.position_z = 12.5, -40.0
+        await db.commit()
+
+        assert await reconcile_world_scale(db) >= 1
+        raw = next(e for e in NEW_ENTITIES if e[0] == "sabon_tasha_shop")
+        shop = (await db.execute(select(WorldEntity).where(WorldEntity.code == "sabon_tasha_shop"))).scalar_one()
+        assert shop.position_x == pytest.approx(raw[3] * k)
+        assert shop.position_z == pytest.approx(raw[4] * k)
+        for ps in (await db.execute(select(PlayerState))).scalars().all():
+            assert (ps.position_x, ps.position_z) == (12.5, -40.0)
+        assert await reconcile_world_scale(db) == 0

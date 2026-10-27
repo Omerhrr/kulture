@@ -48,7 +48,8 @@ const today = computed(() => {
 })
 const calOpen = ref(false)
 const wedding = ref<{ couple: string } | null>(null)
-const COUPLES = ['Aisha & Sadiq', 'Ngozi & Emeka', 'Hadiza & Kabiru', 'Grace & Tunde', 'Zainab & Bashir']
+// strangers' weddings: never a name the story or the dating app uses
+const COUPLES = ['Hauwa & Yusuf', 'Adaeze & Chinedu', 'Hadiza & Kabiru', 'Ramatu & Idris', 'Yemisi & Uche']
 let lastHourInt = -1
 watch(hour, (h) => {
   const hi = Math.floor(h)
@@ -83,7 +84,7 @@ function attendWedding() {
   const c = wedding.value
   wedding.value = null
   if (!c) return
-  window.dispatchEvent(new CustomEvent('kk-owambe', { detail: { partner: c.couple, guest: true } }))
+  window.dispatchEvent(new CustomEvent('kk-owambe', { detail: { partner: c.couple, guest: true, female: true } }))
 }
 
 // ------------------------------------------------------------ keke / okada calls
@@ -178,7 +179,7 @@ function startTalent(a: (typeof ACTS)[number]) {
   bars.value = []
   result.value = null
   rivals.value = [
-    { name: 'Halima (singer)', score: 60 + Math.round(Math.random() * 25) },
+    { name: 'Lantana (singer)', score: 60 + Math.round(Math.random() * 25) },
     { name: 'Mr Funny Kaduna', score: 55 + Math.round(Math.random() * 30) },
     { name: 'Sani the Juggler', score: 50 + Math.round(Math.random() * 30) }
   ]
