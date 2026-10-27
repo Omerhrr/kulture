@@ -131,6 +131,28 @@ export function hitsBuilding(x: number, z: number, pad: number): boolean {
   }
   return false
 }
+/**
+ * Do two oriented rectangles overlap? (separating-axis test). Each is a
+ * centre, a heading h (forward = (sin h, cos h)) and half-length / half-width.
+ */
+export function obbOverlap(
+  ax: number, az: number, ah: number, ahl: number, ahw: number,
+  bx: number, bz: number, bh: number, bhl: number, bhw: number
+): boolean {
+  const afx = Math.sin(ah), afz = Math.cos(ah)
+  const bfx = Math.sin(bh), bfz = Math.cos(bh)
+  const dx = bx - ax, dz = bz - az
+  // the four candidate axes: each box's forward and right
+  const axes = [afx, afz, afz, -afx, bfx, bfz, bfz, -bfx]
+  for (let i = 0; i < 8; i += 2) {
+    const nx = axes[i]!, nz = axes[i + 1]!
+    const ra = ahl * Math.abs(afx * nx + afz * nz) + ahw * Math.abs(afz * nx - afx * nz)
+    const rb = bhl * Math.abs(bfx * nx + bfz * nz) + bhw * Math.abs(bfz * nx - bfx * nz)
+    if (Math.abs(dx * nx + dz * nz) > ra + rb) return false
+  }
+  return true
+}
+
 /** Buildings whose cell contains (x, z). Pad is small (< 1 cell). */
 export function buildingsNear(x: number, z: number): Box[] {
   return grid.get(key(Math.floor(x / CELL), Math.floor(z / CELL))) ?? EMPTY

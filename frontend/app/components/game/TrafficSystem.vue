@@ -12,7 +12,7 @@ const workStore = useWorkStore()
 // for gaps and dodge.
 import * as THREE from 'three'
 import { BAKE, roadW } from '~/utils/kaduna'
-import { vehicleMaterial, vehicleSpec, type VehicleKind } from '~/utils/vehicles'
+import { vehicleMaterial, vehicleSpec, VEHICLE_HALF, type VehicleKind } from '~/utils/vehicles'
 import { signals, signalPhase, marketFront, type Signal } from '~/utils/kadunaLighting'
 import { probeReset, probePush, trafficProbe } from '~/utils/trafficProbe'
 import { hitsBuilding } from '~/utils/collision'
@@ -803,7 +803,9 @@ onBeforeRender(({ delta, elapsed }) => {
       mesh.setMatrixAt(i, m4)
 
       // publish to pedestrians + headlight slot
-      probePush(car.x, car.z, car.v, car.h, 1.6)
+      // (oriented footprint so the player's vehicle can't drive through it)
+      const [hl, hw] = VEHICLE_HALF[CLASSES[ci].kind]
+      probePush(car.x, car.z, car.v, car.h, 1.6, hl, hw)
       if (headlightM) {
         const slot = classOffset[ci] + i
         m4.compose(
@@ -890,8 +892,11 @@ onBeforeRender(({ delta, elapsed }) => {
     plane.rotation.y = planeHeading
     plane.rotation.z = planePhase === 'circle' ? -0.16 : 0
     plane.rotation.x = planePhase === 'circle' ? 0.06 : planePhase === 'approach' ? -0.05 : 0
-    if (planePhase === 'roll' || planePhase === 'circle') {
-      probePush(planeX, planeZ, planeSpeed, planeHeading, 3.2)
+    // solid to street traffic only while it is on the ground ('circle' is
+    // the climb-out, up to 55 m in the air)
+    if (planeAlt < 1.5) {
+      const [hl, hw] = VEHICLE_HALF.plane
+      probePush(planeX, planeZ, planeSpeed, planeHeading, 3.2, hl, hw)
     }
   }
 })

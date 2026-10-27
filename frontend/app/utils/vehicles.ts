@@ -223,6 +223,20 @@ const BODY = '#ffffff' // tinted per instance in traffic
 const GLASS = '#1d2730'
 const TRIM = '#2a2d33'
 
+/** Body half-length (along heading) and half-width per kind, measured off
+ *  the geometry below: the footprint used for vehicle-vs-vehicle collision
+ *  (a circle would make cars in neighbouring lanes "touch"). */
+export const VEHICLE_HALF: Record<VehicleKind, [number, number]> = {
+  car: [2.3, 0.95],
+  bus: [2.5, 0.98],
+  keke: [1.3, 0.68],
+  okada: [1.0, 0.35],
+  bicycle: [0.9, 0.3],
+  truck: [3.5, 1.17],
+  boat: [2.9, 0.95],
+  plane: [3.5, 4.6]
+}
+
 const cache = new Map<string, VehicleSpec>()
 
 /** 'hi' = full detail (the car you drive / sit in), 'lo' = distant copies:

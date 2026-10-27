@@ -20,6 +20,13 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { BAKE, BRIDGE_NAMES, WORLD_SCALE, roadW, ws, SIDEWALK_W, PLAYABLE_POS, IS_CITY } from '~/utils/kaduna'
 // keep storefronts / NPC spots / spawn readable: no trees or kiosks in front
 const KEEP_CLEAR = Object.values(PLAYABLE_POS)
+// Street section heights. People, peds and every vehicle stand at y = 0
+// (heightAt() is 0 on roads), so the ASPHALT must be the y = 0 surface:
+// it used to sit at +0.12 (paint +0.16), burying feet and tyres to the
+// ankle. The layers below it step down toward the grass (-0.12), and each
+// gets a polygon offset (see ROAD_LAYER) so their order holds at any range.
+const ROAD_Y = { concrete: -0.06, curb: -0.035, asphalt: 0, paint: 0.012 }
+const ROAD_LAYER: Record<string, number> = { concrete: 1, curb: 2, asphalt: 3, line: 4, gold: 4 }
 const inKeepClear = (x: number, z: number, r = 14) => KEEP_CLEAR.some(([px, pz]) => Math.abs(x - px) < r && Math.abs(z - pz) < r)
 import { buildHouseSystem, makeHouseMaterial, type HouseSystem } from '~/utils/housing'
 import { buildTowerMeshes } from '~/utils/towers'
@@ -338,9 +345,9 @@ function buildCity(): {
     const rw = roadW(r)
     // sidewalk slab under the whole street section (white vertex colors so
     // the bucket material color lands exactly, not squared)
-    ribbon('concrete', r.pts, rw + SIDEWALK_W * 2, '#ffffff', 0.04)
-    ribbon('curb', r.pts, rw + 0.6, '#ffffff', 0.08)
-    ribbon('asphalt', r.pts, rw, '#ffffff', 0.12)
+    ribbon('concrete', r.pts, rw + SIDEWALK_W * 2, '#ffffff', ROAD_Y.concrete)
+    ribbon('curb', r.pts, rw + 0.6, '#ffffff', ROAD_Y.curb)
+    ribbon('asphalt', r.pts, rw, '#ffffff', ROAD_Y.asphalt)
     if (r.class === 'trunk' || r.class === 'primary' || r.class === 'secondary') {
       // painted lane lines: yellow centre on two-way roads, white dashes
       // between lanes, solid white edge lines on the main roads
@@ -358,11 +365,11 @@ function buildCity(): {
           const t = (k + 0.5) / n
           const x = ax + (bx - ax) * t
           const z = az + (bz - az) * t
-          if (!r.twin && !main) flat('gold', 3.2, 0.16, x, 0.16, z, -a)
+          if (!r.twin && !main) flat('gold', 3.2, 0.16, x, ROAD_Y.paint, z, -a)
           if (main) {
             const lane = r.twin ? 0 : rw / 4
             for (const sd of r.twin ? [0] : [-1, 1]) {
-              flat('line', 3.0, 0.14, x - fz * lane * sd, 0.16, z + fx * lane * sd, -a)
+              flat('line', 3.0, 0.14, x - fz * lane * sd, ROAD_Y.paint, z + fx * lane * sd, -a)
             }
           }
         }
@@ -373,7 +380,7 @@ function buildCity(): {
             const g = new THREE.PlaneGeometry(len + 0.05, 0.12)
             g.rotateX(-Math.PI / 2)
             g.rotateY(-a)
-            g.translate((ax + bx) / 2 - fz * 0.14 * sd, 0.162, (az + bz) / 2 + fx * 0.14 * sd)
+            g.translate((ax + bx) / 2 - fz * 0.14 * sd, ROAD_Y.paint, (az + bz) / 2 + fx * 0.14 * sd)
             push('gold', g)
           }
         }
@@ -383,7 +390,7 @@ function buildCity(): {
             const g = new THREE.PlaneGeometry(len, 0.14)
             g.rotateX(-Math.PI / 2)
             g.rotateY(-a)
-            g.translate((ax + bx) / 2 - fz * o * sd, 0.16, (az + bz) / 2 + fx * o * sd)
+            g.translate((ax + bx) / 2 - fz * o * sd, ROAD_Y.paint, (az + bz) / 2 + fx * o * sd)
             push('line', g)
           }
         }
@@ -398,10 +405,10 @@ function buildCity(): {
       const off = (k - (stripes - 1) / 2) * 1.15
       const sx = cw.x + cw.nx * off
       const sz = cw.z + cw.nz * off
-      box('white', 2.3, 0.025, 0.55, sx, 0.165, sz, Math.atan2(cw.fx, cw.fz))
+      box('white', 2.3, 0.025, 0.55, sx, ROAD_Y.paint, sz, Math.atan2(cw.fx, cw.fz))
     }
     // stop line on the approach side
-    box('white', 0.35, 0.025, cw.rw + 2.2, cw.x + cw.fx * 2.6, 0.165, cw.z + cw.fz * 2.6, Math.atan2(cw.nx, cw.nz))
+    box('white', 0.35, 0.025, cw.rw + 2.2, cw.x + cw.fx * 2.6, ROAD_Y.paint, cw.z + cw.fz * 2.6, Math.atan2(cw.nx, cw.nz))
   }
 
   // boulevard medians between twin carriageways (raised concrete island)
@@ -1342,6 +1349,14 @@ function buildCity(): {
     }
     const sf = SURF[m.bucket]
     if (sf) worldTexture(mat, sf[0], sf[1], { strength: sf[2] ?? 1, vertical: sf[3] })
+    const layer = ROAD_LAYER[m.bucket]
+    if (layer) {
+      // stacked flat street layers: pull each a step toward the camera in
+      // depth so sidewalk < curb < asphalt < paint never flickers far away
+      mat.polygonOffset = true
+      mat.polygonOffsetFactor = -layer
+      mat.polygonOffsetUnits = -layer * 2
+    }
     mats[m.bucket] = mat
   }
 
@@ -1374,7 +1389,7 @@ function buildCity(): {
     const pq = new THREE.Quaternion()
     const ps = new THREE.Vector3(11, 1, 11)
     for (let i = 0; i < lampHeads.length; i++) {
-      pm.compose(pv.set(lampHeads[i].x, 0.12, lampHeads[i].z), pq.identity(), ps)
+      pm.compose(pv.set(lampHeads[i].x, ROAD_Y.paint + 0.01, lampHeads[i].z), pq.identity(), ps)
       poolMesh.setMatrixAt(i, pm)
     }
     poolMesh.instanceMatrix.needsUpdate = true

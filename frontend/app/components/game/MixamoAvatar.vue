@@ -149,6 +149,22 @@ function bend(bone: THREE.Bone | undefined, angle: number) {
   bone.quaternion.multiply(qTmp)
 }
 
+// Seated: the hip joint rests this far above the seat surface (same as the
+// procedural rig in utils/humanAnim). The root is lowered by the model's
+// own standing hip height, measured once - a fixed guess (seat - 0.47) left
+// these ~1 m-hipped bodies floating half a metre up, heads through car roofs.
+const SEAT_HIP = 0.1
+let hipsHeight: number | null = null
+const _hp = new THREE.Vector3()
+function measureHips(r: THREE.Object3D, hips: THREE.Bone | undefined): number {
+  if (hipsHeight === null && hips && r.parent) {
+    r.updateMatrixWorld(true)
+    r.parent.worldToLocal(hips.getWorldPosition(_hp))
+    hipsHeight = _hp.y - r.position.y
+  }
+  return hipsHeight ?? 0.95
+}
+
 let clock = Math.random() * 20
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta }) => {
@@ -174,7 +190,7 @@ onBeforeRender(({ delta }) => {
     // congregational prayer: everyone on the same clock so rows move as one
     const spec = activityPose(act, act === 'pray' ? performance.now() / 1000 : clock, props.phase * 3.1)
     if (spec.base === 'seat') {
-      r.position.y = props.seat - 0.47
+      r.position.y = props.seat + SEAT_HIP - measureHips(r, b.Hips)
       r.position.z = -0.12
     }
     const dy = applyPose(r, b, spec)

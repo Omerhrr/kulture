@@ -12,6 +12,9 @@ export interface ProbeVehicle {
   h: number
   /** collision radius */
   r: number
+  /** body half-length / half-width (oriented footprint); default r */
+  hl?: number
+  hw?: number
 }
 
 export const trafficProbe = {
@@ -32,10 +35,10 @@ export function probeReset() {
   trafficProbe.cars.length = 0
 }
 
-export function probePush(x: number, z: number, v: number, h: number, r: number) {
+export function probePush(x: number, z: number, v: number, h: number, r: number, hl?: number, hw?: number) {
   const cars = trafficProbe.cars
   if (cars.length >= 220) return
-  cars.push({ x, z, v, h, r })
+  cars.push({ x, z, v, h, r, hl, hw })
 }
 
 /**
