@@ -12,7 +12,7 @@ import type { HumanRig } from './humanRig'
 
 export type BaseMode = 'idle' | 'walk' | 'sit' | 'ride' | 'sleep' | 'eat'
 export type ActionName = 'jump' | 'punch' | 'kick' | 'push' | 'wave' | 'stagger'
-export const ACTION_DUR: Record<ActionName, number> = { jump: 0.9, punch: 0.5, kick: 0.72, push: 0.6, wave: 1.6, stagger: 0.7 }
+export const ACTION_DUR: Record<ActionName, number> = { jump: 1.05, punch: 0.5, kick: 0.72, push: 0.6, wave: 1.6, stagger: 0.7 }
 
 export interface AnimState {
   mode: BaseMode
@@ -185,12 +185,14 @@ export class HumanAnimator {
         r['thigh' + k] = [0, 0, side * 0.02 - shift * 0.4]
         r['shin' + k] = [0.04 + Math.max(0, side * shift) * 1.4, 0, 0]
         r['foot' + k] = [-Math.max(0, side * shift) * 0.5, 0, shift * 0.4]
+        r['clav' + k] = [0, 0, side * breathe * 0.7] // shoulders rise a little on each breath
         r['upperArm' + k] = [Math.sin(e * 1.3 + side) * 0.025, 0, side * 0.075]
         r['foreArm' + k] = [-0.14, 0, 0]
         r['hand' + k] = [0, -side * 0.15, 0]
         curl(k, side, 0.32)
       }
     }
+    shoulders(r)
     return { r, hipsY, hipsZ }
   }
 
@@ -219,19 +221,31 @@ export class HumanAnimator {
 
     switch (name) {
       case 'jump': {
-        const crouch = 1 - seg(0.05, 0.16) + seg(0.68, 0.76) * (1 - seg(0.78, 0.9))
-        const air = seg(0.12, 0.24) * (1 - seg(0.64, 0.74))
-        hipsY = -0.16 * crouch
-        r.spine = [0.25 * crouch - 0.08 * air, 0, 0]
-        r.chest = [0.1 * crouch, 0, 0]
-        r.head = [-0.15 * crouch, 0, 0]
+        const j = jumpPose(t)
+        // on the ground the hips drop exactly as far as the bent legs
+        // shorten, so the feet stay planted; in the air the body flies
+        // (PlayerAvatar moves it) and tucked knees lift the feet
+        const thighLen = this.rig.rest.shinL?.length() ?? 0.44
+        const shinLen = this.rig.rest.footL?.length() ?? 0.42
+        const drop = thighLen * (1 - Math.cos(j.thigh)) + shinLen * (1 - Math.cos(j.thigh + j.shin))
+        const grounded = 1 - seg(JUMP_TAKEOFF - 0.02, JUMP_TAKEOFF + 0.04) * (1 - seg(JUMP_LAND - 0.04, JUMP_LAND))
+        hipsY = -drop * grounded
+        r.hips = [j.lean * 0.35, 0, 0]
+        r.spine = [j.lean * 0.45, 0, 0]
+        r.chest = [j.lean * 0.2, 0, 0]
+        r.neck = [-j.lean * 0.3, 0, 0]
+        r.head = [j.head - j.lean * 0.25, 0, 0]
         for (const [side, k] of SIDES) {
-          r['thigh' + k] = [-0.75 * crouch - 0.55 * air, 0, side * 0.05]
-          r['shin' + k] = [1.2 * crouch + 0.85 * air, 0, 0]
-          r['foot' + k] = [-0.45 * crouch + 0.35 * air, 0, 0]
-          r['upperArm' + k] = [0.6 * crouch - 1.5 * air, 0, side * (0.15 + 0.35 * air)]
-          r['foreArm' + k] = [-0.3 - 0.4 * air, 0, 0]
-          fist(k, side, 0.5)
+          // hips pitch forward with the lean: the thighs take it back so the feet stay put
+          r['thigh' + k] = [j.thigh - j.lean * 0.35, 0, side * 0.04]
+          r['shin' + k] = [j.shin, 0, 0]
+          r['foot' + k] = [j.foot, 0, 0]
+          r['toe' + k] = [-Math.max(0, j.foot) * 0.5, 0, 0]
+          // arms a touch wide when up, so the swing clears the body
+          r['upperArm' + k] = [j.arm, 0, side * (0.1 + Math.max(0, -j.arm) * 0.12)]
+          r['foreArm' + k] = [j.fore, 0, 0]
+          r['hand' + k] = [0, -side * 0.15, 0]
+          fist(k, side, 0.35)
         }
         break
       }
@@ -319,11 +333,83 @@ export class HumanAnimator {
         break
       }
     }
+    shoulders(r)
     return { r, hipsY }
   }
 }
 
 const ZERO: E = [0, 0, 0]
+const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x))
+const ease = (x: number) => x * x * (3 - 2 * x)
+
+/**
+ * The shoulder girdle follows the arm (scapulohumeral rhythm): a raised
+ * arm lifts the clavicle (shrug), reaching forward protracts it, swinging
+ * back retracts it. The clavicle takes a share of the elevation so the
+ * total arm angle stays what the pose asked for.
+ */
+function shoulders(r: Record<string, E>) {
+  for (const [side, k] of SIDES) {
+    const ua = r['upperArm' + k]
+    if (!ua) continue
+    const flex = -ua[0] // forward raise
+    const abd = ua[2] * side // sideways raise
+    const elev = Math.max(0, abd - 0.5) * 0.28 + Math.max(0, flex - 0.9) * 0.16
+    const prot = clamp(flex, -0.7, 1.6) * 0.13
+    const c = r['clav' + k] ?? ZERO
+    r['clav' + k] = [c[0], c[1] - side * prot, c[2] + side * elev]
+    r['upperArm' + k] = [ua[0], ua[1], ua[2] - side * elev * 0.9]
+  }
+}
+
+/** Jump key poses (seconds). Take-off at JUMP_TAKEOFF, landing at JUMP_LAND:
+ *  PlayerAvatar launches the body on the same clock. */
+export const JUMP_TAKEOFF = 0.16
+export const JUMP_LAND = 0.74
+export const JUMP_G = 14
+/** body height above the ground `t` s into a jump (the same ballistic arc
+ *  PlayerAvatar flies; used for other players, who only get the emote) */
+export function jumpLift(t: number) {
+  const a = t - JUMP_TAKEOFF
+  const T = JUMP_LAND - JUMP_TAKEOFF
+  return a > 0 && a < T ? (JUMP_G / 2) * a * (T - a) : 0
+}
+interface JumpKey {
+  t: number
+  lean: number // spine pitch forward
+  thigh: number
+  shin: number
+  foot: number // + = toes pointed
+  arm: number // upper arm pitch (+ = back, - = forward / up)
+  fore: number
+  head: number
+}
+const JUMP_KEYS: JumpKey[] = [
+  { t: 0, lean: 0, thigh: 0, shin: 0.05, foot: 0, arm: 0, fore: -0.2, head: 0 },
+  // anticipation: sink, lean in, arms swing back
+  { t: 0.13, lean: 0.38, thigh: -0.78, shin: 1.25, foot: -0.42, arm: 0.65, fore: -0.25, head: -0.2 },
+  // push-off: everything extends, arms drive forward and up, toes point
+  { t: JUMP_TAKEOFF + 0.04, lean: 0.02, thigh: 0.08, shin: 0.04, foot: 0.55, arm: -1.6, fore: -0.4, head: 0.05 },
+  // airborne: knees tuck a little, arms float down
+  { t: 0.42, lean: 0.08, thigh: -0.55, shin: 0.85, foot: 0.25, arm: -0.75, fore: -0.55, head: 0 },
+  // reach for the ground
+  { t: JUMP_LAND - 0.03, lean: 0.06, thigh: -0.28, shin: 0.32, foot: 0.18, arm: -0.5, fore: -0.45, head: 0 },
+  // landing: absorb into a crouch, arms forward for balance
+  { t: JUMP_LAND + 0.1, lean: 0.32, thigh: -0.75, shin: 1.18, foot: -0.38, arm: -0.45, fore: -0.55, head: -0.12 },
+  // stand back up
+  { t: 1.05, lean: 0.02, thigh: -0.02, shin: 0.06, foot: 0, arm: 0, fore: -0.2, head: 0 }
+]
+function jumpPose(t: number): JumpKey {
+  let i = 0
+  while (i < JUMP_KEYS.length - 2 && t > JUMP_KEYS[i + 1]!.t) i++
+  const a = JUMP_KEYS[i]!
+  const b = JUMP_KEYS[i + 1]!
+  const f = ease(clamp((t - a.t) / (b.t - a.t), 0, 1))
+  const out = { ...a }
+  for (const key of Object.keys(a) as Array<keyof JumpKey>) out[key] = a[key] + (b[key] - a[key]) * f
+  return out
+}
+
 function envelope(name: ActionName, t: number): number {
   const d = ACTION_DUR[name]
   const inn = Math.min(1, t / 0.06)

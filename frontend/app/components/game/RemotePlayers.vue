@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { fromSimLook } from '~/utils/people'
 // RemotePlayers - everyone else who is online near you. The server streams a
 // few-times-a-second snapshot of nearby players (positions it already
 // accepted). Each avatar walks at a steady speed from where it is shown to
@@ -7,6 +6,8 @@ import { fromSimLook } from '~/utils/people'
 // surging forward and easing off on every update. An @name tag floats above.
 import * as THREE from 'three'
 import { vehicleSpec, paintedVehicle, vehicleMaterial, type VehicleKind } from '~/utils/vehicles'
+import { jumpLift } from '~/utils/humanAnim'
+import { fromSimLook } from '~/utils/people'
 
 // people already in your vehicle are drawn by RideSystem (seated, in sync)
 const partyIds = useState<string[]>('kk_ride_party_ids', () => [])
@@ -56,6 +57,8 @@ interface Shown {
   tagW: number
   action: string | null
   actionKey: number
+  /** when their last jump started (s), for the body's arc */
+  jumpT0?: number
   ride: RideInfo | null
   /** avatar placement (seated in a vehicle, or standing at x/z) */
   ax: number
@@ -150,6 +153,7 @@ function onEmote(e: Event) {
   if (s) {
     s.action = d.action
     s.actionKey++
+    if (d.action === 'jump') s.jumpT0 = performance.now() / 1000
   }
 }
 onMounted(() => window.addEventListener('kk-remote-emote', onEmote))
@@ -191,7 +195,7 @@ onBeforeRender(({ delta }) => {
     const r = s.ride
     if (!r) {
       s.ax = s.x
-      s.ay = 0
+      s.ay = s.jumpT0 ? jumpLift(now - s.jumpT0) : 0
       s.az = s.z
       s.ah = s.h
       continue
@@ -215,7 +219,7 @@ if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_remot
     <primitive :object="vehRoot" />
     <TresGroup v-for="s in shown" :key="s.id" :visible="!partyIds.includes(s.id)" :position="[s.ax, s.ay, s.az]">
       <TresGroup :rotation="[0, s.ah, 0]">
-        <CharacterAvatar real
+        <CharacterAvatar
           :key="s.lookKey"
           :person="fromSimLook(s.look as any)"
           :mode="s.ride ? 'sit' : s.moving ? 'walk' : 'idle'"
