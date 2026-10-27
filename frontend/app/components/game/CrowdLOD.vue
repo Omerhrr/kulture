@@ -91,7 +91,6 @@ onBeforeUnmount(() => {
     <TresGroup v-for="s in slots" :key="s.id" :ref="setRef(s.id)">
       <CharacterAvatar
         real
-        :gadgets="s.real.gadgets"
         :shirt="s.real.top"
         :trouser="s.real.bottom"
         :skin="s.real.skin"

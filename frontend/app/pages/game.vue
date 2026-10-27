@@ -6,6 +6,7 @@ import { useAdsStore } from '~/stores/ads'
 // Game page - auth gate, world bootstrap, socket wiring, panel orchestration.
 
 import { unstick } from '~/utils/collision'
+import { preloadHumans } from '~/utils/humanBody'
 import { useMapOpen, fireKkEvent } from '~/composables/useControlsState'
 
 useHead({
@@ -35,6 +36,7 @@ const ads = useAdsStore()
 const cityMap = useCityMap()
 const nearBoard = useState<string | null>('kk_billboard_near', () => null)
 const phoneOpen = useState<boolean>('kk_phone_open', () => false)
+const editLook = useState<boolean>('kk_edit_look', () => false)
 // true until we know whether a saved session exists (avoids login flash)
 const booting = ref(true)
 const showHint = ref(true)
@@ -239,6 +241,8 @@ function onAuthExpired() {
 }
 
 onMounted(async () => {
+  // people's bodies + textures (~2 MB) download while the city builds
+  void preloadHumans().catch(() => {})
   window.addEventListener('keydown', onKey)
   window.addEventListener('kk-do-interact', tryInteract)
   window.addEventListener('kk-auth-expired', onAuthExpired)
@@ -379,7 +383,7 @@ function fmtKsats(minor: number) {
       <ShiftCard v-if="!work.commute?.active" />
       <AskSheet />
       <Tour v-if="sim.created && !sim.tourDone" />
-      <CharacterCreator v-if="!sim.created" />
+      <CharacterCreator v-if="!sim.created || editLook" :edit-only="sim.created" @done="editLook = false" />
       <MapOverlay />
       <MobileControls />
       <InteractionPrompt v-show="!cityMap.active" />

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fromSimLook } from '~/utils/people'
 // RemotePlayers - everyone else who is online near you. The server streams a
 // few-times-a-second snapshot of nearby players (positions it already
 // accepted). Each avatar walks at a steady speed from where it is shown to
@@ -216,15 +217,7 @@ if (import.meta.dev && typeof window !== 'undefined') (window as any).__kk_remot
       <TresGroup :rotation="[0, s.ah, 0]">
         <CharacterAvatar real
           :key="s.lookKey"
-          :shirt="s.look.top || '#3f6fae'"
-          :trouser="s.look.bottom || '#2b3440'"
-          :skin="s.look.skin || '#7a4e33'"
-          :kufi="(s.look.hair || 'cap') === 'cap'"
-          :hijab="s.look.outfit === 'dress'"
-          :hair-style="(s.look.hair as any) || 'cap'"
-          :hair-color="s.look.hairColor || '#141114'"
-          :outfit="(s.look.outfit as any) || 'kaftan'"
-          :beard="s.look.body !== 'woman' && s.look.hair !== 'braids'"
+          :person="fromSimLook(s.look as any)"
           :mode="s.ride ? 'sit' : s.moving ? 'walk' : 'idle'"
           :seat="s.seatH"
           :action="(s.action as any)"

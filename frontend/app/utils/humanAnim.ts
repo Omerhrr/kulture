@@ -121,7 +121,7 @@ export class HumanAnimator {
         curl(k, side, 0.4 + run * 0.4)
       }
     } else if (s.mode === 'sit' || s.mode === 'eat') {
-      hipsY = s.seat + 0.1 - 0.95
+      hipsY = s.seat + 0.1 - this.rig.rest.hips!.y // hips rest on the seat (any body height)
       hipsZ = -0.04
       r.hips = [0, 0, 0]
       r.spine = [0.05 + breathe, 0, 0]
@@ -147,7 +147,7 @@ export class HumanAnimator {
       }
     } else if (s.mode === 'sleep') {
       // lying on the back; the hips bone turns the whole body flat
-      hipsY = s.seat + 0.12 - 0.95
+      hipsY = s.seat + 0.12 - this.rig.rest.hips!.y
       r.hips = [-Math.PI / 2, 0, 0]
       r.spine = [0, 0, 0]
       r.chest = [Math.sin(e * 0.9) * 0.02, 0, 0]

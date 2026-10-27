@@ -430,7 +430,8 @@ export function buildDriverFigure(): THREE.BufferGeometry {
   head.scale(0.9, 1.08, 1)
   head.translate(0, 0.76, 0.01)
   const neck = new THREE.CylinderGeometry(0.05, 0.055, 0.12, 8).translate(0, 0.62, 0)
-  const kufi = new THREE.CylinderGeometry(0.104, 0.112, 0.085, 14).translate(0, 0.85, 0)
+  // short hair over the crown
+  const hair = new THREE.SphereGeometry(0.118, 14, 8, 0, Math.PI * 2, 0, 1.35).scale(0.92, 1.05, 1.02).translate(0, 0.765, 0.0)
   const thigh = (x: number) => new THREE.CapsuleGeometry(0.075, 0.34, 3, 8).rotateX(Math.PI / 2).translate(x, 0.0, 0.24)
   const shin = (x: number) => new THREE.CapsuleGeometry(0.06, 0.32, 3, 8).translate(x, -0.24, 0.46)
   const arm = (x: number) => new THREE.CapsuleGeometry(0.05, 0.4, 3, 8).rotateX(1.15).translate(x, 0.36, 0.26)
@@ -440,7 +441,7 @@ export function buildDriverFigure(): THREE.BufferGeometry {
     ['#2e7d5b', new THREE.SphereGeometry(0.18, 12, 8).scale(1.05, 0.42, 0.68).translate(0, 0.54, 0)],
     ['#7a4e33', head],
     ['#7a4e33', neck],
-    ['#f1ece0', kufi],
+    ['#161214', hair],
     ['#2b3440', thigh(-0.1)],
     ['#2b3440', thigh(0.1)],
     ['#2b3440', shin(-0.1)],

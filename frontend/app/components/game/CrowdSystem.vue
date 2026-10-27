@@ -6,7 +6,7 @@
 //   - they dodge fast vehicles, including the one you are driving
 //   - stop next to anyone and a "Talk" prompt appears with a local line
 // Every person is drawn through instanced meshes with real faces (eyes,
-// brows, nose, mouth), hair, hijabs and wrappers, so the crowd reads human
+// brows, nose, mouth), hair and skirts, so the crowd reads human
 // at street distance while costing a couple of dozen draw calls.
 import * as THREE from 'three'
 import { BAKE, roadW, PLAYABLE_POS } from '~/utils/kaduna'
@@ -507,7 +507,7 @@ onMounted(() => {
   noseGeo.translate(0, 1.668, 0.108)
   const mouthGeo = new THREE.BoxGeometry(0.052, 0.012, 0.014)
   mouthGeo.translate(0, 1.618, 0.094)
-  // hair: cap shell + back volume (hidden for hijab wearers)
+  // hair: cap shell + back volume
   const hairCap = new THREE.SphereGeometry(0.116, 12, 8, 0, Math.PI * 2, 0, 1.45)
   hairCap.scale(0.93, 0.98, 1)
   hairCap.translate(0, 1.7, -0.008)
@@ -1196,15 +1196,11 @@ onBeforeRender(({ delta, elapsed }) => {
     browM.setMatrixAt(i, rootM)
     noseM.setMatrixAt(i, rootM)
     mouthM.setMatrixAt(i, rootM)
-    if (p.female) {
-      hairM.setMatrixAt(i, partM.makeScale(0, 0, 0))
-      hijabM.setMatrixAt(i, rootM)
-      skirtM.setMatrixAt(i, rootM)
-    } else {
-      hairM.setMatrixAt(i, rootM)
-      hijabM.setMatrixAt(i, partM.makeScale(0, 0, 0))
-      skirtM.setMatrixAt(i, partM.makeScale(0, 0, 0))
-    }
+    // everyone shows their hair (no head coverings); about half the women
+    // wear a skirt, the rest trousers
+    hairM.setMatrixAt(i, rootM)
+    hijabM.setMatrixAt(i, partM.makeScale(0, 0, 0))
+    skirtM.setMatrixAt(i, p.female && i % 2 === 0 ? rootM : partM.makeScale(0, 0, 0))
     if (p.kind === 'hawker') {
       trayM.setMatrixAt(i, rootM)
     } else {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const editLook = useState<boolean>('kk_edit_look', () => false)
 // Phone - an in-game smartphone. Apps open the existing panels so there is
 // one place to find everything (jobs, bag, wallet, map, settings, help).
 import { useClock, formatHour } from '~/composables/useTimeOfDay'
@@ -124,9 +125,9 @@ watch(goto, (g) => {
                 <button class="flex w-full items-center justify-between rounded-2xl px-2 py-2 text-sm font-semibold hover:bg-ink/5" @click="setQuality(quality === 'low' ? 'high' : 'low')">
                   Graphics <span class="kk-chip">{{ quality === 'low' ? '⚡ Lite' : '✨ HD' }}</span>
                 </button>
-                <NuxtLink to="/creator" class="flex w-full items-center justify-between rounded-2xl px-2 py-2 text-sm font-semibold hover:bg-ink/5">
-                  Character Studio (3D) <span>›</span>
-                </NuxtLink>
+                <button class="flex w-full items-center justify-between rounded-2xl px-2 py-2 text-sm font-semibold hover:bg-ink/5" @click="(editLook = true), (open = false)">
+                  Change my look <span>›</span>
+                </button>
                 <NuxtLink to="/arcade" class="flex w-full items-center justify-between rounded-2xl px-2 py-2 text-sm font-semibold hover:bg-ink/5">
                   Arcade (full screen) <span>›</span>
                 </NuxtLink>

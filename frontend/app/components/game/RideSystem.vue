@@ -17,6 +17,7 @@ import { kkAudio } from '~/utils/audio'
 import { registerCrash } from '~/utils/impact'
 import { vehicleMaterial, vehicleSpec, buildInterior, paintedVehicle, plateSprite, bodyWithGlass, VEHICLE_HALF, type VehicleKind } from '~/utils/vehicles'
 import { lookFor } from '~/utils/wardrobe'
+import { fromSimLook, randomLook, type PersonLook } from '~/utils/people'
 import { useSimStore } from '~/stores/sim'
 import { hashDist, roadHash } from '~/utils/kadunaExtras'
 import { BAKE, ws, PLAYABLE_POS } from '~/utils/kaduna'
@@ -735,7 +736,7 @@ function nearestParked(): Parked | null {
 // Everyone else in the vehicle with you: passengers who were already on the
 // danfo / keke, friends you invited, and (when you ride along) the driver.
 const ui = useUiStore()
-interface RLook { skin: string; top: string; bottom: string; hair: string; hairColor: string; outfit: string; female: boolean; gadgets: string[] }
+type RLook = PersonLook
 interface Rider { key: string; seat: number; look: RLook; npc: boolean; id?: string; npcId?: number }
 const riders = ref<Rider[]>([])
 const riderObjs = new Map<string, THREE.Object3D>()
@@ -744,25 +745,13 @@ function setRiderRef(key: string, el: any) {
   if (o?.isObject3D) riderObjs.set(key, o)
   else riderObjs.delete(key)
 }
-function npcLook(id: number): RLook {
-  const female = id % 2 === 0
-  const l = lookFor(id, female)
-  return { skin: l.skin, top: l.top, bottom: l.bottom, hair: female ? 'braids' : 'cap', hairColor: l.hair ?? '#141114', outfit: female ? 'dress' : id % 3 ? 'kaftan' : 'shirt', female, gadgets: (l.gadgets ?? []) as string[] }
-}
+const npcLook = (id: number): RLook => randomLook(id, id % 2 === 0)
+/** a player's look as relayed between phones (current or older fields) */
 function playerLook(l: any): RLook {
-  l = l ?? {}
-  return {
-    skin: l.skin || '#7a4e33',
-    top: l.top || '#3f6fae',
-    bottom: l.bottom || '#2b3440',
-    hair: l.hair || 'cap',
-    hairColor: l.hairColor || '#141114',
-    outfit: l.outfit || 'kaftan',
-    female: l.body === 'woman' || l.outfit === 'dress' || !!l.female,
-    gadgets: (l.gadgets ?? []).slice(0, 4)
-  }
+  if (l && typeof l === 'object' && 'outfit' in l && typeof l.outfit === 'object') return l as RLook // already a PersonLook
+  return fromSimLook(l ?? {})
 }
-const myLook = () => playerLook({ ...sim.look, body: (sim.look as any).body })
+const myLook = () => fromSimLook(sim.look)
 
 // ---------------------------------------------------------------- party
 // Invite friends who are near you into your vehicle. The server relays a
@@ -1293,17 +1282,7 @@ if (import.meta.dev) {
       <CharacterAvatar
         real
         :key="lookKey"
-        :shirt="sim.look.top"
-        :trouser="sim.look.bottom"
-        :skin="sim.look.skin"
-        :kufi="sim.look.hair === 'cap'"
-        :hijab="sim.look.outfit === 'dress'"
-        :hair-style="sim.look.hair"
-        :hair-color="sim.look.hairColor"
-        :outfit="sim.look.outfit"
-        :gadgets="(sim.look.gadgets ?? []) as any"
-        :print="sim.look.print"
-        :scarf="sim.look.hairColor"
+        :person="fromSimLook(sim.look)"
         :mode="avatarMode"
         :seat="seatH"
         :gait-speed="10.5"
@@ -1312,17 +1291,7 @@ if (import.meta.dev) {
     <!-- everyone else in the vehicle: passengers, friends, the driver -->
     <TresGroup v-for="r in riders" :key="r.key" :ref="(el: any) => setRiderRef(r.key, el)">
       <CharacterAvatar
-        real
-        :female="r.look.female"
-        :skin="r.look.skin"
-        :shirt="r.look.top"
-        :trouser="r.look.bottom"
-        :hair-color="r.look.hairColor"
-        :hair-style="(r.look.hair as any)"
-        :kufi="r.look.hair === 'cap'"
-        :hijab="r.look.outfit === 'dress' && r.npc === false"
-        :outfit="(r.look.outfit as any)"
-        :gadgets="(r.look.gadgets ?? []) as any"
+        :person="r.look"
         :mode="riderMode"
         :seat="riderSeat(r.seat)"
         :phase="r.key.length * 0.37"

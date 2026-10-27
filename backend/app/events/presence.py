@@ -24,15 +24,26 @@ MAX_NEARBY = 40
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 _LOOK_ENUMS = {
     "body": {"man", "woman"},
-    "hair": {"cap", "afro", "braids", "bald"},
-    "outfit": {"kaftan", "dress", "shirt"},
+    # current hairstyles + the older names (still sent by older clients)
+    "hair": {"lowcut", "fade", "afro", "puff", "cornrows", "braids", "locs", "bald", "cap"},
+    "outfit": {"kaftan", "dress", "shirt"},  # legacy
+    "topStyle": {"tee", "polo", "longsleeve", "shirt", "tank"},
+    "bottomStyle": {"jeans", "trousers", "shorts", "skirt"},
+    "shoes": {"sneakers", "shoes", "sandals", "boots"},
+    "beard": {"none", "stubble", "full"},
 }
-_LOOK_COLORS = ("skin", "hairColor", "top", "bottom")
+_LOOK_COLORS = ("skin", "hairColor", "top", "bottom", "shoeColor")
+# face + build sliders (0..1), see frontend utils/people.ts
+_LOOK_SHAPES = {
+    "heavy", "slim", "muscular", "noseWide", "noseFlare", "noseSmall", "lipsFull", "mouthWide", "jawWide",
+    "chinStrong", "cheekbones", "eyesBig", "forehead", "earsSmall", "headRound", "headOval", "headSquare",
+}
 
 
-def clean_look(raw: Any) -> dict[str, str]:
-    """Whitelist a client look payload: known enums + #rrggbb colours only."""
-    out: dict[str, str] = {}
+def clean_look(raw: Any) -> dict[str, Any]:
+    """Whitelist a client look payload: known enums, #rrggbb colours and
+    face/build sliders clamped to 0..1 only."""
+    out: dict[str, Any] = {}
     if not isinstance(raw, dict):
         return out
     for k, allowed in _LOOK_ENUMS.items():
@@ -43,6 +54,14 @@ def clean_look(raw: Any) -> dict[str, str]:
         v = raw.get(k)
         if isinstance(v, str) and _HEX.match(v):
             out[k] = v
+    shape = raw.get("shape")
+    if isinstance(shape, dict):
+        clean: dict[str, float] = {}
+        for k, v in shape.items():
+            if k in _LOOK_SHAPES and isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+                clean[k] = round(min(1.0, max(0.0, float(v))), 3)
+        if clean:
+            out["shape"] = clean
     return out
 
 

@@ -6,6 +6,7 @@ import { usePlayerPose } from '~/composables/useControlsState'
 import { ACTION_DUR, type ActionName } from '~/utils/humanAnim'
 import { throwMelee, hitNamed } from '~/utils/impact'
 import { heightAt } from '~/utils/terrain'
+import { fromSimLook } from '~/utils/people'
 // PlayerAvatar - local movement prediction with server throttled sync,
 // AABB collision vs building footprints, and proximity detection.
 // Inputs: WASD / arrow keys, the touch joystick (mobile), plus
@@ -439,22 +440,10 @@ onBeforeRender(({ delta }) => {
 <template>
   <TresGroup ref="group" :position="[playerPos[0], 0, playerPos[2]]">
     <TresGroup ref="bodyRef">
-    <CharacterAvatar real
+    <CharacterAvatar
       v-if="!ride.active"
       :key="lookKey"
-      :shirt="sim.look.top"
-      :trouser="sim.look.bottom"
-      :skin="sim.look.skin"
-      :kufi="sim.look.hair === 'cap'"
-      :hijab="sim.look.outfit === 'dress'"
-      :hair-style="sim.look.hair"
-      :hair-color="sim.look.hairColor"
-      :outfit="sim.look.outfit"
-      :gadgets="(sim.look.gadgets ?? []) as any"
-      :print="sim.look.print"
-      :scarf="sim.look.hairColor"
-      :dress="sim.look.dress ?? (sim.look.outfit === 'kaftan' || sim.look.outfit === 'dress' ? 'traditional' : 'modern')"
-      :beard="sim.look.body === 'man' && sim.look.hair !== 'braids'"
+      :person="fromSimLook(sim.look)"
       :mode="(pose ?? (walking ? 'walk' : 'idle')) as any"
       :gait-speed="sprinting ? 15.5 : 10.5"
       :action="actName"
