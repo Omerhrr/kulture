@@ -3,6 +3,7 @@
 // game invites (Whot/Ludo/Ayo head-to-head), Street Brawl fight challenges
 // (live, relayed over the socket), gifts and crew chat.
 import { fmtKsats } from '~/utils/format'
+import { onDuelFrame } from '~/composables/useDuel'
 
 const ui = useUiStore()
 const player = usePlayerStore()
@@ -51,7 +52,11 @@ function onWs(ev: Event) {
     if (!(phoneOpen.value && (window as any).__kk_phone_page === 'crews')) ui.showToast(`👥 ${p.name}: ${String(p.text).slice(0, 60)}`, 'info')
   } else if (d?.type === 'arcade.fight') {
     const x = p.data ?? {}
-    if (x.k === 'ride_invite') {
+    if (String(x.k).startsWith('duel_')) {
+      onDuelFrame(p.from, x, (fn, text) =>
+        push({ icon: '⚔️', text, accept: () => ((goto.value = 'arcade'), (phoneOpen.value = true), fn()) }, 45)
+      )
+    } else if (x.k === 'ride_invite') {
       push({
         icon: '🚗',
         text: `${x.name} offers you a ride in ${x.own ? 'their own car' : `a ${x.label}`}`,

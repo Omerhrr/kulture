@@ -21,9 +21,10 @@ from app.models.life import GameMatch
 from app.services import life_service
 from app.services.games_engine import GAMES, GameError, current_seat
 
-BOT_FILL = timedelta(seconds=15)
+BOT_FILL = timedelta(seconds=45)  # long enough for real players to find the table
 STAKE_CAP = {"ksats": 500_000, "sats_ref": 1_000}
-BOT_NAMES = ["Musa", "Aisha", "Emeka", "Halima", "Tunde", "Zainab", "Ibrahim", "Grace", "Sani", "Blessing"]
+# never a story or dating-app character's name
+BOT_NAMES = ["Sani", "Blessing", "Kabiru", "Hadiza", "Chinedu", "Bilkisu", "Yusuf", "Adaeze", "Garba", "Rabi"]
 
 
 class MatchError(Exception):
@@ -123,8 +124,12 @@ async def join(db: AsyncSession, pid: str, name: str, game: str, stake: int = 0,
     friend; `match_id` accepts such an invite (stake comes from the table)."""
     if match_id:
         m = await db.get(GameMatch, match_id)
-        if not m or m.status != "waiting" or (m.state or {}).get("invite") != pid:
+        invite_for = (m.state or {}).get("invite") if m else None
+        # a friend's private invite, or any open public table
+        if not m or m.status != "waiting" or (invite_for and invite_for != pid) or any(p["id"] == pid for p in m.players):
             raise MatchError("no_match")
+        if not invite_for and len(m.players) >= GAMES[m.game]["seats"][1]:
+            raise MatchError("table_full")
         if m.stake:
             try:
                 await life_service.charge(db, pid, m.stake, "game_stake", f"{GAMES[m.game]['name']} stake", m.asset)
@@ -132,7 +137,9 @@ async def join(db: AsyncSession, pid: str, name: str, game: str, stake: int = 0,
                 raise MatchError("insufficient_funds")
         m.players = [*m.players, {"id": pid, "name": name, "bot": False}]
         flag_modified(m, "players")
-        await _start(db, m)  # head-to-head: start as soon as the friend sits
+        # head-to-head starts as soon as the friend sits; a public table when full
+        if invite_for or len(m.players) >= GAMES[m.game]["seats"][1]:
+            await _start(db, m)
         await db.commit()
         return m
     if game not in GAMES:
@@ -169,6 +176,31 @@ async def join(db: AsyncSession, pid: str, name: str, game: str, stake: int = 0,
         if vs_bots:
             _fill_bots(m)
             await _start(db, m)
+    await db.commit()
+    return m
+
+
+async def tables(db: AsyncSession) -> list[dict[str, Any]]:
+    """Open public tables waiting for players (newest first)."""
+    rows = (await db.execute(select(GameMatch).where(GameMatch.status == "waiting").order_by(GameMatch.created_at.desc()).limit(40))).scalars().all()
+    out = []
+    for m in rows:
+        if (m.state or {}).get("invite"):
+            continue
+        lo, hi = GAMES[m.game]["seats"]
+        left = max(0, int((BOT_FILL - (_now() - _aware(m.created_at))).total_seconds()))
+        out.append({"id": m.id, "game": m.game, "name": GAMES[m.game]["name"], "host": m.players[0]["name"] if m.players else "",
+                    "players": [p["name"] for p in m.players], "seats": [lo, hi], "stake": m.stake, "asset": m.asset, "bots_in": left})
+    return out
+
+
+async def start_now(db: AsyncSession, pid: str, match_id: str) -> GameMatch:
+    """Anyone at a waiting public table can stop waiting: bots fill the rest."""
+    m = await get(db, match_id)
+    if m.status != "waiting" or (m.state or {}).get("invite") or not any(p["id"] == pid for p in m.players):
+        raise MatchError("no_match")
+    _fill_bots(m)
+    await _start(db, m)
     await db.commit()
     return m
 

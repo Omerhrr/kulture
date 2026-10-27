@@ -2,6 +2,7 @@
 // Phone → Arcade: six original single-player games with an on-screen pad
 // (keyboard works too) and server leaderboards.
 import { ARCADE_GAMES, makePad, bindKeys, type ArcadeId } from '~/utils/arcade'
+import { DUEL_GAMES, duelSend, useDuel } from '~/composables/useDuel'
 
 const api = useGameApi()
 const playing = ref<ArcadeId | null>(null)
@@ -37,6 +38,63 @@ const HELP: Record<string, string> = {
   blocks: '◀ ▶ move · A rotate · ▼ faster · B drop'
 }
 
+const TINT: Record<string, string> = {
+  snake: 'from-lime-500 to-emerald-700', runner: 'from-sky-500 to-blue-700', brawl: 'from-rose-500 to-red-800',
+  stick: 'from-slate-500 to-slate-800', okada: 'from-amber-500 to-orange-700', blocks: 'from-violet-500 to-indigo-800'
+}
+
+// ---- duels (live head-to-head on the score games)
+const player = usePlayerStore()
+const duel = useDuel()
+const picking = ref<ArcadeId | null>(null)
+const snap = useState<{ players: Array<{ id: string; name: string }> }>('kk_players', () => ({ online: 0, players: [] }) as any)
+const q = ref('')
+const found = ref<Array<{ id: string; name: string }>>([])
+let qt: any
+watch(q, (v: string) => {
+  clearTimeout(qt)
+  if (v.trim().length < 2) return void (found.value = [])
+  qt = setTimeout(async () => (found.value = await api.apiGet<any>(`/wallet/people?q=${encodeURIComponent(v.trim())}`).catch(() => [])), 250)
+})
+const people = computed(() => (q.value.trim().length >= 2 ? found.value : (snap.value.players ?? []).slice(0, 8)))
+function challenge(to: { id: string; name: string }) {
+  const g = ARCADE_GAMES.find((x) => x.id === picking.value)!
+  duel.value = { peer: to.id, peerName: to.name, game: g.id, host: true, phase: 'invite', me: { score: 0, over: false }, them: { score: 0, over: false } }
+  duelSend(to.id, { k: 'duel_invite', game: g.id, title: `${g.icon} ${g.name}`, name: player.profile?.display_name ?? 'Friend' })
+  picking.value = null
+  setTimeout(() => {
+    if (duel.value?.phase === 'invite' && duel.value.peer === to.id && duel.value.host) duel.value = null
+  }, 45000)
+}
+const inDuel = computed(() => duel.value?.phase === 'playing' || duel.value?.phase === 'done')
+watch(
+  () => duel.value?.phase,
+  (p: string | undefined) => p === 'playing' && duel.value && play(duel.value.game as ArcadeId),
+  { immediate: true }
+)
+let lastTick = 0
+function onScore(n: number) {
+  score.value = n
+  const d = duel.value
+  if (d?.phase === 'playing' && !d.me.over) {
+    d.me.score = n
+    const now = performance.now()
+    if (now - lastTick > 700) {
+      lastTick = now
+      duelSend(d.peer, { k: 'duel_score', s: n })
+    }
+  }
+}
+function quitDuel() {
+  if (duel.value) duelSend(duel.value.peer, { k: 'duel_quit' })
+  duel.value = null
+}
+const verdict = computed(() => {
+  const d = duel.value
+  if (!d || d.phase !== 'done') return ''
+  return d.me.score > d.them.score ? '🏆 You win the duel!' : d.me.score < d.them.score ? `${d.peerName} wins this one` : "It's a draw!"
+})
+
 async function loadBoard(id: string) {
   try {
     boards.value[id] = await api.apiGet<any>(`/arcade/${id}`)
@@ -54,6 +112,7 @@ function play(id: ArcadeId) {
 }
 function quit() {
   fight.value = null
+  if (duel.value) quitDuel()
   unbind()
   unbind = () => {}
   if (playing.value) loadBoard(playing.value)
@@ -62,6 +121,11 @@ function quit() {
 onBeforeUnmount(() => unbind())
 async function over(n: number) {
   score.value = n
+  const d = duel.value
+  if (d?.phase === 'playing') {
+    duelSend(d.peer, { k: 'duel_over', s: n })
+    duel.value = { ...d, me: { score: n, over: true }, phase: d.them.over ? 'done' : 'playing' }
+  }
   if (online.value) return (result.value = { error: n ? 'You won the head-to-head! 🥊' : 'Good fight - ask for a rematch in chat.' })
   try {
     result.value = await api.apiPost<any>('/arcade/score', { game: playing.value, score: n })
@@ -80,26 +144,60 @@ const game = computed(() => ARCADE_GAMES.find((g) => g.id === playing.value))
 <template>
   <div class="text-ink">
     <template v-if="!playing">
-      <div class="grid grid-cols-2 gap-2">
-        <button v-for="g in ARCADE_GAMES" :key="g.id" class="rounded-2xl bg-gradient-to-br from-ink/[0.04] to-ink/[0.08] p-3 text-left" @click="play(g.id)">
-          <div class="text-2xl">{{ g.icon }}</div>
-          <div class="text-[13px] font-bold leading-tight">{{ g.name }}</div>
-          <div class="text-[10px] text-ink/55">{{ g.blurb }}</div>
-          <div v-if="boards[g.id]" class="mt-1 text-[10px] font-bold text-violet-700">
-            Best {{ boards[g.id].best }}<span v-if="boards[g.id].leaderboard[0]"> · 👑 {{ boards[g.id].leaderboard[0].name }} {{ boards[g.id].leaderboard[0].score }}</span>
-          </div>
+      <div v-if="duel?.phase === 'invite' && duel.host" class="mb-2 flex items-center justify-between rounded-2xl bg-amber-50 p-3 text-xs font-bold text-amber-800">
+        ⚔️ Waiting for {{ duel.peerName }} to accept…
+        <button class="rounded-full bg-white px-2 py-0.5" @click="duel = null">Cancel</button>
+      </div>
+      <div v-if="picking" class="mb-2 rounded-2xl bg-white p-3">
+        <div class="mb-1.5 flex items-center justify-between text-xs font-bold">
+          <span>⚔️ Duel someone at {{ ARCADE_GAMES.find((g) => g.id === picking)?.name }}</span>
+          <button class="text-ink/45" @click="picking = null">✕</button>
+        </div>
+        <input v-model="q" class="w-full rounded-xl border border-ink/15 px-3 py-2 text-sm" placeholder="Search name or @username" />
+        <div v-if="!people.length" class="mt-2 text-[11px] text-ink/45">{{ q.trim().length >= 2 ? 'No players match.' : 'Nobody nearby - search by name.' }}</div>
+        <button v-for="p in people" :key="p.id" class="mt-1 flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-ink/5" @click="challenge(p)">
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-kadeep text-xs font-bold text-white">{{ p.name.charAt(0) }}</span>
+          <span class="flex-1 text-sm font-semibold">{{ p.name }}</span>
+          <span class="kk-chip">Challenge</span>
         </button>
       </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div v-for="g in ARCADE_GAMES" :key="g.id" class="overflow-hidden rounded-3xl bg-white shadow-sm">
+          <button class="block w-full bg-gradient-to-br p-3 text-left text-white" :class="TINT[g.id]" @click="play(g.id)">
+            <div class="text-3xl drop-shadow">{{ g.icon }}</div>
+            <div class="mt-1 text-[13px] font-bold leading-tight">{{ g.name }}</div>
+            <div class="line-clamp-2 text-[10px] text-white/80">{{ g.blurb }}</div>
+          </button>
+          <div class="flex items-center justify-between px-2.5 py-1.5">
+            <span class="truncate text-[10px] font-bold text-ink/55">{{ boards[g.id]?.leaderboard?.[0] ? `👑 ${boards[g.id].leaderboard[0].name} ${boards[g.id].leaderboard[0].score}` : 'No record yet' }}</span>
+            <button v-if="DUEL_GAMES.includes(g.id)" class="shrink-0 rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold text-white" @click="picking = g.id">⚔️ Duel</button>
+          </div>
+        </div>
+      </div>
+      <p class="mt-2 text-center text-[10px] text-ink/45">Street Brawl: challenge a contact from Chats for a live fight.</p>
     </template>
     <template v-else>
       <div class="mb-1 flex items-center justify-between text-xs font-bold">
         <span>{{ game?.icon }} {{ game?.name }}<template v-if="online"> · 🌐 vs {{ online.peerName }}</template><template v-else> · {{ score }}</template></span>
         <span class="flex gap-1">
-          <button v-if="!online" class="rounded-full bg-ink/10 px-2 py-0.5" @click="play(playing!)">↻</button>
+          <button v-if="!online && !inDuel" class="rounded-full bg-ink/10 px-2 py-0.5" @click="play(playing!)">↻</button>
           <button class="rounded-full bg-ink/10 px-2 py-0.5" @click="quit">Exit</button>
         </span>
       </div>
-      <component :is="COMPONENTS[playing]" :key="runKey" :pad="pad" :online="online" @score="(n: number) => (score = n)" @over="over" />
+      <div v-if="inDuel && duel" class="mb-1.5 rounded-2xl bg-ink p-2 text-white">
+        <div class="flex items-center justify-between text-[11px] font-bold">
+          <span>You {{ duel.me.score }}{{ duel.me.over ? ' ✓' : '' }}</span>
+          <span class="text-white/50">⚔️ duel</span>
+          <span>{{ duel.peerName }} {{ duel.them.score }}{{ duel.them.over ? ' ✓' : '' }}</span>
+        </div>
+        <div class="mt-1 flex h-1.5 overflow-hidden rounded-full bg-white/15">
+          <div class="bg-emerald-400 transition-all" :style="{ width: `${(100 * duel.me.score) / Math.max(1, duel.me.score + duel.them.score)}%` }" />
+          <div class="flex-1 bg-rose-400" />
+        </div>
+        <div v-if="verdict" class="mt-1.5 text-center text-sm font-bold">{{ verdict }}</div>
+        <div v-else-if="duel.me.over" class="mt-1 text-center text-[11px] text-white/70">Waiting for {{ duel.peerName }} to finish…</div>
+      </div>
+      <component :is="COMPONENTS[playing]" :key="runKey" :pad="pad" :online="online" @score="onScore" @over="over" />
       <div class="mt-1 text-center text-[10px] text-ink/50">{{ HELP[playing] }}</div>
       <div v-if="result" class="mt-1 rounded-xl bg-violet-50 p-2 text-[11px]">
         <div class="font-bold text-violet-700">{{ result.error ?? (result.new_best ? `New best: ${result.best}! 🎉` : `Best: ${result.best}`) }}</div>
