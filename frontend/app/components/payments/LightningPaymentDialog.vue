@@ -7,6 +7,10 @@ import QRCode from 'qrcode'
 
 const payments = usePaymentsStore()
 const player = usePlayerStore()
+onMounted(() => payments.node || payments.loadNode())
+const NET: Record<string, string> = { testnet: 'Bitcoin testnet', signet: 'Bitcoin signet', regtest: 'Regtest' }
+const netLabel = computed(() => NET[payments.node?.network ?? ''] ?? 'Testnet')
+const demo = computed(() => payments.node?.provider === 'mock')
 const ui = useUiStore()
 
 const qrDataUrl = ref('')
@@ -88,7 +92,7 @@ function copyInvoice() {
       <!-- header -->
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-[10px] font-extrabold uppercase tracking-[0.14em] text-golddark">⚡ Lightning payment</div>
+          <div class="text-[10px] font-extrabold uppercase tracking-[0.14em] text-golddark">⚡ Lightning · {{ netLabel }}</div>
           <div id="ln-title" class="font-display text-lg font-semibold leading-tight text-ink">
             {{ payments.current?.item_name || 'Invoice' }}
             <span v-if="payments.current && payments.current.quantity > 1" class="text-ink/50">×{{ payments.current.quantity }}</span>
@@ -124,15 +128,24 @@ function copyInvoice() {
             <button class="kk-btn-ghost flex-1 text-xs" @click="copyInvoice">Copy invoice</button>
           </div>
 
-          <!-- dev-only wallet simulator (stands in for an external wallet) -->
-          <button
-            class="kk-btn-primary w-full"
-            :disabled="payments.settling || payments.current.status !== 'awaiting_payment'"
-            @click="payments.simulateWalletPayment()"
-          >
-            {{ payments.settling ? 'Waiting for the node to confirm...' : 'Pay with demo wallet' }}
-          </button>
-          <span class="kk-chip">Demo build · regtest simulator, no real funds move</span>
+          <!-- the test simulator only: stands in for an external wallet -->
+          <template v-if="demo">
+            <button
+              class="kk-btn-primary w-full"
+              :disabled="payments.settling || payments.current.status !== 'awaiting_payment'"
+              @click="payments.simulateWalletPayment()"
+            >
+              {{ payments.settling ? 'Waiting for the node to confirm...' : 'Pay with demo wallet' }}
+            </button>
+            <span class="kk-chip">Test simulator · no real funds move</span>
+          </template>
+          <template v-else>
+            <div class="flex w-full items-center justify-center gap-2 rounded-2xl bg-paper px-3 py-2.5 text-xs font-semibold text-ink/70">
+              <span class="h-2 w-2 animate-pulse rounded-full bg-golddark" />
+              Waiting for your payment - the node confirms it here.
+            </div>
+            <span class="kk-chip text-center">Pay from a Lightning wallet on {{ netLabel }} · test sats have no value</span>
+          </template>
         </div>
       </template>
 

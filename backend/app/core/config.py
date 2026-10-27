@@ -53,11 +53,22 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]
 
     # ------------------------------------------------------------------
-    # Lightning network adapter: "mock" (regtest-style simulator used for
-    # local development and CI) or "ldk_node" (real LDK Node integration).
+    # Lightning: real sats on a TEST network. Providers:
+    #   "lnbits"   - a wallet on an LNbits whose funding node is on testnet
+    #   "lnd"      - LND REST (invoice macaroon + TLS cert)
+    #   "ldk_node" - LDK Node sidecar (see docs/lightning-integration.md)
+    #   "mock"     - in-process simulator, for the automated tests only
+    # lightning_network: testnet | signet | regtest. Mainnet is refused:
+    # every invoice's network prefix and amount are checked (payments/bolt11).
     # ------------------------------------------------------------------
-    lightning_provider: str = "mock"
-    lightning_mock_enabled: bool = True
+    lightning_provider: str = "lnbits"
+    lightning_network: str = "testnet"
+    lightning_mock_enabled: bool = False
+    lnbits_url: str = ""
+    lnbits_invoice_key: str = ""  # the wallet's invoice/read key, never the admin key
+    lnd_rest_url: str = ""  # e.g. https://127.0.0.1:8080
+    lnd_macaroon_hex: str = ""  # invoice.macaroon, hex
+    lnd_tls_cert_path: str = ""  # the node's tls.cert (self-signed)
     invoice_expiry_seconds: int = 600
     reconciliation_interval_seconds: int = 30
 
@@ -159,6 +170,8 @@ class Settings(BaseSettings):
                 raise ValueError("KK_JWT_SECRET must be a real random secret (32+ chars) in production")
             if self.database_url.startswith("sqlite"):
                 raise ValueError("KK_DATABASE_URL must point at PostgreSQL in production")
+            if self.lightning_provider == "mock":
+                raise ValueError("KK_LIGHTNING_PROVIDER=mock is for tests only: point the server at a testnet node (lnbits / lnd)")
         return self
 
     @property

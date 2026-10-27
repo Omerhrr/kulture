@@ -1,6 +1,14 @@
 import { defineStore } from 'pinia'
 import type { Business, PaymentIntent } from '~/types'
 
+/** what a node failure means for the player (the server's codes) */
+function lnError(m: string): string {
+  if (/not_configured|mock_disabled|unknown_provider/.test(m)) return 'Lightning payments are not set up on this server yet (it needs a testnet node). Try again later.'
+  if (/unreachable/.test(m)) return 'The Lightning node is not answering right now. Try again in a minute.'
+  if (/wrong_network|mainnet|network_mismatch/.test(m)) return 'The server\'s Lightning node is on the wrong network, so payments are paused for safety.'
+  return m
+}
+
 export const usePaymentsStore = defineStore('payments', {
   state: () => ({
     dialogOpen: false,
@@ -8,9 +16,33 @@ export const usePaymentsStore = defineStore('payments', {
     current: null as PaymentIntent | null,
     paying: false,
     settling: false,
-    error: ''
+    error: '',
+    /** the Lightning node the server talks to: testnet / signet / regtest */
+    node: null as null | { provider: string; network: string; ready: boolean; error?: string }
   }),
   actions: {
+    async loadNode() {
+      try {
+        this.node = await useGameApi().apiGet('/lightning/health')
+      } catch {}
+    },
+    /** while the QR is up, ask the server (which asks the node) every 3 s;
+     *  settlement on a real node is only known by asking */
+    watchPayment() {
+      const id = this.current?.id
+      if (!id) return
+      const api = useGameApi()
+      const tick = async () => {
+        if (!this.dialogOpen || this.current?.id !== id || this.current.status !== 'awaiting_payment') return
+        try {
+          const cur = await api.intent(id)
+          if (this.current?.id === id) this.current = cur
+          if (cur.status === 'settled') return this.onServerEvent({ type: 'payment.status', payload: { intent_id: id, status: 'settled' } })
+        } catch {}
+        setTimeout(tick, 3000)
+      }
+      setTimeout(tick, 3000)
+    },
     async openForBusiness(businessId: string) {
       const api = useGameApi()
       this.business = await api.business(businessId)
@@ -26,9 +58,9 @@ export const usePaymentsStore = defineStore('payments', {
         const idem = `web-${localStorage.getItem('kk_player_id') || 'anon'}-${listingId.slice(0, 8)}-${Date.now()}`
         const intent = await api.purchase(listingId, quantity, idem)
         this.current = await api.createInvoice(intent.id)
+        this.watchPayment()
       } catch (e: any) {
-        this.error = e.message || 'Could not create invoice'
-        this.dialogOpen = false
+        this.error = lnError(e.message || 'Could not create invoice')
       } finally {
         this.paying = false
       }
@@ -41,9 +73,9 @@ export const usePaymentsStore = defineStore('payments', {
       try {
         const { intent } = await api.deposit(sats)
         this.current = await api.createInvoice(intent.id)
+        this.watchPayment()
       } catch (e: any) {
-        this.error = e.message || 'Could not create deposit invoice'
-        this.dialogOpen = false
+        this.error = lnError(e.message || 'Could not create deposit invoice')
       } finally {
         this.paying = false
       }

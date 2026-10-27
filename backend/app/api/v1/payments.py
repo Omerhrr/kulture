@@ -32,6 +32,7 @@ from app.payments.lightning_service import (
     SATS_TO_KSATS,
     PaymentError,
     create_deposit_intent,
+    check_with_node,
     create_invoice_for_intent,
     invoice_for_intent,
     mark_intent_cancelled,
@@ -119,6 +120,9 @@ async def get_intent(
     intent, inv = await invoice_for_intent(db, intent_id)
     if intent.player_id != profile.id:
         raise error("not_your_intent", "This intent belongs to another player.", 403)
+    if intent.status == "awaiting_payment":
+        await check_with_node(db, intent, inv)
+        intent, inv = await invoice_for_intent(db, intent_id)
     return _intent_out(intent, inv)
 
 
