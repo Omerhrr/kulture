@@ -20,7 +20,8 @@ const payments = usePaymentsStore()
 const isTouch = useIsTouch()
 const mapOpen = useMapOpen()
 
-const authMode = ref<'login' | 'register'>('login')
+// /game?signup opens "Create account" (new visitors), plain /game opens log in
+const authMode = ref<'login' | 'register'>(useRoute().query.signup !== undefined ? 'register' : 'login')
 const username = ref('')
 const password = ref('')
 const displayName = ref('')
@@ -315,7 +316,8 @@ function fmtKsats(minor: number) {
         <form class="space-y-3.5" @submit.prevent="submitAuth">
           <div>
             <label class="kk-label" for="kk-username">Username</label>
-            <input id="kk-username" v-model="username" class="kk-input" placeholder="e.g. danladi" required minlength="3" autocomplete="username" />
+            <input id="kk-username" v-model="username" class="kk-input" placeholder="e.g. danladi" required minlength="3" maxlength="32" :pattern="authMode === 'register' ? '[A-Za-z0-9_]+' : undefined" title="Letters, numbers and _ only" autocomplete="username" autocapitalize="none" spellcheck="false" />
+            <p v-if="authMode === 'register'" class="mt-1 text-[11px] text-ink/45">3-32 letters, numbers or _ · not case-sensitive</p>
           </div>
           <div>
             <label class="kk-label" for="kk-password">Password</label>
@@ -323,7 +325,7 @@ function fmtKsats(minor: number) {
           </div>
           <div v-if="authMode === 'register'">
             <label class="kk-label" for="kk-display">Display name</label>
-            <input id="kk-display" v-model="displayName" class="kk-input" placeholder="What the city calls you" />
+            <input id="kk-display" v-model="displayName" class="kk-input" maxlength="32" placeholder="What the city calls you" />
           </div>
           <button class="kk-btn-primary w-full !py-3 !text-base" type="submit" :disabled="authBusy">
             {{ authBusy ? 'One moment...' : authMode === 'login' ? 'Enter the world' : 'Create my account' }}
@@ -332,10 +334,10 @@ function fmtKsats(minor: number) {
 
         <p v-if="authError" class="mt-3 rounded-2xl bg-red-50 p-3 text-xs font-semibold text-red-600">{{ authError }}</p>
 
-        <div class="mt-5 rounded-2xl bg-paper p-3.5 text-center text-xs leading-relaxed text-ink/55">
-          Just looking around? Use the demo account:
-          <div class="mt-1 font-bold text-golddark">demo_player / kaduna-demo-2026</div>
-        </div>
+        <p class="mt-5 text-center text-xs text-ink/50">
+          <template v-if="authMode === 'login'">New to Kaduna? <button class="font-bold text-kadeep underline-offset-2 hover:underline" @click="(authMode = 'register'), (authError = '')">Create a free account</button></template>
+          <template v-else>Already playing? <button class="font-bold text-kadeep underline-offset-2 hover:underline" @click="(authMode = 'login'), (authError = '')">Log in</button></template>
+        </p>
       </div>
     </div>
 

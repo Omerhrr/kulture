@@ -1,7 +1,9 @@
 <script setup lang="ts">
 // RemotePlayers - everyone else who is online near you. The server streams a
-// 1 Hz snapshot of nearby players (positions it already accepted); we glide
-// each avatar toward its latest position and float an @name tag above it.
+// few-times-a-second snapshot of nearby players (positions it already
+// accepted). Each avatar walks at a steady speed from where it is shown to
+// the new position over one snapshot gap, so motion is smooth instead of
+// surging forward and easing off on every update. An @name tag floats above.
 import * as THREE from 'three'
 import { vehicleSpec, paintedVehicle, vehicleMaterial, type VehicleKind } from '~/utils/vehicles'
 
@@ -60,6 +62,12 @@ interface Shown {
   seatH: number
   az: number
   ah: number
+  /** interpolation: shown position when the latest snapshot arrived */
+  fx: number
+  fz: number
+  fh: number
+  t0: number
+  dur: number
 }
 const shown = ref<Shown[]>([])
 
@@ -98,6 +106,13 @@ watch(
       const cur = byId.get(p.id)
       const lookKey = JSON.stringify(p.look)
       if (cur) {
+        // glide from wherever it is drawn now to the new spot over one gap
+        const now = performance.now() / 1000
+        cur.dur = Math.min(1.5, Math.max(0.12, now - cur.t0))
+        cur.t0 = now
+        cur.fx = cur.x
+        cur.fz = cur.z
+        cur.fh = cur.h
         cur.tx = p.pos[0]
         cur.tz = p.pos[2]
         cur.th = p.facing
@@ -115,13 +130,13 @@ watch(
         }
         // far jump (fast travel): snap instead of sliding across town
         if (Math.hypot(cur.tx - cur.x, cur.tz - cur.z) > 60) {
-          cur.x = cur.tx
-          cur.z = cur.tz
+          cur.x = cur.fx = cur.tx
+          cur.z = cur.fz = cur.tz
         }
         next.push(cur)
       } else {
         const t = tagFor(p.name)
-        next.push({ id: p.id, name: p.name, x: p.pos[0], z: p.pos[2], h: p.facing, tx: p.pos[0], tz: p.pos[2], th: p.facing, moving: p.moving, look: p.look, lookKey, tag: t.tex, tagW: t.w, action: null, actionKey: 0, ride: parseRiding(p.riding, p.id), ax: p.pos[0], ay: 0, seatH: 0.5, az: p.pos[2], ah: p.facing })
+        next.push({ id: p.id, name: p.name, x: p.pos[0], z: p.pos[2], h: p.facing, tx: p.pos[0], tz: p.pos[2], th: p.facing, moving: p.moving, look: p.look, lookKey, tag: t.tex, tagW: t.w, action: null, actionKey: 0, ride: parseRiding(p.riding, p.id), ax: p.pos[0], ay: 0, seatH: 0.5, az: p.pos[2], ah: p.facing, fx: p.pos[0], fz: p.pos[2], fh: p.facing, t0: performance.now() / 1000, dur: 0.25 })
       }
     }
     shown.value = next
@@ -141,13 +156,15 @@ onBeforeUnmount(() => window.removeEventListener('kk-remote-emote', onEmote))
 
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta }) => {
-  const k = Math.min(1, (delta || 0.016) * 4)
+  void delta
+  const now = performance.now() / 1000
   for (const s of shown.value) {
-    s.x += (s.tx - s.x) * k
-    s.z += (s.tz - s.z) * k
-    let dh = s.th - s.h
+    const t = Math.min(1, (now - s.t0) / s.dur)
+    s.x = s.fx + (s.tx - s.fx) * t
+    s.z = s.fz + (s.tz - s.fz) * t
+    let dh = s.th - s.fh
     dh = Math.atan2(Math.sin(dh), Math.cos(dh))
-    s.h += dh * k
+    s.h = s.fh + dh * Math.min(1, t * 1.6) // turn a little quicker than it walks
   }
   // vehicles: one per remote driver (not the one you are riding in)
   const keep = new Set<string>()

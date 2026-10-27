@@ -282,7 +282,8 @@ onMounted(() => {
   let total = 0
   for (const c of CLASSES) total += c.count
   CLASSES.forEach((c, ci) => {
-    const spec = vehicleSpec(c.kind)
+    // traffic is always seen from a distance: the light car model
+    const spec = vehicleSpec(c.kind, 'lo')
     const m = new THREE.InstancedMesh(spec.geoRider, mat, c.count)
     m.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     m.castShadow = true

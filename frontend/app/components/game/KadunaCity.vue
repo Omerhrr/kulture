@@ -132,7 +132,7 @@ function buildCity(): {
   waterMaterial: THREE.MeshBasicMaterial
   houses: HouseSystem
   mats: Record<string, THREE.Material>
-  civic: THREE.Mesh | null
+  civic: THREE.Mesh[]
   houseMaterial: THREE.Material
   towers: ReturnType<typeof buildTowerMeshes>
   lamps: {
@@ -510,8 +510,22 @@ function buildCity(): {
    *  ellipsoid, normals pointing outward so the crown shades like a volume
    *  (lit top, darker underside) with a ragged, see-through silhouette. */
   const leafTints = ['#86b052', '#7aa64a', '#94b85a', '#6f9a42', '#a0b25a']
+  // reused scratch objects: a crown is built with one matrix per card and
+  // written straight into one geometry (no per-card geometry objects)
+  const _cm = new THREE.Matrix4()
+  const _rx = new THREE.Matrix4()
+  const _ry = new THREE.Matrix4()
+  const _rz = new THREE.Matrix4()
+  const _v = new THREE.Vector3()
+  // PlaneGeometry corners and uvs in its non-indexed triangle order (0,2,1 / 2,3,1)
+  const CARD_C = [[-0.5, 0.5], [-0.5, -0.5], [0.5, 0.5], [-0.5, -0.5], [0.5, -0.5], [0.5, 0.5]]
+  const CARD_UV = [0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1]
   function canopy(x: number, y: number, z: number, rx: number, ry: number, n: number) {
-    const tint = leafTints[Math.floor(rng() * leafTints.length)]
+    const tint = new THREE.Color(leafTints[Math.floor(rng() * leafTints.length)])
+    const pos = new Float32Array(n * 18)
+    const nrm = new Float32Array(n * 18)
+    const uv = new Float32Array(n * 12)
+    const col = new Float32Array(n * 18)
     for (let i = 0; i < n; i++) {
       const u = rng() * Math.PI * 2
       const v = Math.acos(1 - 2 * Math.pow(rng(), 0.8))
@@ -520,15 +534,45 @@ function buildCity(): {
       const ny = Math.cos(v)
       const nz = Math.sin(v) * Math.sin(u)
       const sz = (rx + ry) * (0.42 + rng() * 0.22)
-      const g = new THREE.PlaneGeometry(sz, sz)
-      g.rotateZ(rng() * Math.PI * 2)
-      g.rotateX((rng() - 0.5) * 1.6)
-      g.rotateY(rng() * Math.PI * 2)
-      g.translate(x + nx * rx * rr, y + ny * ry * rr, z + nz * rx * rr)
-      const nrm = g.attributes.normal
-      for (let k = 0; k < nrm.count; k++) nrm.setXYZ(k, nx, ny * 1.2 + 0.25, nz)
-      push('foliage', g, tint)
+      // same order as rotateZ -> rotateX -> rotateY -> translate
+      _rz.makeRotationZ(rng() * Math.PI * 2)
+      _rx.makeRotationX((rng() - 0.5) * 1.6)
+      _ry.makeRotationY(rng() * Math.PI * 2)
+      _cm.multiplyMatrices(_ry, _rx).multiply(_rz)
+      _cm.setPosition(x + nx * rx * rr, y + ny * ry * rr + yOff, z + nz * rx * rr)
+      let ly = ny * 1.2 + 0.25
+      let lx = nx
+      let lz = nz
+      if (yOff) {
+        // the old per-card translate() normalised normals as a side effect:
+        // keep hillside crowns lit exactly as before
+        const l = Math.hypot(lx, ly, lz) || 1
+        lx /= l
+        ly /= l
+        lz /= l
+      }
+      for (let k = 0; k < 6; k++) {
+        const o = (i * 6 + k) * 3
+        _v.set(CARD_C[k]![0]! * sz, CARD_C[k]![1]! * sz, 0).applyMatrix4(_cm)
+        pos[o] = _v.x
+        pos[o + 1] = _v.y
+        pos[o + 2] = _v.z
+        nrm[o] = lx
+        nrm[o + 1] = ly
+        nrm[o + 2] = lz
+        col[o] = tint.r
+        col[o + 1] = tint.g
+        col[o + 2] = tint.b
+        uv[(i * 6 + k) * 2] = CARD_UV[k * 2]!
+        uv[(i * 6 + k) * 2 + 1] = CARD_UV[k * 2 + 1]!
+      }
     }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
+    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+    ;(buckets.foliage ??= []).push(g)
   }
   function tree(x: number, z: number, s: number, species: number) {
     if (inKeepClear(x, z)) return
@@ -1351,7 +1395,7 @@ function buildCity(): {
   return {
     meshes,
     mats,
-    civic: civic?.mesh ?? null,
+    civic: civic?.meshes ?? [],
     sprites,
     water: waterGeos,
     waterTexture,
@@ -1412,6 +1456,7 @@ const meshRefs = ref<THREE.Mesh[]>([])
 let cullTimer = 0
 const nightFactor = useState<number>('kk_night', () => 0)
 const CULL = 2600
+const CIVIC_CULL = 1500
 const cityMap = useCityMap()
 const { onBeforeRender } = useLoop()
 onBeforeRender(({ delta, elapsed }) => {
@@ -1442,6 +1487,14 @@ onBeforeRender(({ delta, elapsed }) => {
       const dz = cz - pz
       m.visible = dx * dx + dz * dz < CULL * CULL
     }
+    // civic sites (schools, hospitals, fuel, mechanics): small props, so a
+    // shorter draw distance than the city blocks
+    for (const m of cityRef.value.civic) {
+      const bb = m.geometry.boundingBox!
+      const dx = (bb.min.x + bb.max.x) / 2 - px
+      const dz = (bb.min.z + bb.max.z) / 2 - pz
+      m.visible = dx * dx + dz * dz < CIVIC_CULL * CIVIC_CULL
+    }
     cityRef.value.houses.update(px, pz)
   }
   // CBD windows and streetlights light up after dusk
@@ -1470,7 +1523,7 @@ onBeforeRender(({ delta, elapsed }) => {
       receive-shadow
     />
     <primitive v-for="(h, i) in cityRef.houses.objects" :key="'kh' + i" :object="h" />
-    <primitive v-if="cityRef.civic" :object="cityRef.civic" />
+    <primitive v-for="(c, i) in cityRef.civic" :key="'kc' + i" :object="c" />
     <primitive v-for="(t, i) in cityRef.towers.meshes" :key="'kt' + i" :object="t" />
     <primitive :object="cityRef.lamps.poolMesh" />
     <TresMesh v-for="(w, i) in cityRef.water" :key="'kw' + i" :geometry="w" :material="cityRef.waterMaterial" />

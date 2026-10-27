@@ -223,10 +223,17 @@ const BODY = '#ffffff' // tinted per instance in traffic
 const GLASS = '#1d2730'
 const TRIM = '#2a2d33'
 
-const cache = new Map<VehicleKind, VehicleSpec>()
+const cache = new Map<string, VehicleSpec>()
 
-export function vehicleSpec(kind: VehicleKind): VehicleSpec {
-  const hit = cache.get(kind)
+/** 'hi' = full detail (the car you drive / sit in), 'lo' = distant copies:
+ * traffic, parked cars, props. Only the car has a separate low model; the
+ * other vehicles are already light. */
+export type VehicleLod = 'hi' | 'lo'
+const LO_DETAIL = 0.3
+
+export function vehicleSpec(kind: VehicleKind, lod: VehicleLod = 'hi'): VehicleSpec {
+  const key = kind === 'car' && lod === 'lo' ? 'car_lo' : kind
+  const hit = cache.get(key)
   if (hit) return hit
   let parts: Part[] = []
   let rider: Part[] = []
@@ -236,7 +243,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
     case 'car': {
       // smooth lofted saloon (utils/carBody): curved panels, alloys, LEDs
       const W = CAR_DIMS.W
-      parts.push(...buildSaloon(BODY, GLASS, TRIM))
+      parts.push(...buildSaloon(BODY, GLASS, TRIM, key === 'car_lo' ? LO_DETAIL : 1))
       // driver door: the +X front door panel, hinged at its front edge
       door = {
         geo: build([[BODY, bx(0.05, 0.62, 1.12, 0, -0.01, -0.56)], [GLASS, bx(0.04, 0.38, 0.9, 0, 0.5, -0.5)], [TRIM, bx(0.03, 0.04, 0.16, 0.02, 0.1, -0.85)]]),
@@ -394,7 +401,7 @@ export function vehicleSpec(kind: VehicleKind): VehicleSpec {
   const geo = build([...parts.map(([c, g]) => [c, g.clone()] as Part)])
   const geoRider = build([...parts, ...rider])
   const spec: VehicleSpec = { geo, geoRider, door, ...meta }
-  cache.set(kind, spec)
+  cache.set(key, spec)
   return spec
 }
 
@@ -501,8 +508,8 @@ export function buildInterior(kind: VehicleKind): THREE.BufferGeometry | null {
 /** A boardable-looking vehicle (body + opening door) painted one colour:
  *  paint panels take the colour, glass / tyres / chrome keep theirs. Used
  *  for owned cars and for other players' vehicles. */
-export function paintedVehicle(kind: VehicleKind, color?: string, mat: THREE.Material = vehicleMaterial()): { group: THREE.Group; door: THREE.Group | null } {
-  const spec = vehicleSpec(kind)
+export function paintedVehicle(kind: VehicleKind, color?: string, mat: THREE.Material = vehicleMaterial(), lod: VehicleLod = 'hi'): { group: THREE.Group; door: THREE.Group | null } {
+  const spec = vehicleSpec(kind, lod)
   const c = new THREE.Color(color ?? '#3f6fae')
   const geo = spec.geo.clone()
   if (color) {

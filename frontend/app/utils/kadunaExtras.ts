@@ -24,13 +24,16 @@ export function hash01(x: number, z: number, salt = 0): number {
 // ------------------------------------------------------------ spatial hash
 export interface SpatialHash {
   cell: number
-  map: Map<string, Array<[number, number]>>
+  map: Map<number, Array<[number, number]>>
 }
 
+/** numeric cell key (string keys made every lookup allocate) */
+export const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768)
+
 function buildHash(points: Array<[number, number]>, cell: number): SpatialHash {
-  const map = new Map<string, Array<[number, number]>>()
+  const map = new Map<number, Array<[number, number]>>()
   for (const [x, z] of points) {
-    const k = `${Math.floor(x / cell)},${Math.floor(z / cell)}`
+    const k = cellKey(Math.floor(x / cell), Math.floor(z / cell))
     let arr = map.get(k)
     if (!arr) map.set(k, (arr = []))
     arr.push([x, z])
@@ -43,18 +46,30 @@ export function hashDist(h: SpatialHash, x: number, z: number, maxR = 140): numb
   const cx = Math.floor(x / h.cell)
   const cz = Math.floor(z / h.cell)
   const r = Math.ceil(maxR / h.cell)
-  let best = maxR
-  for (let i = -r; i <= r; i++) {
-    for (let j = -r; j <= r; j++) {
-      const arr = h.map.get(`${cx + i},${cz + j}`)
-      if (!arr) continue
-      for (const [px, pz] of arr) {
-        const d = Math.hypot(px - x, pz - z)
-        if (d < best) best = d
+  // search ring by ring outward; a point in ring k is at least (k-1) cells
+  // away, so once that exceeds the best distance nothing closer remains
+  let best2 = maxR * maxR
+  for (let k = 0; k <= r; k++) {
+    const minD = (k - 1) * h.cell
+    if (k > 1 && minD * minD >= best2) break
+    for (let i = -k; i <= k; i++) {
+      const edge = i === -k || i === k
+      for (let j = -k; j <= k; j += edge ? 1 : 2 * k) {
+        const arr = h.map.get(cellKey(cx + i, cz + j))
+        if (arr) {
+          for (let n = 0; n < arr.length; n++) {
+            const p = arr[n]!
+            const dx = p[0] - x
+            const dz = p[1] - z
+            const d2 = dx * dx + dz * dz
+            if (d2 < best2) best2 = d2
+          }
+        }
+        if (k === 0) break
       }
     }
   }
-  return best
+  return Math.min(maxR, Math.sqrt(best2))
 }
 
 // ------------------------------------------------------------ lazy singletons
@@ -288,7 +303,7 @@ function doorSideOf(x: number, z: number): [number, number] {
   let best = Infinity
   for (let i = -2; i <= 2; i++) {
     for (let j = -2; j <= 2; j++) {
-      const arr = roadHash().map.get(`${cx + i},${cz + j}`)
+      const arr = roadHash().map.get(cellKey(cx + i, cz + j))
       if (!arr) continue
       for (const [px, pz] of arr) {
         const d = Math.hypot(px - x, pz - z)

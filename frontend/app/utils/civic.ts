@@ -5,23 +5,10 @@ import * as THREE from 'three'
 import { BAKE, type CivicSite } from './kaduna'
 import { vehicleSpec } from './vehicles'
 
-type Part = [string, THREE.BufferGeometry]
-
-function colorize(g: THREE.BufferGeometry, hex: string): THREE.BufferGeometry {
-  const gg = g.index ? g.toNonIndexed() : g
-  if (gg !== g) g.dispose()
-  if (gg.attributes.uv) gg.deleteAttribute('uv')
-  const c = new THREE.Color(hex)
-  const n = gg.attributes.position.count
-  const arr = new Float32Array(n * 3)
-  for (let i = 0; i < n; i++) {
-    arr[i * 3] = c.r
-    arr[i * 3 + 1] = c.g
-    arr[i * 3 + 2] = c.b
-  }
-  gg.setAttribute('color', new THREE.BufferAttribute(arr, 3))
-  return gg
-}
+/** [colour or '*tint' / '__keep', geometry, optional local transform]. Shared
+ * templates (vehicle bodies) are never cloned: their transform is applied
+ * while writing straight into the merged buffers. */
+type Part = [string, THREE.BufferGeometry, THREE.Matrix4?]
 
 class Site {
   parts: Part[] = []
@@ -39,10 +26,8 @@ class Site {
     this.parts.push([hex, g])
   }
   geo(g: THREE.BufferGeometry, hex: string | null, x: number, y: number, z: number, ry = 0) {
-    const c = g.clone()
-    if (ry) c.rotateY(ry)
-    c.translate(x, y, z)
-    this.parts.push([hex ? '*' + hex : '__keep', c])
+    const m = new THREE.Matrix4().makeRotationY(ry).setPosition(x, y, z)
+    this.parts.push([hex ? '*' + hex : '__keep', g, m])
   }
   /** perimeter wall with a gate gap on the street side (+z) */
   wall(w: number, d: number, hex: string, gate = 8, h = 2.2) {
@@ -170,7 +155,7 @@ function fuel(s: Site, c: CivicSite) {
   s.box(2.6, 3.4, 0.35, w / 2 - 2, 6.4, d / 2 - 1.5, '#1e8a4a')
   s.box(2.2, 1.6, 0.4, w / 2 - 2, 5.9, d / 2 - 1.5, '#101418')
   // a customer filling up
-  s.geo(vehicleSpec('car').geo, '#b8433a', -cw / 4 + 2.2, 0, 2, 0)
+  s.geo(vehicleSpec('car', 'lo').geo, '#b8433a', -cw / 4 + 2.2, 0, 2, 0)
 }
 
 function mechanic(s: Site, c: CivicSite) {
@@ -184,10 +169,10 @@ function mechanic(s: Site, c: CivicSite) {
   s.parts.push(['#8a6a4a', roof])
   for (const sx of [-w / 2 + 1.2, 0, w / 2 - 1.2]) s.cyl(0.1, 3.4, sx, 1.7, -d / 2 + 9, '#6b6f75', 6)
   // cars under repair (one on blocks), tyres, drums, workbench
-  s.geo(vehicleSpec('car').geo, '#8a8f96', -w * 0.22, 0.35, -d / 2 + 5.5, Math.PI / 2)
+  s.geo(vehicleSpec('car', 'lo').geo, '#8a8f96', -w * 0.22, 0.35, -d / 2 + 5.5, Math.PI / 2)
   s.box(0.5, 0.35, 0.5, -w * 0.22 - 1.3, 0.18, -d / 2 + 5.5, '#4a4a50')
   s.box(0.5, 0.35, 0.5, -w * 0.22 + 1.3, 0.18, -d / 2 + 5.5, '#4a4a50')
-  s.geo(vehicleSpec('car').geo, '#3f6fae', w * 0.2, 0, 0.5, 0.3)
+  s.geo(vehicleSpec('car', 'lo').geo, '#3f6fae', w * 0.2, 0, 0.5, 0.3)
   for (let i = 0; i < 5; i++) {
     const t = new THREE.TorusGeometry(0.36, 0.14, 6, 12)
     t.rotateX(Math.PI / 2)
@@ -205,50 +190,54 @@ function mechanic(s: Site, c: CivicSite) {
 }
 
 export interface CivicMeshes {
-  mesh: THREE.Mesh
+  /** one merged mesh per 768 m tile, so far-away sites can be culled */
+  meshes: THREE.Mesh[]
   labels: { text: string; x: number; y: number; z: number; w: number; color: string }[]
+}
+
+// non-indexed, normal-carrying copy of each shared template, made once
+const flatCache = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>()
+function flatOf(g: THREE.BufferGeometry, shared: boolean): THREE.BufferGeometry {
+  if (shared) {
+    let f = flatCache.get(g)
+    if (!f) {
+      f = g.index ? g.toNonIndexed() : g.clone()
+      if (!f.attributes.normal) f.computeVertexNormals()
+      flatCache.set(g, f)
+    }
+    return f
+  }
+  const f = g.index ? g.toNonIndexed() : g
+  if (f !== g) g.dispose()
+  if (!f.attributes.normal) f.computeVertexNormals()
+  return f
 }
 
 export function buildCivic(): CivicMeshes | null {
   const sites = BAKE.civic ?? []
   if (!sites.length) return null
-  const geos: THREE.BufferGeometry[] = []
   const labels: CivicMeshes['labels'] = []
+  // pass 1: collect parts with their final world matrix
+  type Job = { hex: string; g: THREE.BufferGeometry; m: THREE.Matrix4 }
+  const TILE = 768
+  const tiles = new Map<string, { jobs: Job[]; total: number }>()
+  const siteM = new THREE.Matrix4()
   for (const c of sites) {
     const s = new Site()
     if (c.kind === 'school') school(s, c)
     else if (c.kind === 'hospital') hospital(s, c)
     else if (c.kind === 'fuel') fuel(s, c)
     else mechanic(s, c)
-    for (const [hex, g] of s.parts) {
-      let gg: THREE.BufferGeometry
-      if (hex === '__keep') {
-        gg = g.index ? g.toNonIndexed() : g
-      } else if (hex.startsWith('*')) {
-        // vehicle with baked colours: tint the body (multiply)
-        gg = g.index ? g.toNonIndexed() : g
-        const t = new THREE.Color(hex.slice(1))
-        const a = gg.attributes.color.array as Float32Array
-        for (let i = 0; i < a.length; i += 3) {
-          // only tint near-white body panels, keep glass/tyres dark
-          if (a[i] > 0.85 && a[i + 1] > 0.85 && a[i + 2] > 0.85) {
-            a[i] *= t.r
-            a[i + 1] *= t.g
-            a[i + 2] *= t.b
-          }
-        }
-      } else {
-        gg = colorize(g, hex)
-      }
-      // vehicle geometries carry their own colours but no normals tweak
-      if (!gg.attributes.normal) gg.computeVertexNormals()
-      gg.rotateY(c.yaw)
-      gg.translate(c.x, 0, c.z)
-      // keep only the attributes every part shares
-      for (const k of Object.keys(gg.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') gg.deleteAttribute(k)
-      geos.push(gg)
+    siteM.makeRotationY(c.yaw).setPosition(c.x, 0, c.z)
+    const key = `${Math.floor(c.x / TILE)},${Math.floor(c.z / TILE)}`
+    let tile = tiles.get(key)
+    if (!tile) tiles.set(key, (tile = { jobs: [], total: 0 }))
+    for (const [hex, g0, local] of s.parts) {
+      const g = flatOf(g0, !!local)
+      const m = local ? siteM.clone().multiply(local) : siteM.clone()
+      tile.jobs.push({ hex, g, m })
+      tile.total += g.attributes.position.count
     }
-    // tinted vehicle copies: multiply their baked colour
     const lx = 0
     const lz = c.d / 2 + 1
     const fx = c.x + lx * Math.cos(c.yaw) + lz * Math.sin(c.yaw)
@@ -257,25 +246,75 @@ export function buildCivic(): CivicMeshes | null {
     const icon = c.kind === 'hospital' ? '🏥 ' : c.kind === 'school' ? '🏫 ' : c.kind === 'fuel' ? '⛽ ' : '🔧 '
     labels.push({ text: icon + c.name, x: fx, y: c.kind === 'hospital' ? 16 : c.kind === 'school' ? 9 : 8.5, z: fz, w: Math.min(40, 10 + c.name.length * 0.9), color })
   }
-  const total = geos.reduce((n, g) => n + g.attributes.position.count, 0)
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true })
+  const meshes: THREE.Mesh[] = []
+  for (const { jobs, total } of tiles.values()) meshes.push(mergeTile(jobs, total, material))
+  return { meshes, labels }
+}
+
+/** transform every vertex once, straight into one tile's merged arrays */
+function mergeTile(jobs: { hex: string; g: THREE.BufferGeometry; m: THREE.Matrix4 }[], total: number, material: THREE.Material): THREE.Mesh {
   const pos = new Float32Array(total * 3)
   const nrm = new Float32Array(total * 3)
   const col = new Float32Array(total * 3)
+  const nm = new THREE.Matrix3()
+  const tint = new THREE.Color()
   let off = 0
-  for (const g of geos) {
-    pos.set(g.attributes.position.array as Float32Array, off)
-    nrm.set(g.attributes.normal.array as Float32Array, off)
-    col.set(g.attributes.color.array as Float32Array, off)
-    off += g.attributes.position.count * 3
-    g.dispose()
+  for (const { hex, g, m } of jobs) {
+    const P = g.attributes.position.array as ArrayLike<number>
+    const N = g.attributes.normal.array as ArrayLike<number>
+    const C = g.attributes.color?.array as ArrayLike<number> | undefined
+    const n = g.attributes.position.count
+    const e = m.elements
+    nm.getNormalMatrix(m)
+    const q = nm.elements
+    const solid = hex !== '__keep' && !hex.startsWith('*')
+    if (solid) tint.set(hex)
+    else if (hex.startsWith('*')) tint.set(hex.slice(1))
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3
+      const x = P[i3], y = P[i3 + 1], z = P[i3 + 2]
+      const o = off + i3
+      pos[o] = e[0] * x + e[4] * y + e[8] * z + e[12]
+      pos[o + 1] = e[1] * x + e[5] * y + e[9] * z + e[13]
+      pos[o + 2] = e[2] * x + e[6] * y + e[10] * z + e[14]
+      const a = N[i3], b = N[i3 + 1], cc = N[i3 + 2]
+      let nx = q[0] * a + q[3] * b + q[6] * cc
+      let ny = q[1] * a + q[4] * b + q[7] * cc
+      let nz = q[2] * a + q[5] * b + q[8] * cc
+      const l = Math.hypot(nx, ny, nz) || 1
+      nrm[o] = nx / l
+      nrm[o + 1] = ny / l
+      nrm[o + 2] = nz / l
+      if (solid || !C) {
+        col[o] = tint.r
+        col[o + 1] = tint.g
+        col[o + 2] = tint.b
+      } else {
+        let r = C[i3], gr = C[i3 + 1], bl = C[i3 + 2]
+        // vehicle with baked colours: tint only near-white body panels,
+        // keep glass and tyres dark
+        if (hex !== '__keep' && r > 0.85 && gr > 0.85 && bl > 0.85) {
+          r *= tint.r
+          gr *= tint.g
+          bl *= tint.b
+        }
+        col[o] = r
+        col[o + 1] = gr
+        col[o + 2] = bl
+      }
+    }
+    off += n * 3
+    if (!flatCache.has(g)) g.dispose()
   }
   const merged = new THREE.BufferGeometry()
   merged.setAttribute('position', new THREE.BufferAttribute(pos, 3))
   merged.setAttribute('normal', new THREE.BufferAttribute(nrm, 3))
   merged.setAttribute('color', new THREE.BufferAttribute(col, 3))
   merged.computeBoundingSphere()
-  const mesh = new THREE.Mesh(merged, new THREE.MeshLambertMaterial({ vertexColors: true }))
+  merged.computeBoundingBox()
+  const mesh = new THREE.Mesh(merged, material)
   mesh.castShadow = true
   mesh.receiveShadow = true
-  return { mesh, labels }
+  return mesh
 }

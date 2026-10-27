@@ -62,8 +62,12 @@ function openMask(x: number, z: number): number {
   const wd = hashDist(waterHash(), x, z, 200)
   let m = smooth(45, 140, rd) * smooth(32, 110, hd) * smooth(50, 170, wd)
   for (const [bx, bz, r] of builtPoints()) {
-    const d = Math.hypot(x - bx, z - bz)
-    if (d < r + 120) m *= smooth(r, r + 120, d)
+    const R = r + 120
+    const dx = x - bx
+    const dz = z - bz
+    if (dx > R || dx < -R || dz > R || dz < -R) continue // cheap reject first
+    const d = Math.hypot(dx, dz)
+    if (d < R) m *= smooth(r, R, d)
   }
   return m
 }

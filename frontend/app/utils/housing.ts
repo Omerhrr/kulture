@@ -419,27 +419,46 @@ export function prefabs(): Record<HouseType, Prefab> {
 }
 
 // ------------------------------------------------------------- placement
-let _mainRoads: { x: number; z: number }[] | null = null
+// main-road sample points bucketed in a 60 m grid: a lookup only scans the
+// 3x3 cells that can hold a point within the 60 m window
+const MR_CELL = 60
+let _mainGrid: Map<number, number[]> | null = null
+const mrKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768)
 function mainRoadDist(x: number, z: number): number {
-  if (!_mainRoads) {
-    _mainRoads = []
+  if (!_mainGrid) {
+    _mainGrid = new Map()
     for (const r of BAKE.roads) {
       if (r.class !== 'trunk' && r.class !== 'primary') continue
       for (let i = 0; i < r.pts.length - 1; i++) {
         const [ax, az] = r.pts[i]
         const [bx, bz] = r.pts[i + 1]
         const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 10))
-        for (let k = 0; k < n; k++) _mainRoads.push({ x: ax + ((bx - ax) * k) / n, z: az + ((bz - az) * k) / n })
+        for (let k = 0; k < n; k++) {
+          const px = ax + ((bx - ax) * k) / n
+          const pz = az + ((bz - az) * k) / n
+          const key = mrKey(Math.floor(px / MR_CELL), Math.floor(pz / MR_CELL))
+          let arr = _mainGrid.get(key)
+          if (!arr) _mainGrid.set(key, (arr = []))
+          arr.push(px, pz)
+        }
       }
     }
   }
   let best = Infinity
-  for (const p of _mainRoads) {
-    const dx = p.x - x
-    const dz = p.z - z
-    if (Math.abs(dx) > 60 || Math.abs(dz) > 60) continue
-    const d = Math.hypot(dx, dz)
-    if (d < best) best = d
+  const ci = Math.floor(x / MR_CELL)
+  const cj = Math.floor(z / MR_CELL)
+  for (let i = ci - 1; i <= ci + 1; i++) {
+    for (let j = cj - 1; j <= cj + 1; j++) {
+      const arr = _mainGrid.get(mrKey(i, j))
+      if (!arr) continue
+      for (let k = 0; k < arr.length; k += 2) {
+        const dx = arr[k]! - x
+        const dz = arr[k + 1]! - z
+        if (Math.abs(dx) > 60 || Math.abs(dz) > 60) continue
+        const d = Math.hypot(dx, dz)
+        if (d < best) best = d
+      }
+    }
   }
   return best
 }

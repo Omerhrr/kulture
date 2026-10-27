@@ -29,8 +29,15 @@ export function useGameApi() {
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
       const detail = (body as any)?.detail
+      // 422 = form validation: say which field is wrong, in plain words
+      const field = Array.isArray(detail) ? detail[0] : null
+      const fieldMsg = field
+        ? `${String(field.loc?.[field.loc.length - 1] ?? 'input').replace(/_/g, ' ')}: ${String(field.msg ?? 'invalid').replace(/^(String|Value error),?\s*/i, '')}`
+        : ''
       const message =
-        typeof detail === 'string' ? detail : detail?.message || detail?.code || `HTTP ${res.status}`
+        typeof detail === 'string'
+          ? detail
+          : fieldMsg || detail?.message || detail?.code || (res.status >= 500 ? 'The server is busy - please try again in a moment.' : `HTTP ${res.status}`)
       const code = typeof detail === 'object' ? detail?.code : message
       throw Object.assign(new Error(message), { code, status: res.status })
     }

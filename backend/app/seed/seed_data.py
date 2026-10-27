@@ -484,42 +484,25 @@ async def seed_if_empty(db: AsyncSession) -> bool:
         )
     )
 
-    # a demo account so reviewers can skip registration
-    from datetime import datetime, timezone
+    await db.commit()
+    return True
+
+
+DEMO_USERNAME = "demo_player"
+
+
+async def retire_demo_account(db: AsyncSession) -> bool:
+    """Lock the old shared demo account on databases seeded before sign-up
+    became the only way in. Kept (not deleted) so rows that point at it stay
+    valid; its password is replaced so it can never log in again."""
+    import secrets
 
     from app.core.security import hash_password
-    from app.models.ledger import GameLedgerEntry
-    from app.models.player import PlayerProfile, PlayerState
 
-    demo_user = User(
-        username="demo_player",
-        password_hash=hash_password("kaduna-demo-2026"),
-        status="active",
-    )
-    db.add(demo_user)
-    await db.flush()
-    demo_profile = PlayerProfile(
-        user_id=demo_user.id, display_name="Demo Player", avatar_id="danfo_rider",
-        reputation=0,
-    )
-    db.add(demo_profile)
-    await db.flush()
-    db.add(
-        PlayerState(
-            player_id=demo_profile.id, region_id=region.id,
-            position_x=entity_map["spawn_roadside"].position_x,
-            position_y=0.0, position_z=entity_map["spawn_roadside"].position_z,
-        )
-    )
-    db.add(
-        GameLedgerEntry(
-            account_reference=f"player:{demo_profile.id}",
-            asset_type="ksats",
-            amount_minor_units=25_000_00,
-            transaction_reference=f"grant:demo:{int(datetime.now(timezone.utc).timestamp())}",
-            entry_type="grant_initial",
-            description="Starting simulated k-sats (game currency - not Bitcoin)",
-        )
-    )
+    user = (await db.execute(select(User).where(User.username == DEMO_USERNAME))).scalar_one_or_none()
+    if user is None or user.status == "disabled":
+        return False
+    user.status = "disabled"
+    user.password_hash = hash_password(secrets.token_urlsafe(32))
     await db.commit()
     return True

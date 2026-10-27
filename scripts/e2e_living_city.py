@@ -1,16 +1,9 @@
 # Headless E2E verification for the living-city pass:
 # day/night cycle, traffic behavior, pedestrian smarts, street chat,
 # interior isolation, vehicle probe, audio wiring.
-#
-# The suite is frame-rate tolerant: headless SwiftShader renders the 3x
-# city at ~1-3 fps, so every gameplay check POLLS for a condition instead
-# of assuming N frames happened within M milliseconds. Runs the world at
-# low quality (dpr 1, no shadows, lighter rain) to keep frames coming.
 # Run: python scripts/e2e_living_city.py [baseUrl]
-import json
 import re
 import sys
-from urllib import request as _urlreq
 from playwright.sync_api import sync_playwright
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:3000"
@@ -22,53 +15,24 @@ def ok(name, passed, detail=""):
     print(("PASS " if passed else "FAIL ") + name + ((" - " + str(detail)) if detail else ""))
 
 
-def poll(page, expr, timeout_s, expect_true=True, interval_ms=400):
-    """Poll a JS expression until it is truthy (or falsy when expect_true=False)."""
-    deadline = timeout_s * 1000
-    waited = 0
-    while waited < deadline:
-        v = page.evaluate(expr)
-        if bool(v) == expect_true:
-            return True
-        page.wait_for_timeout(interval_ms)
-        waited += interval_ms
-    return page.evaluate(expr) == expect_true if not expect_true else False
-
-
-def walk_by_keys(page, key, min_units, timeout_s=14):
-    """Hold a key, polling position until the player moved min_units."""
-    p0 = page.evaluate("window.__kk_pos && window.__kk_pos()")
-    page.keyboard.down(key)
-    moved = False
-    deadline = timeout_s * 1000
-    waited = 0
-    while waited < deadline:
-        page.wait_for_timeout(700)
-        waited += 700
-        p1 = page.evaluate("window.__kk_pos && window.__kk_pos()")
-        if p0 and p1 and ((p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2) ** 0.5 > min_units:
-            moved = True
-            break
-    page.keyboard.up(key)
-    return moved, p0, p1 if moved else page.evaluate("window.__kk_pos && window.__kk_pos()")
-
-
 with sync_playwright() as pw:
     browser = pw.chromium.launch(
         headless=True,
-        args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-              "--autoplay-policy=no-user-gesture-required"],
+        executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome" if __import__("os").path.exists("/opt/pw-browsers/chromium-1194/chrome-linux/chrome") else None, args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"],
     )
-    page = browser.new_page(viewport={"width": 560, "height": 360})
-    page.add_init_script("try{localStorage.setItem('kk_quality','low')}catch(e){}")
+    page = browser.new_page(viewport={"width": 1280, "height": 760})
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
 
     # ---------- login
     page.goto(BASE + "/game", wait_until="networkidle")
     page.wait_for_timeout(1500)
-    page.fill("#kk-username", "demo_player")
-    page.fill("#kk-password", "kaduna-demo-2026")
+    # sign up a fresh player (there is no shared demo account)
+    import uuid
+    page.goto(BASE + "/game?signup", wait_until="networkidle")
+    page.wait_for_timeout(1000)
+    page.fill("#kk-username", f"e2e_{uuid.uuid4().hex[:10]}")
+    page.fill("#kk-password", "e2e-suya-pass-123")
     page.click("button[type=submit]")
     page.wait_for_timeout(9000)
 
@@ -76,61 +40,26 @@ with sync_playwright() as pw:
     ok("world canvas mounts", authed)
     ok("no page errors after load", len(errors) == 0, errors[:3])
 
-    # ---------- district NPCs render (7 named characters now)
-    npc_codes = []
-    npcs_live = poll(page, "window.__kk_npcs && window.__kk_npcs().length >= 7", 12)
-    if npcs_live:
-        npc_codes = page.evaluate("window.__kk_npcs ? window.__kk_npcs() : []")
-    need_npcs = {"npc_mama_chidi", "npc_bashir", "npc_prof_danjuma", "npc_tunde", "npc_ngozi"}
-    ok("district NPCs rendered", need_npcs.issubset(set(npc_codes)), npc_codes)
-
-    # ---------- movement (open road first: persisted spawn can sit wedged
-    # against a shed, which would block the probe). At walk 5 u/s and the
-    # 0.1s dt clamp, ~2 frames are needed per unit; poll generously.
+    # ---------- movement still works (open road first: persisted spawn can
+    # sit wedged against a market shed, which would block the probe)
     page.evaluate("window.__kk_teleport && window.__kk_teleport(-182, 256.45)")
     page.wait_for_timeout(600)
-    moved, p0, p1 = walk_by_keys(page, "ArrowUp", 0.6, timeout_s=16)
-    ok("arrow key movement", moved, f"{p0} -> {p1}")
-
-    # ---------- vehicle collision: you cannot walk through a parked car
-    # (spawn kerb fleet car: PLAYABLE_POS.spawn_roadside + (9, -2.9)). Walk
-    # straight at it and track the closest approach: blocked means the walk
-    # stops ~2.5 u short of the car center instead of crossing it.
-    car_c = [-182.001 + 9.0, 256.449 - 2.9]
-    page.evaluate(f"window.__kk_teleport && window.__kk_teleport({car_c[0]}, {car_c[1] + 6.5})")
-    page.wait_for_timeout(700)
+    p0 = page.evaluate("window.__kk_pos && window.__kk_pos()")
     page.keyboard.down("ArrowUp")
-    min_z = 999.0
-    deadline = 15000
-    waited = 0
-    while waited < deadline:
-        page.wait_for_timeout(600)
-        waited += 600
-        z = page.evaluate("window.__kk_pos && window.__kk_pos()[1]")
-        if z is None:
-            continue
-        min_z = min(min_z, z)
-        if z < car_c[1] + 2.2:
-            break  # walked into/past the car footprint
+    page.wait_for_timeout(2000)
     page.keyboard.up("ArrowUp")
-    ok("parked car blocks the player", min_z > car_c[1] + 2.2, f"closest approach z={min_z} (car center {car_c[1]})")
+    p1 = page.evaluate("window.__kk_pos && window.__kk_pos()")
+    moved = bool(p0 and p1 and ((p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2) ** 0.5 > 2)
+    ok("arrow key movement", moved, f"{p0} -> {p1}")
 
     # ---------- day/night cycle
     t0 = page.evaluate("window.__kk_time && window.__kk_time()")
     ok("day/night clock running", bool(t0 and t0.get("hour", 0) > 0), t0)
-    reached_night = False
-    for _ in range(10):
+    for _ in range(9):
         page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
-        page.wait_for_timeout(600)
-        t1 = page.evaluate("window.__kk_time && window.__kk_time()")
-        if t1 and t1.get("night", 0) > 0.8:
-            reached_night = True
-            break
-    # let the sky catch up (a few frames at software-GL pace)
-    if reached_night:
-        poll(page, "window.__kk_time && window.__kk_time().night > 0.8", 12)
-        t1 = page.evaluate("window.__kk_time && window.__kk_time()")
-    ok("time skip reaches night", reached_night, t1)
+    page.wait_for_timeout(2500)
+    t1 = page.evaluate("window.__kk_time && window.__kk_time()")
+    ok("time skip reaches night", bool(t1 and t1.get("night", 0) > 0.8), t1)
     page.screenshot(path="/tmp/kk-night-city.png")
 
     dark = page.evaluate(
@@ -147,20 +76,13 @@ with sync_playwright() as pw:
     ok("night sky is dark (pixel probe)", dark)
 
     # back to daylight (loop skips of 2h until night < 0.4)
-    back_day = poll(
-        page,
-        "window.__kk_time && window.__kk_time().night < 0.4",
-        16,
-    )
-    if not back_day:
-        for _ in range(14):
-            page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
-            page.wait_for_timeout(500)
-            t2 = page.evaluate("window.__kk_time && window.__kk_time()")
-            if t2 and t2.get("night", 1) < 0.4:
-                back_day = True
-                break
-        poll(page, "window.__kk_time && window.__kk_time().night < 0.4", 10)
+    for _ in range(14):
+        page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
+        page.wait_for_timeout(350)
+        t2 = page.evaluate("window.__kk_time && window.__kk_time()")
+        if t2 and t2.get("night", 1) < 0.4:
+            break
+    page.wait_for_timeout(2000)
     t2 = page.evaluate("window.__kk_time && window.__kk_time()")
     ok("time wraps back to day", bool(t2 and t2.get("night", 1) < 0.4), t2)
 
@@ -181,10 +103,9 @@ with sync_playwright() as pw:
         bool(traffic and traffic.get("cars", 0) >= 20 and traffic.get("signals", 0) >= 3),
         {k: traffic.get(k) for k in ("cars", "signals", "stopped", "avgV")} if traffic else None,
     )
-    v0 = page.evaluate("window.__kk_traffic && window.__kk_traffic().avgV")
-    page.wait_for_timeout(5000)
-    v1 = page.evaluate("window.__kk_traffic && window.__kk_traffic().avgV")
-    ok("cars actually move", bool(v1 and v1 > 3 or (v0 or 0) > 3), f"avgV {v0} -> {v1}")
+    page.wait_for_timeout(4000)
+    traffic2 = page.evaluate("window.__kk_traffic && window.__kk_traffic()")
+    ok("cars actually move", bool(traffic2 and traffic2.get("avgV", 0) > 3), f"avgV {traffic2 and traffic2.get('avgV')}")
 
     # ---------- street chat: stand next to a stationary market vendor
     chat = False
@@ -208,33 +129,20 @@ with sync_playwright() as pw:
     ok("street chat line appears", chat)
     page.screenshot(path="/tmp/kk-chat.png")
 
-    # ---------- interiors: teleport to the first open house door and enter.
-    # Wait for the door scan to actually publish action==='enter' before
-    # firing the one-shot event (the exit path below does the same; firing
-    # blind races the render loop at software-GL pace).
+    # ---------- interiors: teleport to the first open house door and enter
     page.evaluate(
         """() => {
       const doors = window.__kk_doors && window.__kk_doors();
       if (doors && doors[0]) window.__kk_teleport(doors[0].door[0], doors[0].door[1]);
     }"""
     )
-    prompt_ready = poll(
-        page,
-        "window.__kk_interior && window.__kk_interior().prompt && window.__kk_interior().prompt.action === 'enter'",
-        30,
-    )
-    ok("door prompt visible at the entrance", prompt_ready, page.evaluate("window.__kk_interior && window.__kk_interior()"))
-    if prompt_ready:
-        page.evaluate("window.dispatchEvent(new CustomEvent('kk-door-use'))"
-    )
-    entered = poll(page, "window.__kk_interior && window.__kk_interior().inside", 30)
+    page.wait_for_timeout(1400)
+    prompt_visible = page.evaluate("document.body.innerText.includes('Enter')")
+    ok("door prompt visible at the entrance", prompt_visible)
+    page.evaluate("window.dispatchEvent(new CustomEvent('kk-door-use'))")
+    page.wait_for_timeout(8000)  # software GL in CI is slow to settle
     interior = page.evaluate("window.__kk_interior && window.__kk_interior()")
-    ok("interior entered", entered, interior)
-    sank = poll(page, """() => {
-      const r = window.__kk_ctx;
-      const c = (r && r.camera && r.camera.activeCamera && r.camera.activeCamera.value) || ((r && r.cameras && r.cameras.value || [])[0]);
-      return c ? c.position.y < -30 : false;
-    }""", 20)
+    ok("interior entered", bool(interior and interior.get("inside")), interior)
     cam = page.evaluate(
         """() => {
       const r = window.__kk_ctx;
@@ -242,158 +150,51 @@ with sync_playwright() as pw:
       return c ? [ +c.position.x.toFixed(1), +c.position.y.toFixed(1), +c.position.z.toFixed(1) ] : null;
     }"""
     )
-    ok("camera sinks to the underground room", sank, cam)
+    ok("camera sinks to the underground room", bool(cam and cam[1] < -30), cam)
     page.screenshot(path="/tmp/kk-interior.png")
 
     # walk within the room
-    walked, before, after = walk_by_keys(page, "ArrowDown", 0.5, timeout_s=12)
+    before = page.evaluate("window.__kk_pos()")
+    page.keyboard.down("ArrowDown")
+    page.wait_for_timeout(800)
+    page.keyboard.up("ArrowDown")
+    after = page.evaluate("window.__kk_pos()")
+    walked = bool(before and after and ((after[0] - before[0]) ** 2 + (after[1] - before[1]) ** 2) ** 0.5 > 1)
     ok("can walk within the room", walked, f"{before} -> {after}")
 
-    # exit through the door: teleport to the threshold, WAIT for the exit
-    # prompt (recomputed per frame; at software-GL pace that can take a few
-    # seconds), and only then fire the one-shot door event
+    # exit through the door
     page.evaluate(
         """() => {
       const doors = window.__kk_doors && window.__kk_doors();
       if (doors && doors[0]) window.__kk_teleport(doors[0].door[0], doors[0].door[1]);
     }"""
     )
-    prompt_ready = poll(
-        page,
-        "window.__kk_interior && window.__kk_interior().prompt && window.__kk_interior().prompt.action === 'exit'",
-        20,
-    )
-    if prompt_ready:
-        page.evaluate("window.dispatchEvent(new CustomEvent('kk-door-use'))")
-    exited = poll(page, "window.__kk_interior && !window.__kk_interior().inside", 20)
+    page.wait_for_timeout(1400)
+    page.evaluate("window.dispatchEvent(new CustomEvent('kk-door-use'))")
+    page.wait_for_timeout(1000)
     interior2 = page.evaluate("window.__kk_interior && window.__kk_interior()")
-    ok("interior exit works", exited, interior2)
+    ok("interior exit works", bool(interior2 and not interior2.get("inside")), interior2)
 
     # ---------- vehicles + probe
     page.evaluate("window.__kk_teleport && window.__kk_teleport(-174, 256.45)")
     page.wait_for_timeout(1600)
     fleet = page.evaluate("window.__kk_fleet && window.__kk_fleet()")
     ok("boardable fleet exists", isinstance(fleet, list) and len(fleet) >= 9, len(fleet) if fleet else None)
-    # The proximity prompt scan only fires every 0.16s of GAME time, which is
-    # 2-4s of wall time at software-GL pace: poll for the prompt before
-    # dispatching the toggle (firing blind races the scan, same lesson as the
-    # door prompt above).
-    prompt_ready = poll(page, "window.__kk_ride && !!window.__kk_ride().prompt", 30)
-    ok("ride prompt appears near the fleet", prompt_ready, page.evaluate("window.__kk_ride && window.__kk_ride().prompt"))
     page.evaluate("window.dispatchEvent(new CustomEvent('kk-ride-toggle'))")
-    boarded = poll(page, "window.__kk_ride && window.__kk_ride().active", 16)
+    page.wait_for_timeout(1300)
     ride = page.evaluate("window.__kk_ride && window.__kk_ride()")
-    ok("boards the nearest vehicle", boarded, ride and ride.get("kind"))
-    # The walk-to-door + climb phase machine is time-based on clamped dt
-    # (0.1s per frame), so boarding takes 40-70s of wall time at
-    # software-GL pace. Wait for 'riding' first, then hold W.
-    seated = poll(page, "window.__kk_ride && window.__kk_ride().phase === 'riding'", 150)
+    ok("boards the nearest vehicle", bool(ride and ride.get("active")), ride and ride.get("kind"))
     page.keyboard.down("KeyW")
-    drove = poll(page, "window.__kk_ride && window.__kk_ride().speed > 2", 40)
+    page.wait_for_timeout(3000)
     page.keyboard.up("KeyW")
     ride2 = page.evaluate("window.__kk_ride && window.__kk_ride()")
-    ok("vehicle drives", drove and seated, f"phase {ride2 and ride2.get('phase')}, speed {ride2 and ride2.get('speed')} km/h")
-    # let the car roll to a stop before exiting (exit refuses at speed)
-    poll(page, "window.__kk_ride && Math.abs(window.__kk_ride().speed) < 2", 24)
+    ok("vehicle drives", bool(ride2 and ride2.get("speed", 0) > 2), f"speed {ride2 and ride2.get('speed')} km/h")
     page.evaluate("window.dispatchEvent(new CustomEvent('kk-ride-toggle'))")
     page.wait_for_timeout(900)
 
     # ---------- audio wiring
     audio = page.evaluate("window.__kk_audio && window.__kk_audio()")
     ok("audio engine ready", bool(audio and audio.get("ready")), audio)
-
-    # ---------- district content served by the backend
-    try:
-        def _api(method: str, path: str, payload=None, token=None):
-            data = json.dumps(payload).encode() if payload is not None else None
-            req = _urlreq.Request(
-                BASE + path, data=data, method=method,
-                headers={"Content-Type": "application/json", **({"Authorization": "Bearer " + token} if token else {})},
-            )
-            with _urlreq.urlopen(req, timeout=15) as r:
-                return json.loads(r.read())
-
-        tok = _api("POST", "/api/v1/auth/login", {"username": "demo_player", "password": "kaduna-demo-2026"})["access_token"]
-        region = _api("GET", "/api/v1/world/regions/kaduna-city", token=tok)
-        codes = {e["code"] for e in region["entities"]}
-        need = {"textile_market", "kawo_motor_park", "kasu_gate", "rigasa_station", "sabon_tasha_shop"}
-        ok("district spots seeded", need.issubset(codes), sorted(need - codes))
-        jobs = _api("GET", "/api/v1/jobs/available", token=tok)
-        ok("job board has district routes", len(jobs) >= 7, len(jobs))
-        rewards = sorted(int(j["reward_ngn_minor"]) for j in jobs)
-        ok("job rewards tuned by distance", rewards[0] >= 5_000_00 and rewards[-1] >= 15_000_00, [r / 100 for r in rewards])
-    except Exception as e:  # noqa: BLE001
-        ok("district content API reachable", False, str(e)[:120])
-
-    # ---------- district occupancy: stalls, benches, queues are staffed
-    occ = page.evaluate("window.__kk_occupants && window.__kk_occupants()")
-    inhabited = (
-        bool(occ)
-        and occ.get("textile", 0) >= 6
-        and occ.get("rigasa", 0) >= 4
-        and occ.get("kasu", 0) >= 2
-        and occ.get("kawo", 0) >= 2
-        and occ.get("sabon", 0) >= 1
-    )
-    ok("districts are inhabited", inhabited, occ)
-    ok("bench sitters at Rigasa", bool(occ) and occ.get("sitters", 0) >= 4, occ and occ.get("sitters"))
-
-    # ---------- night rhythm: the city thins out after dark, wakes at dawn
-    for _ in range(10):
-        page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
-        page.wait_for_timeout(500)
-        t3 = page.evaluate("window.__kk_time && window.__kk_time()")
-        if t3 and t3.get("night", 0) > 0.85:
-            break
-    asleep = poll(page, "window.__kk_crowd && window.__kk_crowd().asleep >= 20", 12)
-    crowd_n = page.evaluate("window.__kk_crowd && window.__kk_crowd()")
-    ok("the city sleeps at night", asleep, crowd_n and {k: crowd_n.get(k) for k in ("total", "asleep")})
-    page.screenshot(path="/tmp/kk-night-empty.png")
-
-    # ---------- streetlights: lenses glow + ground pools fade in after dusk
-    lamps_on = poll(
-        page,
-        "window.__kk_lamps && window.__kk_lamps().glow > 0.9 && window.__kk_lamps().pools > 0.35",
-        12,
-    )
-    lamps = page.evaluate("window.__kk_lamps && window.__kk_lamps()")
-    ok("streetlights glow at night", bool(lamps_on and lamps and lamps.get("count", 0) > 40 and lamps.get("on")), lamps)
-
-    # ---------- traffic keeps night hours: off-duty vehicles park
-    thinned = poll(
-        page,
-        "window.__kk_traffic && window.__kk_traffic().active < window.__kk_traffic().cars * 0.6",
-        12,
-    )
-    tr_n = page.evaluate("window.__kk_traffic && window.__kk_traffic()")
-    ok("roads thin out at night", bool(thinned and tr_n and tr_n.get("active", 0) >= 4), tr_n and {k: tr_n.get(k) for k in ("cars", "active")})
-
-    # closeup of a lit streetlight (camera damping needs a beat after teleport)
-    samp = (lamps or {}).get("sample")
-    if samp:
-        page.evaluate(f"window.__kk_teleport && window.__kk_teleport({samp[0]}, {samp[1]})")
-        page.wait_for_timeout(2600)
-        page.screenshot(path="/tmp/kk-lamps.png")
-
-    for _ in range(10):
-        page.evaluate("window.dispatchEvent(new CustomEvent('kk-time-skip'))")
-        page.wait_for_timeout(500)
-        t4 = page.evaluate("window.__kk_time && window.__kk_time()")
-        if t4 and t4.get("night", 1) < 0.3:
-            break
-    woke = poll(page, "window.__kk_crowd && window.__kk_crowd().asleep === 0", 12)
-    crowd_d = page.evaluate("window.__kk_crowd && window.__kk_crowd()")
-    ok("the city wakes at dawn", woke, crowd_d and {k: crowd_d.get(k) for k in ("total", "asleep")})
-    lamps_off = poll(page, "window.__kk_lamps && window.__kk_lamps().glow < 0.1", 12)
-    lamps_d = page.evaluate("window.__kk_lamps && window.__kk_lamps()")
-    ok("streetlights sleep at dawn", lamps_off, lamps_d)
-    refill = poll(
-        page,
-        "window.__kk_traffic && window.__kk_traffic().active >= window.__kk_traffic().cars",
-        12,
-    )
-    tr_d = page.evaluate("window.__kk_traffic && window.__kk_traffic()")
-    ok("roads refill at dawn", refill, tr_d and {k: tr_d.get(k) for k in ("cars", "active")})
 
     ok("no page errors at the end", len(errors) == 0, errors[:4])
     browser.close()

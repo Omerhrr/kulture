@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, hash_password, verify_password
@@ -15,6 +17,11 @@ from app.schemas.auth import PlayerOut, TokenOut
 
 STARTING_KSATS = 25_000_00  # 2,500,000 k-sats starting grant - clearly game money
 STARTING_REPUTATION = 0
+
+
+# verified against when the username doesn't exist, so a wrong username and a
+# wrong password take the same time (no probing which usernames are taken)
+_DUMMY_HASH = hash_password("kulture-no-such-user")
 
 
 class AuthError(Exception):
@@ -28,11 +35,22 @@ def _token_for(user: User, profile: PlayerProfile) -> TokenOut:
     )
 
 
+def normalize_username(username: str) -> str:
+    """Usernames are case-insensitive: 'Danladi' and 'danladi' are one name."""
+    return username.strip().lower()
+
+
+async def _find_user(db: AsyncSession, username: str) -> User | None:
+    return (
+        await db.execute(select(User).where(func.lower(User.username) == normalize_username(username)))
+    ).scalars().first()
+
+
 async def register_player(
     db: AsyncSession, username: str, password: str, display_name: str
 ) -> TokenOut:
-    existing = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
-    if existing:
+    username = normalize_username(username)
+    if await _find_user(db, username):
         raise AuthError("username_taken")
 
     region = (
@@ -45,12 +63,18 @@ async def register_player(
         await db.execute(select(WorldEntity).where(WorldEntity.code == "spawn_roadside"))
     ).scalar_one()
 
-    user = User(username=username, password_hash=hash_password(password), status="active")
+    # PBKDF2 is deliberately slow (~0.3 s of CPU): hash off the event loop so
+    # one sign-up never freezes the game for everyone else
+    user = User(username=username, password_hash=await asyncio.to_thread(hash_password, password), status="active")
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:  # two sign-ups raced for the same name
+        await db.rollback()
+        raise AuthError("username_taken") from None
 
     profile = PlayerProfile(
-        user_id=user.id, display_name=display_name or username, reputation=STARTING_REPUTATION
+        user_id=user.id, display_name=" ".join(display_name.split()) or username, reputation=STARTING_REPUTATION
     )
     db.add(profile)
     await db.flush()
@@ -79,8 +103,9 @@ async def register_player(
 
 
 async def login_player(db: AsyncSession, username: str, password: str) -> TokenOut:
-    user = (await db.execute(select(User).where(User.username == username))).scalar_one_or_none()
-    if not user or not verify_password(password, user.password_hash) or user.status != "active":
+    user = await _find_user(db, username)
+    ok = await asyncio.to_thread(verify_password, password, user.password_hash if user else _DUMMY_HASH)
+    if not user or not ok or user.status != "active":
         raise AuthError("invalid_credentials")
     profile = (
         await db.execute(select(PlayerProfile).where(PlayerProfile.user_id == user.id))

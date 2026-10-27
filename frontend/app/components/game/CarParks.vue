@@ -80,7 +80,7 @@ function build(l: Lot): THREE.Group | null {
   const n = Math.floor(hash01(l.x, l.z, 91) * 3)
   const boxes: Array<{ x: number; z: number; w: number; d: number }> = []
   for (let c = 0; c < n; c++) {
-    const { group } = paintedVehicle('car', PAINT[Math.floor(hash01(l.x + c, l.z, 93) * PAINT.length)], carMat)
+    const { group } = paintedVehicle('car', PAINT[Math.floor(hash01(l.x + c, l.z, 93) * PAINT.length)], carMat, 'lo')
     // paintedVehicle clones the mesh tree but shares the cached spec's
     // BufferGeometries: mark them so teardown skips disposing them
     group.traverse((o) => {

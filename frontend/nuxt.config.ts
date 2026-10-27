@@ -44,6 +44,13 @@ export default defineNuxtConfig({
   // Direct-dev convenience: when Nuxt runs alone (no gateway), proxy API + WS
   // to the FastAPI backend. In production the gateway/Caddy owns this route.
   nitro: {
+    // 3D models and other public files keep their names between deploys:
+    // cache them for a week so returning players don't re-download them
+    // (the hashed /_nuxt/ bundles are already cached forever).
+    routeRules: {
+      // (typed loosely: this nitro version's route-rule types omit `headers`, which it does honour)
+      '/models/**': { headers: { 'cache-control': 'public, max-age=604800, stale-while-revalidate=86400' } } as any
+    },
     devProxy: {
       '/api': { target: 'http://127.0.0.1:8000/api', changeOrigin: true },
       '/ws': { target: 'ws://127.0.0.1:8000/ws', ws: true },
@@ -54,6 +61,21 @@ export default defineNuxtConfig({
   build: {
     transpile: ['three']
   },
+
+  // Don't <link rel="prefetch"> every lazily-loaded chunk: by default Nuxt
+  // hints all of them, so phones download the physics engine (football) and
+  // the character-creator's 3D engine (~1.2 MB) while the game itself is
+  // still loading. They're fetched when actually used instead.
+  hooks: {
+    'build:manifest'(manifest) {
+      for (const entry of Object.values(manifest)) {
+        entry.prefetch = false
+        if (entry.dynamicImports) entry.dynamicImports = []
+      }
+    }
+  },
+
+
 
   typescript: {
     strict: true,

@@ -68,6 +68,7 @@ if (import.meta.dev) {
     orbit.value.dist = dist
   }
   ;(window as any).__kk_scene = () => ctxAny.scene?.value ?? ctxAny.scene
+  ;(window as any).__kk_renderer = () => { const r = ctxAny.renderer?.value ?? ctxAny.renderer?.instance ?? ctxAny.renderer; return r?.instance ?? r }
   ;(window as any).__kk_tres = () => {
     const r = ctxAny.renderer?.value ?? ctxAny.renderer?.instance
     const s = ctxAny.scene?.value ?? ctxAny.scene

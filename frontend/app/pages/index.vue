@@ -1,4 +1,16 @@
 <script setup lang="ts">
+import { getQuality } from '~/utils/quality'
+// The live 3D city behind the hero builds the whole map (and that build is
+// reused when you enter the game). Phones / weak devices get a still
+// backdrop instead; on desktops it waits until the page is up and the
+// buttons work, then builds in the background.
+const showHero = ref(false)
+onMounted(() => {
+  if (getQuality() === 'low') return
+  const go = () => (showHero.value = true)
+  const ric = (window as any).requestIdleCallback as ((f: () => void, o?: { timeout: number }) => number) | undefined
+  setTimeout(() => (ric ? ric(go, { timeout: 2500 }) : go()), 900)
+})
 useHead({ title: 'Kaduna Kulture - A Living Kaduna. An Economy Powered by Bitcoin.' })
 
 const features = [
@@ -62,11 +74,9 @@ const landmarks = [
     <section class="relative h-[100svh] min-h-[560px] overflow-hidden">
       <!-- live 3D neighborhood (no pointer capture: the page stays scrollable) -->
       <div class="pointer-events-none absolute inset-0">
+        <div class="absolute inset-0 bg-gradient-to-b from-[#a7cbe0] via-[#c8ddba] to-paper" />
         <ClientOnly>
-          <HeroWorld />
-          <template #fallback>
-            <div class="h-full w-full bg-gradient-to-b from-[#a7cbe0] via-[#c8ddba] to-paper" />
-          </template>
+          <div v-if="showHero" class="kk-fade-in absolute inset-0"><HeroWorld /></div>
         </ClientOnly>
       </div>
 
@@ -85,7 +95,7 @@ const landmarks = [
           </div>
           <div class="flex items-center gap-2">
             <NuxtLink to="/game" class="kk-btn-ghost !py-2">Log in</NuxtLink>
-            <NuxtLink to="/game" class="kk-btn-primary !py-2">Enter the world</NuxtLink>
+            <NuxtLink to="/game?signup" class="kk-btn-primary !py-2">Play free</NuxtLink>
           </div>
         </nav>
       </header>
@@ -109,14 +119,11 @@ const landmarks = [
             server side, exactly once.
           </p>
           <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <NuxtLink to="/game" class="kk-btn-primary !px-9 !py-3.5 !text-base">Play free</NuxtLink>
+            <NuxtLink to="/game?signup" class="kk-btn-primary !px-9 !py-3.5 !text-base">Create free account</NuxtLink>
             <NuxtLink to="/game" class="kk-btn-ghost !px-7 !py-3.5 !text-base">Log in</NuxtLink>
           </div>
           <div class="mt-4 text-xs text-ink/45">
-            No install, runs in the browser · demo account
-            <code class="rounded bg-ink/5 px-1.5 py-0.5 font-bold text-golddark">demo_player</code>
-            /
-            <code class="rounded bg-ink/5 px-1.5 py-0.5 font-bold text-golddark">kaduna-demo-2026</code>
+            Free to play · no install, runs in your browser · just pick a username and password
           </div>
         </div>
       </div>
@@ -165,3 +172,14 @@ const landmarks = [
     </section>
   </div>
 </template>
+
+<style scoped>
+.kk-fade-in {
+  animation: kk-fade 1.2s ease-out both;
+}
+@keyframes kk-fade {
+  from {
+    opacity: 0;
+  }
+}
+</style>

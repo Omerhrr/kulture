@@ -54,6 +54,7 @@ if (import.meta.dev) {
 <template>
   <TresCanvas :shadows="!low" :shadow-map-type="2" :tone-mapping="4" :tone-mapping-exposure="1.0" :output-color-space="'srgb'" :dpr="low ? 1 : [1, 1.5]" :clear-color="'#9ec7de'">
     <CameraRig />
+    <ShaderWarmup :stage="stage" />
     <PointerControls />
     <TresFog :args="['#d3dfe6', 140, 4600]" />
     <SkyDome />

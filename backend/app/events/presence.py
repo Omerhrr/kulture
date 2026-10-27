@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.core.config import settings
 from app.events.bus import manager
 
 NEAR_RADIUS = 260.0  # units: how far away other players are streamed
@@ -164,7 +165,7 @@ class PresenceRegistry:
 
     async def _loop(self) -> None:
         while self._p:
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(settings.presence_snapshot_interval_seconds)
             count = self.online_count()
             for pid in list(self._p.keys()):
                 await manager.send_to_player(

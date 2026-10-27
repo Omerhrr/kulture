@@ -63,16 +63,17 @@ See [docs/gameplay.md](docs/gameplay.md#world-scale--the-modern-city-v3).
 - **Every house can be entered**: walk to any compound gate and press E for
   a furnished interior (each home decorated differently).
 
-## Demo account
+## Accounts
 
-```
-username: demo_player
-password: kaduna-demo-2026
-```
+Anyone can play: open the site, choose **Create free account**, pick a
+username (3-32 letters, numbers or `_`, not case-sensitive) and a password
+(8+ characters). Every new player starts with 2,500,000 k-sats.
+There is no shared demo login; the old `demo_player` account is locked
+automatically on servers that still have it.
 
 ## The golden path (what to demo)
 
-1. **Enter the world** - register or use the demo account.
+1. **Create free account** - pick a username and password, and you are in.
 2. **Walk** (WASD / arrows) to Musa's Provision Store and press **E**.
 3. **Talk to Mallam Musa** - the DSH agent answers in character (LLM when
    available, deterministic fallback otherwise - both audited in the DB).

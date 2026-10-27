@@ -9,6 +9,12 @@ import * as THREE from 'three'
 
 export type CarPart = [string, THREE.BufferGeometry]
 
+/** Detail level of the car being built: 1 = the full hero car you drive,
+ * lower = the same silhouette with far fewer vertices for traffic, parked
+ * cars and props seen from a distance. Set by buildSaloon for its duration. */
+let D = 1
+const seg = (n: number, min = 3) => Math.max(min, Math.round(n * D))
+
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
   return t * t * (3 - 2 * t)
@@ -97,7 +103,7 @@ function loft(z0: number, z1: number, stations: number, ring: number, at: (z: nu
 
 /** Flattened ellipsoid pressed onto the body surface (lamps, grille). */
 function pad(rx: number, ry: number, rz: number, x: number, y: number, z: number, rotY = 0, rotX = 0) {
-  const g = new THREE.SphereGeometry(1, 18, 10)
+  const g = new THREE.SphereGeometry(1, seg(18, 6), seg(10, 4))
   g.scale(rx, ry, rz)
   if (rotX) g.rotateX(rotX)
   if (rotY) g.rotateY(rotY)
@@ -123,17 +129,22 @@ function alloyWheel(r: number, w: number, x: number, y: number, z: number, out: 
     [rIn, hw * 0.9]
   ]
   for (const [a, b] of pts) prof.push(new THREE.Vector2(a, b))
-  const tyre = new THREE.LatheGeometry(prof, 28)
+  const tyre = new THREE.LatheGeometry(prof, seg(28, 10))
   tyre.rotateZ(Math.PI / 2)
   tyre.translate(x, y, z)
   out.push(['#121214', tyre])
   // rim barrel + lip
-  const barrel = new THREE.CylinderGeometry(rIn, rIn, w * 0.86, 24, 1, true).rotateZ(Math.PI / 2).translate(x, y, z)
+  const barrel = new THREE.CylinderGeometry(rIn, rIn, w * 0.86, seg(24, 10), 1, true).rotateZ(Math.PI / 2).translate(x, y, z)
   out.push(['#3a3d42', barrel])
+  const face = x + side * w * 0.38
+  if (D < 1) {
+    // distant car: a solid rim face is all that reads
+    out.push([rimHex, new THREE.CylinderGeometry(rIn * 0.96, rIn * 0.96, 0.03, seg(24, 10)).rotateZ(Math.PI / 2).translate(face, y, z)])
+    return
+  }
   const lip = new THREE.TorusGeometry(rIn * 0.98, 0.012, 6, 28).rotateY(Math.PI / 2).translate(x + side * w * 0.43, y, z)
   out.push([rimHex, lip])
   // face: dark dish behind, brake disc, 5 spokes, centre cap
-  const face = x + side * w * 0.38
   out.push(['#1c1e22', new THREE.CylinderGeometry(rIn * 0.96, rIn * 0.96, 0.02, 24).rotateZ(Math.PI / 2).translate(face - side * 0.05, y, z)])
   out.push(['#7a7e84', new THREE.CylinderGeometry(rIn * 0.7, rIn * 0.7, 0.025, 20).rotateZ(Math.PI / 2).translate(face - side * 0.09, y, z)])
   out.push(['#8a2a22', new THREE.BoxGeometry(0.06, 0.12, 0.1).translate(face - side * 0.07, y + rIn * 0.55, z - 0.06)]) // caliper
@@ -160,7 +171,16 @@ export const CAR_DIMS: CarDims = { W: 1.84, wheelR: 0.34, axleF: 1.42, axleR: -1
  * Build the saloon. `BODY` is the paint colour (tinted per instance),
  * `GLASS`/`TRIM` the dark glazing and plastics.
  */
-export function buildSaloon(BODY: string, GLASS: string, TRIM: string): CarPart[] {
+export function buildSaloon(BODY: string, GLASS: string, TRIM: string, detail = 1): CarPart[] {
+  D = detail
+  try {
+    return saloon(BODY, GLASS, TRIM)
+  } finally {
+    D = 1
+  }
+}
+
+function saloon(BODY: string, GLASS: string, TRIM: string): CarPart[] {
   const out: CarPart[] = []
   const { W, wheelR, axleF, axleR } = CAR_DIMS
   const HW = W / 2
@@ -178,7 +198,7 @@ export function buildSaloon(BODY: string, GLASS: string, TRIM: string): CarPart[
   }
 
   // ---- lower body: nose -> bonnet -> doors -> rear deck -> boot
-  const body = loft(L0, L1, 64, 40, (z) => {
+  const body = loft(L0, L1, seg(64, 16), seg(40, 16), (z) => {
     // ends round off in plan and in elevation
     const endF = smooth(L1 - 0.5, L1, z)
     const endR = smooth(L0 + 0.42, L0, z)
@@ -211,7 +231,7 @@ export function buildSaloon(BODY: string, GLASS: string, TRIM: string): CarPart[
   out.push([BODY, body])
 
   // ---- glasshouse: windscreen -> roof -> fastback
-  const cabin = loft(-1.42, 1.12, 40, 32, (z) => {
+  const cabin = loft(-1.42, 1.12, seg(40, 10), seg(32, 12), (z) => {
     const yt = keyed(
       [
         [-1.42, 1.0],
@@ -232,7 +252,7 @@ export function buildSaloon(BODY: string, GLASS: string, TRIM: string): CarPart[
   out.push([GLASS, cabin])
 
   // painted roof panel + pillars over the glass
-  const roof = loft(-0.62, 0.34, 18, 28, (z) => {
+  const roof = loft(-0.62, 0.34, seg(18, 4), seg(28, 10), (z) => {
     const yt = keyed(
       [
         [-0.62, 1.405],
@@ -248,7 +268,7 @@ export function buildSaloon(BODY: string, GLASS: string, TRIM: string): CarPart[
   const pillar = (a: [number, number, number], b: [number, number, number], r: number, hex = BODY) => {
     const va = new THREE.Vector3(...a)
     const vb = new THREE.Vector3(...b)
-    const g = new THREE.CylinderGeometry(r, r, va.distanceTo(vb), 8)
+    const g = new THREE.CylinderGeometry(r, r, va.distanceTo(vb), seg(8, 4))
     g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), vb.clone().sub(va).normalize()))
     const m = va.add(vb).multiplyScalar(0.5)
     g.translate(m.x, m.y, m.z)
@@ -267,7 +287,7 @@ export function buildSaloon(BODY: string, GLASS: string, TRIM: string): CarPart[
   // ---- lamps: slim LED headlights wrapping into the wings
   for (const s of [-1, 1]) {
     out.push(['#e9eef4', pad(0.26, 0.04, 0.08, s * 0.53, 0.77, 2.08, s * -0.32, -0.3)])
-    out.push(['#9fb3c6', pad(0.2, 0.018, 0.07, s * 0.55, 0.735, 2.09, s * -0.32, -0.3)]) // DRL underline
+    if (D === 1) out.push(['#9fb3c6', pad(0.2, 0.018, 0.07, s * 0.55, 0.735, 2.09, s * -0.32, -0.3)]) // DRL underline
     // tail lights: blade wrapping around the corner
     out.push(['#7a1016', pad(0.26, 0.05, 0.07, s * 0.5, 0.88, -2.16, s * 0.3)])
     out.push(['#d0242e', pad(0.2, 0.02, 0.06, s * 0.52, 0.895, -2.18, s * 0.3)])
@@ -276,8 +296,10 @@ export function buildSaloon(BODY: string, GLASS: string, TRIM: string): CarPart[
     out.push([BODY, pad(0.085, 0.055, 0.06, s * (HW + 0.08), 1.06, 0.95)])
     // side skirt + door handles + shut lines
     out.push([TRIM, new THREE.BoxGeometry(0.03, 0.08, 1.5).translate(s * (HW - 0.02), 0.36, 0.0)])
-    for (const hz of [0.28, -0.82]) out.push([TRIM, pad(0.012, 0.02, 0.09, s * (HW - 0.005), 0.86, hz)])
-    for (const lz of [0.98, -0.14, -1.22]) out.push(['#3a3c40', new THREE.BoxGeometry(0.01, 0.48, 0.012).translate(s * (HW - 0.003), 0.66, lz)])
+    if (D === 1) {
+      for (const hz of [0.28, -0.82]) out.push([TRIM, pad(0.012, 0.02, 0.09, s * (HW - 0.005), 0.86, hz)])
+      for (const lz of [0.98, -0.14, -1.22]) out.push(['#3a3c40', new THREE.BoxGeometry(0.01, 0.48, 0.012).translate(s * (HW - 0.003), 0.66, lz)])
+    }
     // front fog/air intakes
     out.push(['#0f1012', pad(0.15, 0.05, 0.05, s * 0.56, 0.48, 2.2, s * -0.3)])
   }

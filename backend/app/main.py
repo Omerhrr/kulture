@@ -18,7 +18,7 @@ from app.agents.llm_client import llm_client
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal, engine
 from app.api.router import api_root
-from app.seed.seed_data import reconcile_content, reconcile_world_scale, seed_if_empty
+from app.seed.seed_data import reconcile_content, reconcile_world_scale, retire_demo_account, seed_if_empty
 from app.workers.runner import start_all
 
 logging.basicConfig(
@@ -46,6 +46,8 @@ async def lifespan(app: FastAPI):
             moved = await reconcile_world_scale(db)
             if moved:
                 log.info("World rescaled to x%s: %d rows updated.", settings.world_scale, moved)
+        if await retire_demo_account(db):
+            log.info("Old shared demo account locked: players sign up for their own.")
         content = await reconcile_content(db)
         from app.services.travel_service import ensure_regions
 

@@ -10,12 +10,12 @@ from pydantic import BaseModel, Field
 class RegisterIn(BaseModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
     password: str = Field(min_length=8, max_length=128)
-    display_name: str = Field(min_length=1, max_length=64)
+    display_name: str = Field(min_length=1, max_length=32)
 
 
 class LoginIn(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class TokenOut(BaseModel):

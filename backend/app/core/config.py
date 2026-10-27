@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-change-me-kaduna-kulture"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 12
+    # sign-up / login abuse limits (per client IP, and failed logins per username)
+    auth_register_per_ip_per_hour: int = 20
+    auth_login_per_ip_per_10min: int = 60
+    auth_failed_login_per_user_per_10min: int = 8
 
     # ------------------------------------------------------------------
     # CORS
@@ -102,6 +106,9 @@ class Settings(BaseSettings):
     # raw (bake) bounds of the city map; scaled by world_scale at use
     world_raw_bounds: tuple[float, float, float, float] = (-1400.0, 700.0, -1020.0, 1450.0)
     movement_rate_limit_hz: float = 20.0     # WS movement messages per second
+    # how often each player gets the positions of the players near them;
+    # 1 s made other people move in visible surges
+    presence_snapshot_interval_seconds: float = 0.25
     job_reward_currency: str = "ksats"
 
     # ------------------------------------------------------------------

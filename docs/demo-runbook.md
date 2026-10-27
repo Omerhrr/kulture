@@ -12,7 +12,7 @@ curl -s http://localhost:3000/api/v1/health/ready   # database ok + lightning he
 node scripts/ws-smoke.mjs                            # WS + agent E2E (should print Musa dialogue)
 ```
 
-- Have the demo account ready: `demo_player / kaduna-demo-2026`.
+- Create a player account beforehand (Create free account on the landing page).
 - Keep a **fallback demo video** recorded (see below).
 - Do NOT create the demo account on stage - log in, don't register.
 
@@ -27,8 +27,8 @@ node scripts/ws-smoke.mjs                            # WS + agent E2E (should pr
 
 ### 2. Enter the world (60 s)
 
-- Open the app → **Enter the world** → log in as `demo_player`.
-- Point out the HUD: **2,500,000 k-sats is game money - NOT Bitcoin**
+- Open the app → **Enter the world** → log in with your player account.
+- Point out the HUD: **₦25,000 is simulated NGN - game money, NOT Bitcoin**
   (acceptance KK-012). The green dot means the authoritative WebSocket is live.
 
 ### 3. Walk + talk to the AI shopkeeper (90 s)
@@ -47,8 +47,8 @@ node scripts/ws-smoke.mjs                            # WS + agent E2E (should pr
 - Walk to the store → **📦 Pick up** (server validates you're actually there).
 - Stonetech Square is ~800 m south in Barnawa: hop on the **keke or car
   parked by the spawn** (press **E**) and drive there - it shows off the
-  life-size city - then → **✅ Deliver** → k-sats + reputation paid
-  through the ledger. Open **📜 Ledger** - k-sats entries are clearly
+  life-size city - then → **✅ Deliver** → NGN + reputation paid
+  through the ledger. Open **📜 Ledger** - simulated NGN entries are clearly
   labeled; real sats never mix with them.
 
 ### 5. The Lightning purchase (2 min - the money shot)

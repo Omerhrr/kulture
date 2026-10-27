@@ -130,5 +130,5 @@ Copy backups off the server now and then, for example with
   the worker count.
 - Your local `kaduna.db` (SQLite) is not copied. The server starts with a
   freshly seeded city and empty player list.
-- The seeded `demo_player` / `kaduna-demo-2026` account is shared and public,
-  as shown on the landing page.
+- There is no shared demo account: players create their own (sign-up is
+  rate limited per network and failed logins per username).

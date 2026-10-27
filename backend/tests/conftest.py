@@ -15,6 +15,9 @@ os.environ["KK_DATABASE_URL"] = _PG_TEST or "sqlite+aiosqlite:///" + os.path.joi
     os.path.dirname(__file__), "test_kaduna.db"
 )
 os.environ["KK_LLM_ENABLED"] = "false"
+# the suite signs up a fresh player per test from one address
+os.environ.setdefault("KK_AUTH_REGISTER_PER_IP_PER_HOUR", "100000")
+os.environ.setdefault("KK_AUTH_LOGIN_PER_IP_PER_10MIN", "100000")
 os.environ["KK_JWT_SECRET"] = "test-secret-0123456789abcdef-0123456789abcdef"
 # Tests run DB sessions on multiple event loops (pytest-asyncio session loop +
 # starlette TestClient portals) - never share pooled connections across loops.
