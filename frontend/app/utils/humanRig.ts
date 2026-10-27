@@ -12,7 +12,7 @@
 // Rest pose: standing, facing +z, arms hanging, 1.78 m tall. Side s = +1 is
 // the +x side, s = -1 the -x side.
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 export interface LookSpec {
   outfit: 'kaftan' | 'dress' | 'shirt'
@@ -25,6 +25,8 @@ export interface LookSpec {
   hijab: boolean
   beard: boolean
   female: boolean
+  /** hijab colour (default: a cream or blue that sets off the gown) */
+  scarf?: string
 }
 
 export type BoneName = string
@@ -186,6 +188,59 @@ function skirtW(top: number, bottom: number, hw: number) {
   }
 }
 
+// ------------------------------------------------------------------ head shape
+/** heads are drawn this much larger than life (friendly, readable faces) */
+export const HEAD_SCALE = 1.15
+const HR = 0.105 // base radius (m), before HEAD_SCALE
+const HX = 0.9 // head width vs depth
+const HY = 1.08 // head height vs depth
+/** the lower head narrows toward the chin */
+const jawK = (u: number) => (u < 0 ? 1 - 0.3 * u * u : 1)
+/** the lower FRONT is flattened a touch: a face, not a snout */
+const faceK = (u: number, front: boolean) => (front && u < 0 ? 1 - 0.1 * -u : 1)
+function shapeHead(v: THREE.Vector3, r: number) {
+  const u = v.y / r
+  v.x *= HX * jawK(u)
+  v.z *= faceK(u, v.z > 0)
+  v.y *= HY
+}
+/** z of the face surface at head-centre (x, y), for placing features */
+function frontZ(x: number, y: number): number {
+  const u = y / (HY * HR)
+  const sx = x / (HX * jawK(u))
+  return Math.sqrt(Math.max(0, HR * HR - sx * sx - (u * HR) ** 2)) * faceK(u, true)
+}
+/**
+ * The head surface grown by `scale` (1 = the skin). With `keep` - a signed
+ * margin, > 0 inside the region (u up, w front, s side; unit sphere coords) -
+ * the surface eases under the skin outside it over a narrow band: that is
+ * how hair, beards and the hijab get clean, soft edges instead of steps.
+ * `lift` offsets the kept part (an afro sits higher and further back).
+ */
+function headShell(scale: number, keep?: (u: number, w: number, s: number) => number, lift?: [number, number, number], seg = 44, band = 0.035): THREE.BufferGeometry {
+  // seam at the back of the head
+  let g: THREE.BufferGeometry = new THREE.SphereGeometry(HR, seg, Math.round(seg * 0.75), -Math.PI / 2)
+  g.deleteAttribute('uv')
+  g.deleteAttribute('normal')
+  g = mergeVertices(g)
+  const p = g.attributes.position as THREE.BufferAttribute
+  const v = new THREE.Vector3()
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i)
+    // edge band opens on the INSIDE of the region: volume starts at the line
+    const t = keep ? sstep(-0.035, band, keep(v.y / HR, v.z / HR, v.x / HR)) : 1
+    const k = 0.94 + (scale - 0.94) * t
+    v.multiplyScalar(k)
+    shapeHead(v, HR * k)
+    if (lift) v.add(new THREE.Vector3(lift[0] * t, lift[1] * t, lift[2] * t))
+    p.setXYZ(i, v.x, v.y, v.z)
+  }
+  g.computeVertexNormals()
+  return g
+}
+/** natural hairline: up at the forehead, over the ears, down to the nape */
+const hairline = (u: number, w: number) => u - (0.03 + 0.34 * w + (w < 0 ? 0.26 * w : 0))
+
 function bake(pieces: Piece[], boneIndex: Record<string, number>): THREE.BufferGeometry | null {
   const geos: THREE.BufferGeometry[] = []
   const v = new THREE.Vector3()
@@ -252,7 +307,7 @@ export function buildHuman(look: LookSpec): HumanRig {
   const female = look.female
   const outfit = look.outfit
   const hw = female ? 0.18 : 0.165
-  const groups: Record<string, Piece[]> = { skin: [], top: [], bottom: [], shoe: [], sole: [], hair: [], cap: [], trim: [], eye: [], iris: [], lip: [], brow: [] }
+  const groups: Record<string, Piece[]> = { skin: [], top: [], bottom: [], shoe: [], sole: [], hair: [], cap: [], trim: [], eye: [], iris: [], pupil: [], shine: [], lash: [], lip: [], brow: [] }
 
   // ---- torso (the top garment IS the torso surface: no hidden skin)
   const chestR = female ? 0.165 : 0.185
@@ -282,7 +337,8 @@ export function buildHuman(look: LookSpec): HumanRig {
   } else groups.top.push(torso)
   if (outfit === 'kaftan') {
     // embroidered neckline
-    groups.trim.push(rigid(new THREE.TorusGeometry(0.07, 0.01, 6, 20).rotateX(Math.PI / 2 - 0.25).translate(0, 1.455, 0.025), 'chest'))
+    // (near-flat so it sits on the collar instead of rising behind the neck)
+    groups.trim.push(rigid(new THREE.TorusGeometry(0.072, 0.009, 6, 20).rotateX(Math.PI / 2 - 0.08).translate(0, 1.45, 0.012), 'chest'))
     groups.trim.push(rigid(new THREE.BoxGeometry(0.022, 0.2, 0.01).translate(0, 1.33, 0.112), 'chest'))
   }
 
@@ -382,88 +438,107 @@ export function buildHuman(look: LookSpec): HumanRig {
   }
 
   // ---- neck + head
+  // Stylized head: one smooth egg (no stacked spheres, so no seams and no
+  // muzzle), HEAD_SCALE larger than life so faces read at street distance.
+  // Features are built in head-centre metres, then scaled + placed (place()).
   const nk = V('neck')
   const hd = V('head')
-  groups.skin.push(tube(nk.clone().add(new THREE.Vector3(0, -0.03, 0)), hd.clone().add(new THREE.Vector3(0, 0.03, 0)), female ? 0.045 : 0.054, female ? 0.042 : 0.05, 'neck', 'chest', 'head', { seg: 14, len: 4 }))
-  const H = (x: number, y: number, z: number) => new THREE.Vector3(hd.x + x, hd.y + y, hd.z + z)
-  const head: W = [['head', 1]]
-  groups.skin.push(ball(H(0, 0.1, -0.005), 0.104, head, 0.9, 1.06, 1.04, 28)) // cranium
-  groups.skin.push(ball(H(0, 0.045, 0.03), 0.082, head, 0.92, 0.95, 0.95, 20)) // face / cheeks
-  groups.skin.push(ball(H(0, 0.012, 0.055), 0.042, head, 1.15, 0.8, 0.9, 16)) // jaw / chin
-  for (const s of [1, -1]) {
-    groups.skin.push(ball(H(s * 0.093, 0.085, -0.005), 0.022, head, 0.45, 1, 0.75, 10)) // ears
-    // eyes: white, dark iris, a lid crease of skin above each
-    groups.eye.push(ball(H(s * 0.035, 0.103, 0.0905), 0.0165, head, 1.2, 0.78, 0.55, 14))
-    groups.iris.push(ball(H(s * 0.035, 0.102, 0.0985), 0.0085, head, 1, 1.05, 0.45, 12))
-    groups.skin.push(ball(H(s * 0.035, 0.113, 0.0885), 0.017, head, 1.25, 0.42, 0.62, 12))
-    groups.brow.push(rigid(new THREE.CapsuleGeometry(0.0045, 0.026, 2, 6).rotateZ(Math.PI / 2 - s * 0.12).translate(hd.x + s * 0.035, hd.y + 0.125, hd.z + 0.087), 'head'))
-  }
-  // nose: bridge + tip + nostrils
-  groups.skin.push(ball(H(0, 0.085, 0.092), 0.013, head, 0.9, 2.1, 1, 10))
-  groups.skin.push(ball(H(0, 0.062, 0.1), 0.018, head, 1.35, 0.95, 1, 12))
-  // lips
-  groups.lip.push(rigid(new THREE.CapsuleGeometry(0.0085, 0.03, 3, 8).rotateZ(Math.PI / 2).scale(1, 0.85, 0.7).translate(hd.x, hd.y + 0.034, hd.z + 0.086), 'head'))
-  groups.lip.push(rigid(new THREE.CapsuleGeometry(0.009, 0.026, 3, 8).rotateZ(Math.PI / 2).scale(1, 0.9, 0.7).translate(hd.x, hd.y + 0.021, hd.z + 0.082), 'head'))
+  groups.skin.push(tube(nk.clone().add(new THREE.Vector3(0, -0.03, 0)), hd.clone().add(new THREE.Vector3(0, 0.03, 0)), female ? 0.05 : 0.06, female ? 0.047 : 0.056, 'neck', 'chest', 'head', { seg: 14, len: 4 }))
+  const S = HEAD_SCALE
+  const HC = hd.clone().add(new THREE.Vector3(0, 0.098 * S, 0.008))
+  const place = (g: THREE.BufferGeometry) => g.scale(S, S, S).translate(HC.x, HC.y, HC.z)
+  const onHead = (g: THREE.BufferGeometry) => rigid(place(g), 'head')
+  const sph = (r: number, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1, seg = 14) =>
+    onHead(new THREE.SphereGeometry(r, seg, Math.max(8, Math.round(seg * 0.7))).scale(sx, sy, sz).translate(x, y, z))
+  /** an arc of tube in the face plane, centred on the top of the circle */
+  const arc = (r: number, tubeR: number, sweep: number, x: number, y: number, z: number, tilt = 0) =>
+    onHead(new THREE.TorusGeometry(r, tubeR, 5, 12, sweep).rotateZ((Math.PI - sweep) / 2 + tilt).translate(x, y - r, z))
 
-  // ---- hair / caps / hijab
+  groups.skin.push(onHead(headShell(1)))
+  for (const s of [1, -1]) {
+    groups.skin.push(sph(0.02, s * 0.093, -0.006, -0.006, 0.4, 1, 0.72, 10)) // ears
+    // eyes: a big white, brown iris, pupil, a catch-light and a lash line
+    const ex = s * 0.036
+    const ey = 0.002
+    const ez = frontZ(ex, ey)
+    groups.eye.push(sph(0.0205, ex, ey, ez - 0.0105, 1, 0.92, 0.6, 16))
+    groups.iris.push(sph(0.0118, ex * 0.97, ey - 0.0012, ez + 0.0006, 1, 1.06, 0.4, 14))
+    groups.pupil.push(sph(0.0058, ex * 0.97, ey - 0.0012, ez + 0.0032, 1, 1.06, 0.3, 10))
+    groups.shine.push(sph(0.0028, ex * 0.97 + 0.0045, ey + 0.0045, ez + 0.0052, 1, 1, 0.5, 6))
+    groups.lash.push(arc(0.0198, 0.0023, Math.PI * 0.82, ex, ey + 0.0185, ez - 0.003))
+    // brows: soft arches, a little tilt outward
+    groups.brow.push(arc(0.03, 0.0042, 0.72, s * 0.038, ey + 0.031, frontZ(s * 0.038, ey + 0.031) - 0.0012, -s * 0.12))
+  }
+  // nose: a short soft bridge, a rounded tip and nostril wings
+  groups.skin.push(sph(0.0068, 0, -0.013, frontZ(0, -0.013) - 0.0045, 1, 1.6, 1, 10))
+  groups.skin.push(sph(0.0138, 0, -0.027, frontZ(0, -0.027) - 0.0025, 1.45, 0.88, 0.9, 12))
+  for (const s of [1, -1]) groups.skin.push(sph(0.008, s * 0.0122, -0.031, frontZ(s * 0.0122, -0.031) - 0.0035, 1, 0.9, 1, 8))
+  // mouth: one soft lip shape (two stacked lips read as stripes at range)
+  groups.lip.push(onHead(new THREE.CapsuleGeometry(0.0058, 0.019, 3, 10).rotateZ(Math.PI / 2).scale(1, 0.95, 0.55).translate(0, -0.053, frontZ(0, -0.053) - 0.0014)))
+
+  // ---- hair / caps / hijab: shells of the same head shape with a hairline
+  // (texels outside it sink under the skin), so every style fits the head
   if (look.hijab) {
-    const open = 2.0
-    const hood = new THREE.SphereGeometry(0.122, 26, 18, Math.PI / 2 + open / 2, Math.PI * 2 - open, 0, Math.PI * 0.8)
-    hood.scale(0.95, 1.1, 1.06)
-    hood.translate(hd.x, hd.y + 0.09, hd.z - 0.004)
-    groups.cap.push(rigid(hood, 'head'))
-    groups.cap.push(rigid(new THREE.TorusGeometry(0.094, 0.013, 8, 22, Math.PI * 1.25).rotateZ(-Math.PI * 0.125).translate(hd.x, hd.y + 0.085, hd.z + 0.06), 'head'))
-    // drape over the shoulders (follows neck + chest)
+    // hood that frames the face (an oval opening), then a drape over the
+    // shoulders
+    const faceOpen = (u: number, w: number, s: number) => Math.min(w - 0.25, 0.5 * (1 - (s / 0.62) ** 2 - ((u + 0.17) / 0.6) ** 2))
+    groups.cap.push(onHead(headShell(1.14, (u, w, s) => -faceOpen(u, w, s), undefined, 64)))
     const drape = new THREE.CylinderGeometry(0.1, 0.25, 0.3, 24, 4, true)
     drape.scale(1, 1, 0.85)
     drape.translate(hd.x, hd.y - 0.08, hd.z - 0.01)
     groups.cap.push({ geo: drape, weights: (p) => (p.y > hd.y - 0.05 ? [['head', 0.7], ['neck', 0.3]] : [['neck', 0.4], ['chest', 0.6]]) })
   } else {
-    if (look.hair === 'afro') groups.hair.push(ball(H(0, 0.135, -0.012), 0.135, head, 1.02, 0.86, 1.0, 22))
-    else if (look.hair !== 'bald' || look.kufi) {
-      // close crop that hugs the cranium
-      const crop = new THREE.SphereGeometry(0.108, 26, 14, 0, Math.PI * 2, 0, Math.PI * 0.52)
-      crop.scale(0.92, 1.06, 1.06)
-      crop.rotateX(-0.28)
-      crop.translate(hd.x, hd.y + 0.108, hd.z - 0.012)
-      groups.hair.push(rigid(crop, 'head'))
+    if (look.hair === 'afro') {
+      // big rounded crown that frames the face (it used to cover it)
+      // (a wide edge band tapers it into the hairline: round, not a helmet)
+      groups.hair.push(onHead(headShell(1.34, (u, w) => u - (0.06 + 0.3 * w + (w < 0 ? 0.3 * w : 0)), [0, 0.04, -0.018], 64, 0.42)))
+    } else if (look.hair === 'bald') {
+      groups.hair.push(onHead(headShell(1.012, hairline, undefined, 64))) // low cut: a fine dark shadow of hair
+    } else {
+      groups.hair.push(onHead(headShell(look.kufi ? 1.02 : 1.04, hairline, undefined, 64))) // close crop
     }
     if (look.hair === 'braids') {
       for (let i = -3; i <= 3; i++) {
-        const b = new THREE.CapsuleGeometry(0.011, 0.2, 3, 6)
-        b.translate(hd.x + i * 0.026, hd.y - 0.01, hd.z - 0.085 + Math.abs(i) * 0.008)
-        groups.hair.push({ geo: b, weights: (p) => (p.y > hd.y + 0.02 ? [['head', 1]] : [['head', 0.5], ['neck', 0.5]]) })
+        const b = new THREE.CapsuleGeometry(0.011, 0.2, 3, 6).translate(i * 0.024, -0.13, -0.084 + Math.abs(i) * 0.008)
+        const geo = place(b)
+        groups.hair.push({ geo, weights: (p) => (p.y > hd.y + 0.02 ? [['head', 1]] : [['head', 0.5], ['neck', 0.5]]) })
       }
     }
     if (look.kufi) {
-      // kufi seated on the crown, tilted back slightly like it's worn
-      groups.cap.push(rigid(new THREE.CylinderGeometry(0.094, 0.1, 0.07, 28).rotateX(-0.12).translate(hd.x, hd.y + 0.17, hd.z - 0.014), 'head'))
-      groups.trim.push(rigid(new THREE.CylinderGeometry(0.101, 0.101, 0.014, 28).rotateX(-0.12).translate(hd.x, hd.y + 0.14, hd.z - 0.012), 'head'))
+      // brimless cap fitted to the crown, tilted back slightly as it's worn
+      groups.cap.push(onHead(new THREE.CylinderGeometry(0.086, 0.093, 0.05, 32).scale(1, 1, 1.1).rotateX(-0.12).translate(0, 0.078, -0.008)))
+      groups.trim.push(onHead(new THREE.CylinderGeometry(0.0945, 0.0945, 0.01, 32).scale(1, 1, 1.1).rotateX(-0.12).translate(0, 0.057, -0.005)))
     }
   }
   if (look.beard && !look.hijab) {
-    // beard: a shell hugging the jaw and chin + moustache
-    const beard = new THREE.SphereGeometry(0.086, 24, 12, Math.PI * 0.08, Math.PI * 0.84, Math.PI * 0.5, Math.PI * 0.38)
-    beard.scale(0.95, 0.95, 1.0)
-    beard.translate(hd.x, hd.y + 0.068, hd.z + 0.012)
-    groups.hair.push(rigid(beard, 'head'))
-    groups.hair.push(rigid(new THREE.CapsuleGeometry(0.0055, 0.034, 2, 8).rotateZ(Math.PI / 2).translate(hd.x, hd.y + 0.048, hd.z + 0.097), 'head'))
+    // beard along the jaw and chin (leaving the lips clear) + moustache
+    // (signed margins: > 0 = beard) along the jaw, thin sideburns up to the
+    // hairline, the lips left clear
+    const mouth = (u: number, w: number, s: number) => Math.min(0.3 - Math.abs(s), u + 0.62, w - 0.5)
+    const jawline = (u: number, w: number) => Math.min(-0.36 - u, w + 0.2)
+    const sideburn = (u: number, w: number, s: number) => Math.min(Math.abs(s) - 0.85, 0.08 - u, 0.12 - w, w + 0.06)
+    groups.hair.push(onHead(headShell(1.03, (u, w, s) => Math.min(-mouth(u, w, s), Math.max(jawline(u, w), sideburn(u, w, s))), undefined, 64)))
+    groups.hair.push(onHead(new THREE.CapsuleGeometry(0.0052, 0.03, 2, 8).rotateZ(Math.PI / 2).translate(0, -0.041, frontZ(0, -0.041) + 0.0005)))
   }
 
   // ---- materials + skinned meshes (all share one skeleton)
   const std = (color: string, roughness = 0.8, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness, metalness: 0, ...extra })
   const MAT: Record<string, THREE.Material> = {
-    skin: std(look.skin, 0.55),
+    // a faint glow of its own colour keeps deep skin tones readable in shade
+    skin: std(look.skin, 0.5, { emissive: new THREE.Color(look.skin).multiplyScalar(0.12) }),
     top: std(look.top, 0.88, { side: THREE.DoubleSide }),
     bottom: std(look.bottom, 0.9),
     shoe: std('#1e1b1a', 0.45),
     sole: std('#e8e4dc', 0.7),
     hair: std(look.hairColor, 0.95),
-    cap: std(look.hijab ? look.top === '#efe8d6' ? '#3a5a8a' : '#efe8d6' : '#f1ece0', 0.9, { side: THREE.DoubleSide }),
+    cap: std(look.hijab ? look.scarf ?? (look.top === '#efe8d6' ? '#3a5a8a' : '#efe8d6') : '#f1ece0', 0.9, { side: THREE.DoubleSide }),
     trim: std('#e6c66a', 0.5),
-    eye: std('#f4f1ea', 0.25),
-    iris: std('#1a0f0a', 0.15),
-    lip: std(new THREE.Color(look.skin).multiplyScalar(0.62).getStyle(), 0.6),
+    eye: std('#f6f3ee', 0.35),
+    iris: std('#4a2a17', 0.3),
+    pupil: std('#0b0706', 0.2),
+    shine: new THREE.MeshBasicMaterial({ color: '#ffffff' }),
+    lash: std('#120d0b', 0.8),
+    lip: std(new THREE.Color(look.skin).multiplyScalar(0.62).lerp(new THREE.Color('#6a2a2a'), 0.22).getStyle(), 0.55),
     brow: std(look.hairColor, 0.9)
   }
   const geos: THREE.BufferGeometry[] = []

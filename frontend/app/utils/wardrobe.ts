@@ -11,6 +11,7 @@
 // 3) Gadgets: small props parented to bones - phone in hand, sunglasses,
 //    cap / kufi / gele / hijab, headphones, backpack, sling bag, watch.
 import * as THREE from 'three'
+import { HEAD_SCALE } from './humanRig'
 
 export interface Look {
   skin: string
@@ -368,8 +369,15 @@ function buildGadget(g: Gadget, look: Look): THREE.Object3D {
   return o
 }
 
-/** Where each gadget sits: bone + offset (metres, body space). */
-const MOUNT: Record<Gadget, { bone: string; pos: [number, number, number]; rot?: [number, number, number] }> = {
+/** Where a gadget sits: bone + offset (metres, bone space); `scale` sizes it. */
+export interface GadgetMount {
+  bone: string
+  pos: [number, number, number]
+  rot?: [number, number, number]
+  scale?: number
+}
+/** Where each gadget sits on a Mixamo skeleton. */
+const MOUNT: Record<Gadget, GadgetMount> = {
   phone: { bone: 'RightHand', pos: [0, 0.07, 0.03], rot: [0.3, 0, 0] },
   sunglasses: { bone: 'Head', pos: [0, 0.11, 0.1] },
   cap: { bone: 'Head', pos: [0, 0.18, 0.0] },
@@ -381,22 +389,36 @@ const MOUNT: Record<Gadget, { bone: string; pos: [number, number, number]; rot?:
   bag: { bone: 'Spine2', pos: [0.17, 0.0, 0] },
   watch: { bone: 'LeftForeArm', pos: [0, 0.22, 0] }
 }
+/** ...and on the stylized procedural rig (utils/humanRig): its bones keep
+ *  body axes (fingers point -Y), and head props grow with the bigger head.
+ *  The kufi and hijab are part of that rig itself. */
+const H = HEAD_SCALE
+export const RIG_GADGET_MOUNTS: Partial<Record<Gadget, GadgetMount>> = {
+  phone: { bone: 'handR', pos: [0, -0.075, 0.035], rot: [-0.25, 0, 0] },
+  sunglasses: { bone: 'head', pos: [0, 0.115, 0.124], scale: H },
+  cap: { bone: 'head', pos: [0, 0.165, -0.004], scale: H },
+  gele: { bone: 'head', pos: [0, 0.24, -0.01], scale: H },
+  headphones: { bone: 'head', pos: [0, 0.122, 0], scale: H },
+  backpack: { bone: 'chest', pos: [0, 0.05, 0] },
+  bag: { bone: 'chest', pos: [0.2, -0.12, 0] },
+  watch: { bone: 'foreArmL', pos: [0.012, -0.22, 0], rot: [0, 0, Math.PI / 2] }
+}
 
 const tmpS = new THREE.Vector3()
 /** Attach gadgets to the bones; props are sized in metres whatever the
  *  rig's own units by cancelling the bone's world scale. */
-export function wearGadgets(root: THREE.Object3D, bones: Record<string, THREE.Bone>, look: Look): THREE.Object3D[] {
+export function wearGadgets(root: THREE.Object3D, bones: Record<string, THREE.Bone>, look: Look, mounts: Partial<Record<Gadget, GadgetMount>> = MOUNT): THREE.Object3D[] {
   const out: THREE.Object3D[] = []
   root.updateMatrixWorld(true)
   const rootScale = root.getWorldScale(new THREE.Vector3()).y || 1
   for (const g of look.gadgets ?? []) {
-    const m = MOUNT[g]
-    const bone = bones[m.bone]
-    if (!bone) continue
+    const m = mounts[g]
+    const bone = m && bones[m.bone]
+    if (!m || !bone) continue
     const obj = buildGadget(g, look)
     bone.getWorldScale(tmpS)
     const k = rootScale / (tmpS.y || 1)
-    obj.scale.setScalar(k)
+    obj.scale.setScalar(k * (m.scale ?? 1))
     obj.position.set(m.pos[0] * k, m.pos[1] * k, m.pos[2] * k)
     if (m.rot) obj.rotation.set(...m.rot)
     bone.add(obj)
