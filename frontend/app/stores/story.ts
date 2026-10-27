@@ -13,7 +13,12 @@ export interface StoryState {
   title: string
   summary: string
   /** talk: go and see the giver · pickup / deliver: the parcel · business: open a shop · free: story over */
-  step: 'talk' | 'pickup' | 'deliver' | 'business' | 'free'
+  step: 'talk' | 'pickup' | 'deliver' | 'business' | 'shelf' | 'win' | 'shift' | 'free'
+  act?: number
+  act_title?: string
+  have?: number
+  need?: number
+  game?: string
   /** world entity code to head for (null: anywhere) */
   target: string | null
   giver?: string

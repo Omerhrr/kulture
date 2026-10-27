@@ -20,6 +20,8 @@ class StoryProgress(Timestamped, Base):
     chapter: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     # the current chapter has been given (you talked to its giver)
     started: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", nullable=False)
+    # when the current chapter was given (shelf / win / shift count from here)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # the per-player delivery job of the current chapter, if it has one
     job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # finished chapters: [{"key": ..., "at": iso}]

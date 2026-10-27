@@ -34,6 +34,23 @@ async def _go(player_id: str, code: str) -> list[float]:
     return [x + 2.0, 0.0, z + 2.0]
 
 
+async def _record(pid: str, kind: str, game: str) -> None:
+    """A finished game won / a paid shift, as the game services leave them."""
+    from datetime import datetime, timezone
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.life import GameMatch
+    from app.models.work import WorkShift
+
+    async with AsyncSessionLocal() as db:
+        if kind == "win":
+            db.add(GameMatch(id=str(uuid.uuid4()), game=game, status="done", stake=0, asset="ksats", players=[{"id": pid, "name": "x", "bot": False}],
+                             state={}, seq=1, winner=pid))
+        else:
+            db.add(WorkShift(player_id=pid, career="shop", status="paid", started_at=datetime.now(timezone.utc), ended_at=datetime.now(timezone.utc), paid_ksats=1_200_000))
+        await db.commit()
+
+
 async def _me(client, h) -> dict:
     return (await client.get("/api/v1/players/me", headers=h)).json()
 
@@ -49,7 +66,8 @@ def test_story_uses_real_places_and_people():
         assert ch.lines, ch.key
     # each delivery's receiver gives the next chapter (or it's Musa again):
     # the story walks you from person to person
-    for a, b in zip(CHAPTERS, CHAPTERS[1:]):
+    act1 = [c for c in CHAPTERS if c.act == 1]
+    for a, b in zip(act1, act1[1:]):
         if a.kind == "delivery" and b.giver != "npc_musa":
             assert POSTS[b.giver] == a.dropoff, f"{a.key} -> {b.key}"
 
@@ -105,6 +123,20 @@ async def test_story_start_to_finish(client, auth_headers):
             r = await client.post("/api/v1/life/business", json={"kind": "shop", "name": "My Shop"}, headers=h)
             assert r.status_code == 200, r.text
             continue
+        if ch.kind == "shelf":
+            assert s["step"] == "shelf" and s["need"] == ch.need
+            for item in ("suya_spice", "kuli_kuli", "zobo_concentrate")[: ch.need]:
+                r = await client.post("/api/v1/stores/mine/restock", json={"item": item, "qty": 2}, headers=h)
+                assert r.status_code == 200, r.text
+            continue
+        if ch.kind == "win":
+            assert s["step"] == "win" and s["game"] == ch.game
+            await _record(pid, "win", ch.game)
+            continue
+        if ch.kind == "shift":
+            assert s["step"] == "shift"
+            await _record(pid, "shift", "")
+            continue
         assert s["step"] == "pickup" and s["target"] == ch.pickup and s["job_id"]
         job_id = s["job_id"]
         # the story job is yours: never on the public board
@@ -121,6 +153,10 @@ async def test_story_start_to_finish(client, auth_headers):
 
     s = (await client.get("/api/v1/story", headers=h)).json()
     assert s["done"] and s["step"] == "free" and len(s["log"]) == len(CHAPTERS)
-    assert s["said"]  # Musa's last word, once
-    assert not (await client.get("/api/v1/story", headers=h)).json()["said"]
+    assert not s["said"]  # nothing left to say
+    # every non-delivery reward paid exactly once (by its own reference)
+    hist = (await client.get("/api/v1/wallet", headers=h)).json()["history"]
+    story_pay = [x for x in hist if x["kind"] == "story_reward"]
+    expected = [c for c in CHAPTERS if c.kind != "delivery" and c.reward_ksats]
+    assert len(story_pay) == len(expected) + 1  # + Musa's shop stake
     assert paid > 0 and start_ksats > 0

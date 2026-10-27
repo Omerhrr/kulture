@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.events import OutboxEvent
@@ -49,13 +49,16 @@ class Chapter:
     summary: str
     giver: str  # entity code of the person who gives it
     lines: list[str]  # what they say when they give it
-    kind: str = "delivery"  # meet | delivery | business
+    kind: str = "delivery"  # meet | delivery | business | shelf | win | shift
     pickup: str | None = None
     dropoff: str | None = None
     parcel: str = ""
     reward_ksats: int = 0
     reward_rep: int = 0
-    done_lines: list[str] = field(default_factory=list)  # the receiver, on delivery
+    done_lines: list[str] = field(default_factory=list)  # the receiver (delivery) or giver, when it's done
+    need: int = 0  # shelf: products on your shelves
+    game: str = ""  # win: which game (Phone → Games)
+    act: int = 1
 
 
 CHAPTERS: list[Chapter] = [
@@ -182,7 +185,120 @@ CHAPTERS: list[Chapter] = [
             "First get your own flat - no landlord rents a shop to someone in their aunty's parlour. Then: Phone, Business. Go!",
         ],
     ),
+    # ============================ Act 2: Kaduna Rising ============================
+    Chapter(
+        key="shelves",
+        act=2,
+        title="Stock the Shelves",
+        summary="Mama Chidi has advice for a new shopkeeper: put at least three products on your shelves.",
+        giver="npc_mama_chidi",
+        kind="shelf",
+        need=3,
+        reward_ksats=500_000,
+        lines=[
+            "Musa told me! A shop of your own. Come, let me tell you what thirty years in this market taught me.",
+            "A shop with empty shelves is a church with no choir. Put at least three things on your shelves.",
+            "Phone, Business, Shelves. Buy from the wholesalers, price it fair, and people will come.",
+        ],
+        done_lines=["Ehen! Now that is a shop. Here, small something to celebrate - don't spend it on nonsense."],
+    ),
+    Chapter(
+        key="wager",
+        act=2,
+        title="The Professor's Wager",
+        summary="Professor Danjuma bets you can't win a game of Naija Trivia. Prove him wrong.",
+        giver="npc_prof_danjuma",
+        kind="win",
+        game="trivia",
+        reward_ksats=750_000,
+        lines=[
+            "A shopkeeper must think fast. Prices, change, customers, all at once.",
+            "I'll wager you can't win a round of Naija Trivia. Against my students, against the computer - any table.",
+            "Phone, Games, Trivia. Come back a winner and the wager is yours.",
+        ],
+        done_lines=["You won? Hm. Scarcity of losers today. Fine - a wager is a wager. Here."],
+    ),
+    Chapter(
+        key="spare_parts",
+        act=2,
+        title="Spare Parts",
+        summary="Half the kekes at Kawo are grounded. Fetch Bashir's spare parts from Rigasa Station.",
+        giver="npc_bashir",
+        pickup="rigasa_station",
+        dropoff="kawo_motor_park",
+        parcel="a crate of keke spare parts",
+        reward_ksats=1_300_000,
+        reward_rep=8,
+        lines=[
+            "Wahala! Half my kekes are grounded - no clutch cables, no plugs.",
+            "Tunde has a crate for me at Rigasa Station. Bring it here before the evening rush and my drivers will remember your name.",
+        ],
+        done_lines=["Cables! Plugs! My boys are back on the road. Anywhere in Kaduna, your fare is on me."],
+    ),
+    Chapter(
+        key="school_fees",
+        act=2,
+        title="A Day's Work",
+        summary="Hajiya Amina's nephew wants to learn what a real day's work looks like. Work one full shift.",
+        giver="npc_amina",
+        kind="shift",
+        reward_ksats=600_000,
+        lines=[
+            "My nephew Sani thinks money falls from the sky because he sees you riding everywhere.",
+            "Show him: work one full shift at any job - Phone, Work. Stay till it's done.",
+        ],
+        done_lines=["Sani watched the whole thing. He asked me about school fees this morning! Thank you, my dear."],
+    ),
+    Chapter(
+        key="wedding_cloth",
+        act=2,
+        title="Aso-ebi for Sabon Tasha",
+        summary="Ngozi's sister is getting married. Carry the aso-ebi from the Textile Market to Sabon Tasha.",
+        giver="npc_ngozi",
+        pickup="textile_market",
+        dropoff="sabon_tasha_shop",
+        parcel="aso-ebi fabric for twelve guests",
+        reward_ksats=1_400_000,
+        reward_rep=8,
+        lines=[
+            "My sister's wedding is on Saturday and the aso-ebi is still at Mama Chidi's!",
+            "Please - Textile Market, then back here to Sabon Tasha. Twelve guests are waiting to see the colour.",
+        ],
+        done_lines=["It's beautiful! You'll come to the owambe, abi? Bring dancing shoes."],
+    ),
+    Chapter(
+        key="big_order",
+        act=2,
+        title="The Big Order",
+        summary="The northbound train wants provisions. Carry Musa's biggest order ever to Rigasa Station.",
+        giver="npc_tunde",
+        pickup="musa_shop",
+        dropoff="rigasa_station",
+        parcel="Musa's biggest order: provisions for the northbound train",
+        reward_ksats=2_500_000,
+        reward_rep=12,
+        lines=[
+            "The northbound train needs provisions for three hundred passengers. I told them one name: Musa.",
+            "Collect the order at his store and bring it here. Departure is in ninety minutes. Precisely.",
+        ],
+        done_lines=["Eighty-four minutes. Six to spare. Mallam Musa will hear about this from me."],
+    ),
+    Chapter(
+        key="blessing",
+        act=2,
+        title="Mallam's Blessing",
+        summary="Go back to where it all started.",
+        giver="npc_musa",
+        kind="meet",
+        reward_ksats=1_000_000,
+        lines=[
+            "Tunde called. Bashir called. Even the Professor called, and he never calls anybody.",
+            "When Aunty Hauwa's letter came, I saw a young person with nothing but a bag. Now look at you.",
+            "Kaduna has a place for everyone who moves. Take this - not a loan, a blessing. And come and greet me sometimes.",
+        ],
+    ),
 ]
+ACT_TITLES = {1: "Musa's Promise", 2: "Kaduna Rising"}
 BY_KEY = {c.key: c for c in CHAPTERS}
 
 
@@ -221,10 +337,20 @@ POSTS = {
 }
 
 
+def _pay(db: AsyncSession, player_id: str, ch: Chapter) -> None:
+    """Rewards for chapters without a delivery job (that pays its own)."""
+    if ch.kind != "delivery" and ch.reward_ksats > 0:
+        db.add(GameLedgerEntry(
+            account_reference=f"player:{player_id}", asset_type="ksats", amount_minor_units=ch.reward_ksats,
+            transaction_reference=f"story:{ch.key}:{player_id}", entry_type="story_reward", description=f"Story: {ch.title}",
+        ))
+
+
 def _finish(p: StoryProgress, ch: Chapter) -> None:
     p.log = [*(p.log or []), {"key": ch.key, "at": datetime.now(timezone.utc).isoformat()}]
     p.chapter += 1
     p.started = False
+    p.started_at = None
     p.job_id = None
     if p.chapter >= len(CHAPTERS):
         p.finished_at = datetime.now(timezone.utc)
@@ -277,8 +403,37 @@ async def _advance(db: AsyncSession, player_id: str, p: StoryProgress) -> list[d
             if not st.business_kind:
                 break
             said.append({"speaker": "npc_musa", "lines": ["A shop with your name on it. Aunty Hauwa will cry. Kaduna is yours now."]})
+        elif ch.kind in ("shelf", "win", "shift"):
+            if await _progress_of(db, player_id, p, ch) < 1:
+                break
+            if ch.done_lines:
+                said.append({"speaker": ch.giver, "lines": ch.done_lines})
+        _pay(db, player_id, ch)
         _finish(p, ch)
     return said
+
+
+async def _progress_of(db: AsyncSession, player_id: str, p: StoryProgress, ch: Chapter) -> float:
+    """0..1 towards a shelf / win / shift chapter (counted from when it was given)."""
+    since = p.started_at or datetime.now(timezone.utc)
+    if ch.kind == "shelf":
+        from app.models.store import ShelfItem
+
+        n = (await db.execute(select(func.count()).select_from(ShelfItem).where(ShelfItem.owner_id == player_id, ShelfItem.stock > 0))).scalar_one()
+        return min(1.0, n / max(1, ch.need))
+    if ch.kind == "win":
+        from app.models.life import GameMatch
+
+        won = (await db.execute(select(func.count()).select_from(GameMatch).where(
+            GameMatch.winner == player_id, GameMatch.game == ch.game, GameMatch.status == "done", GameMatch.updated_at >= since))).scalar_one()
+        return 1.0 if won else 0.0
+    if ch.kind == "shift":
+        from app.models.work import WorkShift
+
+        done = (await db.execute(select(func.count()).select_from(WorkShift).where(
+            WorkShift.player_id == player_id, WorkShift.paid_ksats > 0, WorkShift.started_at >= since))).scalar_one()
+        return 1.0 if done else 0.0
+    return 0.0
 
 
 def _receiver(ch: Chapter) -> str | None:
@@ -295,7 +450,7 @@ async def _out(db: AsyncSession, player_id: str, p: StoryProgress, said: list[di
     if p.chapter >= total:
         return {**base, "title": "Kaduna is yours", "summary": "You finished the story. Chase your dream, build your business, live your life.", "step": "free", "target": None}
     ch = CHAPTERS[p.chapter]
-    out = {**base, "key": ch.key, "title": ch.title, "summary": ch.summary, "giver": ch.giver, "job_id": p.job_id}
+    out = {**base, "key": ch.key, "title": ch.title, "summary": ch.summary, "giver": ch.giver, "job_id": p.job_id, "act": ch.act, "act_title": ACT_TITLES[ch.act]}
     if not p.started:
         return {**out, "step": "talk", "target": ch.giver}
     if ch.kind == "business":
@@ -305,6 +460,15 @@ async def _out(db: AsyncSession, player_id: str, p: StoryProgress, said: list[di
         # open_business also wants you out of the family house, or certified
         ready = st.housing != "family" or "business_admin" in await life_service.certificates(db, player_id)
         return {**out, "step": "business", "target": None, "have_ksats": have, "need_ksats": price, "ready": ready, "owned": bool(st.business_kind)}
+    if ch.kind == "shelf":
+        from app.models.store import ShelfItem
+
+        n = (await db.execute(select(func.count()).select_from(ShelfItem).where(ShelfItem.owner_id == player_id, ShelfItem.stock > 0))).scalar_one()
+        return {**out, "step": "shelf", "target": None, "have": int(n), "need": ch.need}
+    if ch.kind == "win":
+        return {**out, "step": "win", "target": None, "game": ch.game}
+    if ch.kind == "shift":
+        return {**out, "step": "shift", "target": None}
     job = await db.get(Job, p.job_id) if p.job_id else None
     if job is not None and job.status == "in_progress":
         return {**out, "step": "deliver", "target": ch.dropoff, "receiver": _receiver(ch), "parcel": ch.parcel}
@@ -343,9 +507,11 @@ async def _talk(db: AsyncSession, player_id: str, npc: str) -> dict[str, Any]:
             raise StoryError("too_far_from_giver")
         said.append({"speaker": npc, "lines": ch.lines})
         if ch.kind == "meet":
+            _pay(db, player_id, ch)
             _finish(p, ch)
             continue
         p.started = True
+        p.started_at = datetime.now(timezone.utc)
         if ch.kind == "delivery":
             p.job_id = (await _give_job(db, player_id, ch)).id
         elif ch.kind == "business":

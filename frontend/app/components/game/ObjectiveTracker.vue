@@ -33,16 +33,17 @@ watch(
   () => player.jobs.map((j: any) => `${j.id}:${j.status}`).join(),
   () => story.refresh()
 )
-// the last chapter ends when you open a shop (Phone → Business) and moves
-// with your savings: check now and then while you're on it
+// chapters done elsewhere (open a shop, stock shelves, win a game, work a
+// shift) are noticed by checking now and then while you're on one
 let poll: ReturnType<typeof setInterval> | undefined
-onMounted(() => (poll = setInterval(() => story.s?.step === 'business' && story.refresh(), 12000)))
+onMounted(() => (poll = setInterval(() => ['business', 'shelf', 'win', 'shift'].includes(story.s?.step ?? '') && story.refresh(), 12000)))
 onBeforeUnmount(() => poll && clearInterval(poll))
 
 const entity = (code: string | null | undefined) => (code ? world.entities.find((e) => e.code === code) : undefined)
 const who = (code: string | null | undefined) => (code ? CAST[code] : undefined)
 
 const s = computed(() => story.s)
+const GAME_NAMES: Record<string, string> = { trivia: 'Naija Trivia', whot: 'Whot', ludo: 'Ludo', ayo: 'Ayo' }
 const card = computed(() => {
   const st = s.value
   if (!st) return null
@@ -68,6 +69,12 @@ const card = computed(() => {
           : 'You can afford it. Phone → Business → open your shop.'
       return { title: 'Open your own shop', hint }
     }
+    case 'shelf':
+      return { title: `Stock ${st.need} products (${st.have ?? 0}/${st.need})`, hint: 'Phone → Business → Shelves: buy from the wholesalers and set your prices.' }
+    case 'win':
+      return { title: `Win a game of ${GAME_NAMES[st.game ?? ''] ?? st.game}`, hint: 'Phone → Games. Any table counts - other players or the computer.' }
+    case 'shift':
+      return { title: 'Work one full shift', hint: 'Phone → Work: pick a job, go there, clock in and stay until it pays.' }
     default:
       return { title: 'Kaduna is yours', hint: st.summary }
   }
@@ -147,7 +154,7 @@ defineExpose({ reset })
     <div v-else class="kk-panel w-[min(300px,80vw)] p-3.5">
       <div class="mb-1.5 flex items-center justify-between">
         <div class="text-[10px] font-extrabold uppercase tracking-[0.14em] text-kadeep/70">
-          {{ s.done ? "Musa's Promise · complete" : `Chapter ${s.chapter + 1} of ${s.total} · ${s.title}` }}
+          {{ s.done ? 'Story complete' : `${s.act_title ?? 'Chapter'} · ${s.chapter + 1}/${s.total} · ${s.title}` }}
         </div>
         <div class="flex gap-1">
           <button class="rounded-full px-1.5 text-xs text-ink/40 hover:text-ink" title="Minimise" @click="collapsed = true">-</button>
