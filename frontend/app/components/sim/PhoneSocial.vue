@@ -40,7 +40,10 @@ function fightInvite() {
 async function sendGift(g: { amount?: number; item?: string }) {
   busy.value = true
   try {
-    await api.apiPost('/gifts', { to: cur.value.other_id, ...g })
+    // money goes through the wallet (one transfer, in both histories);
+    // items through gifts
+    if (g.amount) await api.apiPost('/wallet/send', { to: cur.value.other_id, amount: g.amount, note: `🎁 a gift`, idempotency_key: `gift-${Date.now()}` })
+    else await api.apiPost('/gifts', { to: cur.value.other_id, ...g })
     msgs.value.push({ me: true, text: g.amount ? `🎁 Sent you ${fmtKsats(g.amount)}` : `🎁 Sent you a ${bag.value.find((b) => b.code === g.item)?.name}` })
     ui.showToast('Gift sent 🎁', 'success')
     giftOpen.value = false

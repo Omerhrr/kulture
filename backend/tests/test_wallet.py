@@ -40,8 +40,14 @@ async def test_send_money_between_players(client):
     assert r2.status_code == 200 and r2.json()["repeat"]
     assert await _bal(client, a) == a0 - 250_000
 
+    # by player id too (what the app sends after a search)
+    bid = next(p["id"] for p in found if p["username"] == bn)
+    r3 = await client.post("/api/v1/wallet/send", json={"to": bid, "amount": 10_000}, headers=a)
+    assert r3.status_code == 200, r3.text
+    assert await _bal(client, b) == b0 + 260_000
+
     hb = (await client.get("/api/v1/wallet", headers=b)).json()["history"]
-    got = next(x for x in hb if x["kind"] == "transfer_in")
+    got = next(x for x in hb if x["kind"] == "transfer_in" and x["amount"] == 250_000)
     assert got["amount"] == 250_000 and got["who"]["username"] == an and got["note"] == "for the suya"
     ha = (await client.get("/api/v1/wallet", headers=a)).json()["history"]
     assert next(x for x in ha if x["kind"] == "transfer_out")["who"]["username"] == bn

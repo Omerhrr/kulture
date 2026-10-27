@@ -11,7 +11,7 @@ const goto = useState<string | null>('kk_phone_goto', () => null)
 const pending = useState<any>('kk_game_pending', () => null)
 const fight = useState<{ peer: string; peerName: string; host: boolean; ready: boolean } | null>('kk_fight', () => null)
 
-interface Notice { id: number; icon: string; text: string; accept?: () => void; ttl: number }
+interface Notice { id: number; icon: string; text: string; accept?: () => void; label?: string; ttl: number }
 const notices = ref<Notice[]>([])
 let nid = 0
 function push(n: Omit<Notice, 'id' | 'ttl'>, secs = 20) {
@@ -41,6 +41,12 @@ function onWs(ev: Event) {
   } else if (d?.type === 'social.gift') {
     ui.showToast(`🎁 ${p.name} sent you ${p.amount ? fmtKsats(p.amount) : p.item ?? 'a gift'}`, 'success')
     ;(window as any).__kk_ws_send?.('state.resync', {}) // refresh balance + bag
+  } else if (d?.type === 'wallet.received') {
+    push({ icon: '⚡', text: `${p.from?.name ?? 'Someone'} sent you ${fmtKsats(p.amount)}${p.note ? ` - "${p.note}"` : ''}`, label: 'View', accept: () => ((goto.value = 'wallet'), (phoneOpen.value = true)) }, 12)
+    ;(window as any).__kk_ws_send?.('state.resync', {})
+  } else if (d?.type === 'store.sale') {
+    ui.showToast(`🛒 ${p.buyer} bought ${p.name} x${p.qty} at your store · +${fmtKsats(p.got)}`, 'success')
+    ;(window as any).__kk_ws_send?.('state.resync', {})
   } else if (d?.type === 'social.crew') {
     if (!(phoneOpen.value && (window as any).__kk_phone_page === 'crews')) ui.showToast(`👥 ${p.name}: ${String(p.text).slice(0, 60)}`, 'info')
   } else if (d?.type === 'arcade.fight') {
@@ -96,7 +102,7 @@ onBeforeUnmount(() => {
     <div v-for="n in notices" :key="n.id" class="pointer-events-auto kk-panel flex items-center gap-2 px-3 py-2 text-xs font-semibold text-ink">
       <span class="text-xl">{{ n.icon }}</span>
       <span class="flex-1">{{ n.text }}</span>
-      <button v-if="n.accept" class="kk-chip bg-emerald-600 text-white" @click="n.accept(), dismiss(n.id)">Accept</button>
+      <button v-if="n.accept" class="kk-chip bg-emerald-600 text-white" @click="n.accept(), dismiss(n.id)">{{ n.label ?? 'Accept' }}</button>
       <button class="opacity-50" @click="dismiss(n.id)">✕</button>
     </div>
   </div>

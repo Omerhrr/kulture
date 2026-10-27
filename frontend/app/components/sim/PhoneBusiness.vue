@@ -11,6 +11,7 @@ const none = ref(false)
 const report = ref<any>(null)
 const price = ref(100)
 const busy = ref(false)
+const tab = ref<'shelves' | 'trade'>('shelves')
 
 async function load() {
   try {
@@ -69,8 +70,14 @@ const room = computed(() => (biz.value ? biz.value.max_stock - biz.value.stock :
         <div class="text-[15px] font-bold">{{ biz.name }}</div>
         <div class="text-[11px] font-semibold text-amber-800">Level {{ biz.level }} · {{ biz.level_name }} · {{ fmtKsats(biz.sales) }} earned so far</div>
       </div>
+      <div class="grid grid-cols-2 gap-1 rounded-full bg-ink/5 p-1 text-xs font-bold">
+        <button class="rounded-full py-1.5" :class="tab === 'shelves' ? 'bg-white shadow' : 'text-ink/50'" @click="tab = 'shelves'">🛍️ Shelves</button>
+        <button class="rounded-full py-1.5" :class="tab === 'trade' ? 'bg-white shadow' : 'text-ink/50'" @click="tab = 'trade'">🚶 Walk-in trade</button>
+      </div>
+      <StoreShelves v-if="tab === 'shelves'" />
+      <template v-else>
 
-      <!-- stock -->
+      <!-- everyday customers (the city's NPCs): general stock -->
       <div class="rounded-2xl bg-ink/[0.04] p-3">
         <div class="mb-1 flex justify-between text-xs font-bold"><span>📦 Stock</span><span>{{ biz.stock }} / {{ biz.max_stock }}</span></div>
         <div class="h-2 overflow-hidden rounded-full bg-white"><div class="h-full" :class="biz.stock < 15 ? 'bg-rose-500' : 'bg-emerald-500'" :style="{ width: `${(biz.stock / biz.max_stock) * 100}%` }" /></div>
@@ -114,6 +121,7 @@ const room = computed(() => (biz.value ? biz.value.max_stock - biz.value.stock :
         <button class="mt-2 w-full rounded-full bg-violet-600 py-1.5 font-bold text-white" :disabled="busy" @click="act('upgrade', 0, `Now a ${biz.next_level.name}! 🎉`)">Upgrade · {{ fmtKsats(biz.next_level.price) }}</button>
       </div>
       <div v-else class="rounded-2xl bg-violet-50 p-3 text-center text-xs font-bold text-violet-800">🏆 Top of the market - a {{ biz.level_name }}</div>
+      </template>
     </template>
   </div>
 </template>

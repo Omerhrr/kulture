@@ -34,7 +34,7 @@ class WalletError(Exception):
 async def _person(db: AsyncSession, who: str) -> PlayerProfile | None:
     """A player by profile id or @username."""
     who = who.strip()
-    p = await db.get(PlayerProfile, who) if len(who) == 36 else None
+    p = await db.get(PlayerProfile, who) if not who.startswith("@") else None
     if p:
         return p
     name = who.lstrip("@").lower()

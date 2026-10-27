@@ -239,6 +239,16 @@ async function buyAtBiz() {
     buying.value = false
   }
 }
+// walk in: the store's shelves open on your phone (Shops)
+const phoneOpen = useState<boolean>('kk_phone_open', () => false)
+const phoneGoto = useState<string | null>('kk_phone_goto', () => null)
+const phoneStore = useState<string | null>('kk_phone_store', () => null)
+function browseBiz() {
+  if (!biz.value) return
+  phoneStore.value = biz.value.owner_id
+  phoneGoto.value = 'shops'
+  phoneOpen.value = true
+}
 const townName = regionById(REGION_ID).name
 const fire = (name: string) => window.dispatchEvent(new CustomEvent(name))
 
@@ -311,7 +321,10 @@ if (import.meta.dev && typeof window !== 'undefined') {
 
     <!-- context actions -->
     <div v-if="!mini && !scene.football" class="pointer-events-auto absolute bottom-28 left-1/2 flex -translate-x-1/2 gap-2">
-      <button v-if="biz" class="rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white shadow-lg" :disabled="buying" @click="buyAtBiz">{{ biz.kind === 'restaurant' ? '🍲 Eat' : '🛒 Shop' }} at {{ biz.name }} <span class="text-[10px] opacity-75">({{ biz.owner }}'s)</span></button>
+      <template v-if="biz">
+        <button class="rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="browseBiz">🛍️ Browse {{ biz.name }} <span class="text-[10px] opacity-75">({{ biz.owner }}'s)</span></button>
+        <button v-if="biz.kind === 'restaurant'" class="rounded-full bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-lg" :disabled="buying" @click="buyAtBiz">🍲 Eat a plate</button>
+      </template>
       <button v-if="where === 'bar'" class="rounded-full bg-fuchsia-600 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="startDance">🕺 Dance battle</button>
       <button v-if="where === 'cinema'" class="rounded-full bg-amber-500 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="mini = 'talent'">🎤 Talent show</button>
       <button v-if="where === 'park'" class="rounded-full bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-lg" @click="fire('kk-football')">⚽ 5-a-side</button>
