@@ -49,11 +49,14 @@ export function useGameApi() {
   const post = <T>(path: string, data?: unknown) =>
     req<T>(path, { method: 'POST', body: data ? JSON.stringify(data) : undefined })
   const get = <T>(path: string) => req<T>(path, { method: 'GET' })
+  const patch = <T>(path: string, data?: unknown) =>
+    req<T>(path, { method: 'PATCH', body: data ? JSON.stringify(data) : undefined })
 
   return {
     // generic access for the phone apps (life, social, games, races)
     apiGet: get,
     apiPost: post,
+    apiPatch: patch,
     register: (username: string, password: string, display_name: string) =>
       post<{ access_token: string; player_id: string }>('/auth/register', {
         username,

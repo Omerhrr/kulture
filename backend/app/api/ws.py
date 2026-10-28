@@ -37,7 +37,7 @@ from app.events.presence import clean_look, presence
 from app.services.shift_service import commute_destination
 from app.events.outbox_service import emit
 from app.models.business import NPCAgent
-from app.services import inventory_service, player_service, world_service
+from app.services import character_service, inventory_service, player_service, world_service
 
 import logging
 
@@ -336,7 +336,7 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                     await ws.send_json({"type": "error", "payload": {"code": "commute_not_started"}})
                     continue
                 async with AsyncSessionLocal() as db:
-                    dest = await commute_destination(db, str(payload.get("dest", ""))[:48], payload.get("home"))
+                    dest = await commute_destination(db, str(payload.get("dest", ""))[:48], payload.get("home"), player_id)
                 if dest is None:
                     await ws.send_json({"type": "error", "payload": {"code": "bad_destination"}})
                     continue
@@ -352,6 +352,27 @@ async def game_socket(ws: WebSocket, token: str = "") -> None:
                 await ws.send_json(
                     {"type": "commute.arrived", "payload": {"position": [round(v, 3) for v in last_pos]}}
                 )
+                continue
+
+            if mtype == "home.arrive":
+                # step out at your own front door (session start / a new
+                # character): only a spot near the home the game gave you
+                try:
+                    hx, hz = float(payload["position"][0]), float(payload["position"][1])
+                except (KeyError, TypeError, ValueError, IndexError):
+                    continue
+                async with AsyncSessionLocal() as db:
+                    try:
+                        await character_service.arrive_home(db, player_id, hx, hz)
+                    except character_service.CharacterError as exc:
+                        await ws.send_json({"type": "error", "payload": {"code": str(exc)}})
+                        continue
+                last_pos = [hx, 0.0, hz]
+                last_move_ts = time.monotonic()
+                presence.move(player_id, last_pos, last_facing)
+                last_persist = time.monotonic()
+                position_dirty = False
+                await ws.send_json({"type": "home.arrived", "payload": {"position": [round(v, 3) for v in last_pos]}})
                 continue
 
             if mtype == "world.subscribe":

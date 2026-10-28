@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// CharacterCreator - first-run "create your Sim" flow (Look -> Personality ->
-// Dream -> Birth lottery). A live 3D preview spins on the left; choices sit
-// in a card on the right (bottom sheet on phones). Saved to the sim store.
-import { useSimStore, TRAITS, DREAMS, BIRTHS, type Look } from '~/stores/sim'
+// CharacterCreator - the first thing a new account sees: choose how you
+// look and your name (live 3D preview spins on the left, choices in a card
+// on the right / bottom sheet on phones). Then the game gives you a life -
+// a background, a dream and a home in a Kaduna neighbourhood - shown on
+// the "Your life" card, and you start at home. The server keeps it all.
+import { useSimStore, DREAMS, BIRTHS, type Look } from '~/stores/sim'
 import { TOPS, BOTTOMS, SHOES, LABELS } from '~/utils/outfits'
 import { SKIN_TONES, CLOTH_COLORS, BOTTOM_COLORS, SHOE_COLORS, HAIR_COLORS, fromSimLook, randomLook } from '~/utils/people'
 
@@ -12,15 +14,13 @@ const emit = defineEmits<{ (e: 'done'): void }>()
 /** change the look of an existing Sim (just the Look step, then save) */
 const props = defineProps<{ editOnly?: boolean }>()
 
-const STEPS = props.editOnly ? (['Look'] as const) : (['Look', 'Personality', 'Dream', 'Birth lottery'] as const)
+const STEPS = props.editOnly ? (['Look'] as const) : (['Look', 'Your life'] as const)
 const step = ref(0)
 
 const look = reactive<Look>({ ...sim.look, shape: { ...(sim.look.shape ?? {}) } })
 const name = ref(sim.name || player.profile?.display_name || '')
-const traits = ref<string[]>([...sim.traits])
-const dream = ref(sim.dream)
-const birth = ref<string | null>(null)
-const rolling = ref(false)
+const busy = ref(false)
+const err = ref('')
 
 const SKINS = SKIN_TONES
 const HAIRS_FOR = computed(() => (look.body === 'woman' ? (['braids', 'cornrows', 'afro', 'puff', 'locs', 'lowcut', 'bald'] as const) : (['lowcut', 'fade', 'afro', 'cornrows', 'locs', 'braids', 'bald'] as const)))
@@ -93,64 +93,57 @@ function shuffle() {
     look.bottom = r.outfit.bottomColor
     look.shoes = r.outfit.shoes
     look.shoeColor = r.outfit.shoeColor
-  } else if (step.value === 1) {
-    const a = [...TRAITS].sort(() => Math.random() - 0.5)
-    traits.value = [a[0].id, a[1].id]
-  } else if (step.value === 2) {
-    dream.value = pick(DREAMS).id
   }
-}
-function toggleTrait(id: string) {
-  const i = traits.value.indexOf(id)
-  if (i >= 0) traits.value.splice(i, 1)
-  else if (traits.value.length < 2) traits.value.push(id)
-  else traits.value = [traits.value[1], id]
 }
 
 const canNext = computed(() => {
   if (step.value === 0) return name.value.trim().length >= 2
-  if (step.value === 1) return traits.value.length === 2
-  if (step.value === 3) return !!birth.value
-  return true
+  return !busy.value
 })
 const cta = computed(() => {
-  if (step.value === 1 && traits.value.length < 2) return `Choose ${2 - traits.value.length} more`
   if (step.value === 0 && !canNext.value) return 'Name your Sim'
   if (props.editOnly) return 'Save my look'
-  if (step.value === 3) return birth.value ? 'Move in and start living' : 'Rolling...'
+  if (busy.value) return 'Finding your place in Kaduna...'
+  if (step.value === 1) return 'Go home and start living'
   return 'Continue'
 })
-const birthInfo = computed(() => BIRTHS.find((b) => b.id === birth.value))
+const birthInfo = computed(() => BIRTHS.find((b) => b.id === sim.birth))
+const dreamInfo = computed(() => DREAMS.find((d) => d.id === sim.dream))
 
-function rollBirth() {
-  birth.value = null
-  rolling.value = true
-  setTimeout(() => {
-    birth.value = pick(BIRTHS).id
-    rolling.value = false
-  }, 1100)
-}
-function next() {
+async function next() {
   if (!canNext.value) return
+  const api = useGameApi()
+  const myLook = { ...look, shape: { ...look.shape } }
+  const myName = name.value.trim().replace(/^@/, '')
+  err.value = ''
   if (props.editOnly) {
-    sim.look = { ...look, shape: { ...look.shape } }
-    sim.name = name.value.trim().replace(/^@/, '')
+    sim.look = myLook
+    sim.name = myName
     sim.save()
+    api.apiPatch('/character', { name: myName, look: myLook }).catch(() => {})
     emit('done')
     return
   }
-  if (step.value < 3) {
-    step.value++
-    if (step.value === 3 && !birth.value) rollBirth()
+  if (step.value === 0) {
+    // you chose the look; the game gives the life
+    busy.value = true
+    try {
+      sim.look = myLook
+      sim.name = myName
+      useState<boolean>('kk_creating').value = true
+      const res = await api.apiPost<any>('/character', { name: myName, look: myLook })
+      sim.applyCharacter(res)
+      step.value = 1
+    } catch (e: any) {
+      useState<boolean>('kk_creating').value = false
+      err.value = e?.message || 'Could not create your character - try again.'
+    } finally {
+      busy.value = false
+    }
     return
   }
-  sim.look = { ...look, shape: { ...look.shape } }
-  sim.name = name.value.trim().replace(/^@/, '')
-  sim.traits = [...traits.value]
-  sim.dream = dream.value
-  sim.birth = birth.value!
-  sim.created = true
-  sim.save()
+  // start at home
+  useState<boolean>('kk_arrive_home').value = true
   emit('done')
 }
 function back() {
@@ -168,7 +161,7 @@ const previewKey = computed(() => JSON.stringify(look))
     <!-- top bar -->
     <div class="absolute inset-x-0 top-0 z-10 flex items-center justify-between p-3 sm:p-4">
       <button v-if="props.editOnly" class="kk-close h-11 w-11 bg-white shadow-md" aria-label="Cancel" @click="emit('done')">✕</button>
-      <button v-else class="kk-close h-11 w-11 bg-white shadow-md" :class="{ invisible: step === 0 }" aria-label="Back" @click="back">‹</button>
+      <span v-else class="h-11 w-11" />
       <div class="text-center">
         <div class="font-display text-lg font-semibold text-ink">{{ STEPS[step] }}</div>
         <div class="mt-1 flex justify-center gap-1.5">
@@ -176,8 +169,8 @@ const previewKey = computed(() => JSON.stringify(look))
         </div>
       </div>
       <div class="flex gap-2">
-        <button v-if="step < 3" class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="Randomise" aria-label="Randomise" @click="shuffle">🔀</button>
-        <button v-else class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="Roll again" aria-label="Roll again" @click="rollBirth">🎲</button>
+        <button v-if="step === 0" class="kk-close h-11 w-11 bg-white text-lg shadow-md" title="Randomise" aria-label="Randomise" @click="shuffle">🔀</button>
+        <span v-else class="h-11 w-11" />
       </div>
     </div>
 
@@ -278,50 +271,21 @@ const previewKey = computed(() => JSON.stringify(look))
           </div>
         </template>
 
-        <!-- PERSONALITY -->
-        <template v-else-if="step === 1">
-          <p class="mb-3 text-sm text-ink/60">Choose 2 traits for {{ name || 'your Sim' }}.</p>
-          <div class="grid grid-cols-2 gap-2.5">
-            <button v-for="t in TRAITS" :key="t.id" class="kk-card-opt" :class="{ on: traits.includes(t.id) }" @click="toggleTrait(t.id)">
-              <div class="text-2xl">{{ t.icon }}</div>
-              <div class="mt-1.5 font-display text-[15px] font-semibold text-ink">{{ t.name }}</div>
-              <div class="mt-0.5 text-xs leading-snug text-ink/55">{{ t.blurb }}</div>
-            </button>
+        <!-- YOUR LIFE: given, not chosen -->
+        <template v-else-if="step === 1 && birthInfo">
+          <p class="text-center text-sm text-ink/60">Every child of Kaduna is born into something. Here is {{ name || 'your' }}'s life.</p>
+          <div class="mx-auto mt-4 flex h-28 w-28 items-center justify-center rounded-[2rem] bg-gradient-to-br from-kasand/40 to-kasand text-6xl shadow-lg shadow-kasand/30">{{ birthInfo.icon }}</div>
+          <div class="mt-3 text-center font-display text-3xl font-semibold text-ink">{{ birthInfo.name }}</div>
+          <div class="text-center text-sm font-semibold text-ink/55">{{ birthInfo.blurb }}</div>
+          <div class="mt-4 space-y-2">
+            <div class="flex items-center gap-2.5 rounded-2xl bg-paper px-4 py-3 text-sm text-ink/75">🏠 Home: <b class="text-ink">{{ sim.home?.area }}</b> · {{ birthInfo.perk }}</div>
+            <div class="flex items-center gap-2.5 rounded-2xl bg-paper px-4 py-3 text-sm text-ink/75">💰 {{ birthInfo.cash }}</div>
+            <div v-if="dreamInfo" class="flex items-center gap-2.5 rounded-2xl bg-paper px-4 py-3 text-sm text-ink/75">{{ dreamInfo.icon }} Dream: <b class="text-ink">{{ dreamInfo.name }}</b> - {{ dreamInfo.blurb }}</div>
           </div>
-        </template>
-
-        <!-- DREAM -->
-        <template v-else-if="step === 2">
-          <p class="mb-3 text-sm text-ink/60">What's {{ name || 'your Sim' }}'s big dream?</p>
-          <div class="space-y-2.5">
-            <button v-for="d in DREAMS" :key="d.id" class="kk-card-opt flex w-full items-center gap-3.5 text-left" :class="{ on: dream === d.id }" @click="dream = d.id">
-              <div class="text-3xl">{{ d.icon }}</div>
-              <div>
-                <div class="font-display text-[15px] font-semibold text-ink">{{ d.name }}</div>
-                <div class="text-xs text-ink/55">{{ d.blurb }}</div>
-              </div>
-            </button>
-          </div>
-        </template>
-
-        <!-- BIRTH LOTTERY -->
-        <template v-else>
-          <p class="text-center text-sm text-ink/60">Every child of Kaduna is born into something. What was {{ name || 'your Sim' }} born into?</p>
-          <div class="mx-auto mt-4 flex h-32 w-32 items-center justify-center rounded-[2rem] bg-gradient-to-br from-kasand/40 to-kasand text-6xl shadow-lg shadow-kasand/30" :class="{ 'animate-bounce': rolling }">
-            {{ rolling ? '🎲' : birthInfo?.icon }}
-          </div>
-          <template v-if="birthInfo && !rolling">
-            <div class="mt-4 text-center font-display text-3xl font-semibold text-ink">{{ birthInfo.name }}</div>
-            <div class="text-center text-sm font-semibold text-ink/55">{{ birthInfo.blurb }}</div>
-            <div class="mt-4 space-y-2">
-              <div class="flex items-center gap-2.5 rounded-2xl bg-paper px-4 py-3 text-sm text-ink/75">✨ {{ birthInfo.perk }}</div>
-              <div class="flex items-center gap-2.5 rounded-2xl bg-paper px-4 py-3 text-sm text-ink/75">💰 {{ birthInfo.cash }}</div>
-            </div>
-          </template>
-          <div v-else class="mt-4 text-center text-sm font-semibold text-ink/40">Rolling the dice...</div>
         </template>
       </div>
       <div class="border-t border-ink/5 p-4 sm:p-5">
+        <p v-if="err" class="mb-2 rounded-2xl bg-red-50 p-2.5 text-center text-xs font-semibold text-red-600" role="alert">{{ err }}</p>
         <button class="w-full rounded-full py-4 font-display text-lg font-semibold text-white shadow-lg transition-colors" :class="canNext ? 'bg-leaf shadow-leaf/30 hover:bg-kadeep' : 'cursor-not-allowed bg-leaf/35 shadow-none'" :disabled="!canNext" @click="next">
           {{ cta }}
         </button>

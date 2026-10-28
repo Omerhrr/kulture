@@ -3,7 +3,9 @@
 // champions (best of 3 rounds each). A punch, B kick, Down blocks, Up
 // jumps. Land hits to fill your power bar; when full, Down + A throws a
 // suya fireball.
-import { took, runLoop, makePad, type Pad } from '~/utils/arcade'
+import { useSimStore } from '~/stores/sim'
+import { took, runLoop, makePad, rng, type Pad } from '~/utils/arcade'
+import { hidpi, drawPerson, POSE, lookFromSim, groundShadow, rrect, fillTex, meter, hudText, banner as bannerCard, vignette, shade, Particles, type ArcadeLook as Look, type Pose } from '~/utils/arcadeArt'
 
 /** online: live head-to-head with a friend. The host runs the fight and
  *  streams snapshots; the guest streams its buttons (relayed by the server). */
@@ -15,23 +17,149 @@ const H = 352
 let stop = () => {}
 
 type Act = 'idle' | 'walk' | 'punch' | 'kick' | 'block' | 'hurt' | 'special' | 'ko' | 'jump'
-interface F { x: number; y: number; vy: number; face: number; hp: number; pow: number; act: Act; t: number; hitDone: boolean; color: string; skin: string; name: string; cap: string }
+interface F { x: number; y: number; vy: number; face: number; hp: number; pow: number; act: Act; t: number; hitDone: boolean; color: string; skin: string; name: string; cap: string; hs?: string; bot?: string; sl?: Look['sleeves']; beard?: boolean; fem?: boolean }
 const RIVALS = [
-  { name: 'Big Sani', color: '#c0392b', skin: '#5a3825', cap: '#222', level: 0.5 },
-  { name: 'Halima Hurricane', color: '#8e44ad', skin: '#7a4e33', cap: '#f1c40f', level: 0.7 },
-  { name: 'Chuks Thunder', color: '#1f3b5a', skin: '#4a2e1f', cap: '#e74c3c', level: 0.9 }
+  { name: 'Big Sani', color: '#c0392b', skin: '#5a3825', cap: '#222', hs: 'bald', bot: '#3a3a40', sl: 'none' as const, beard: true, level: 0.5 },
+  { name: 'Halima Hurricane', color: '#8e44ad', skin: '#7a4e33', cap: '', hs: 'braids', bot: '#1f2a44', sl: 'short' as const, fem: true, level: 0.7 },
+  { name: 'Chuks Thunder', color: '#1f3b5a', skin: '#4a2e1f', cap: '#e74c3c', hs: 'fade', bot: '#5a5a5e', sl: 'long' as const, level: 0.9 }
 ]
 const DUR: Record<string, number> = { punch: 0.28, kick: 0.42, hurt: 0.3, special: 0.5 }
 const DMG: Record<string, number> = { punch: 7, kick: 11 }
 const REACH: Record<string, number> = { punch: 34, kick: 44 }
 
+/** the street behind the fight: dusk sky, shopfronts, street lights, road */
+function paintStage(FLOOR: number): HTMLCanvasElement {
+  const cv = document.createElement('canvas')
+  const g = hidpi(cv, W, H)
+  const sky = g.createLinearGradient(0, 0, 0, FLOOR)
+  sky.addColorStop(0, '#1d1640')
+  sky.addColorStop(0.45, '#6b2f5e')
+  sky.addColorStop(0.8, '#e8774a')
+  sky.addColorStop(1, '#ffc078')
+  g.fillStyle = sky
+  g.fillRect(0, 0, W, H)
+  // low sun + haze
+  const sun = g.createRadialGradient(200, 196, 4, 200, 196, 90)
+  sun.addColorStop(0, 'rgba(255,240,190,0.95)')
+  sun.addColorStop(0.15, 'rgba(255,190,110,0.6)')
+  sun.addColorStop(1, 'rgba(255,140,80,0)')
+  g.fillStyle = sun
+  g.fillRect(0, 80, W, 200)
+  const r = rng(9)
+  // far skyline: blocks, water towers, a mast
+  g.fillStyle = '#4a2a4f'
+  for (let x = -10; x < W; ) {
+    const w = 18 + r() * 30
+    const h = 40 + r() * 70
+    g.fillRect(x, 210 - h, w, h + 40)
+    if (r() < 0.3) g.fillRect(x + w / 2 - 5, 200 - h, 10, 10), g.fillRect(x + w / 2 - 1, 210 - h, 2, 6)
+    x += w + 2
+  }
+  g.fillRect(36, 92, 2, 70)
+  g.fillStyle = '#ff5050'
+  g.fillRect(35.5, 90, 3, 3)
+  // near shopfronts with painted signs and lit windows
+  const signs = [['SUYA SPOT', '#c0392b'], ['MAMA PUT', '#2e7d5b'], ['POS · TRANSFER', '#1f5fa8'], ['BARBING SALON', '#8e44ad'], ['PHONE REPAIRS', '#d35400']]
+  let x = -4
+  for (let i = 0; x < W; i++) {
+    const w = 62 + r() * 26
+    const h = 70 + r() * 30
+    const top = FLOOR - 66 - h
+    const wall = ['#8a6e5a', '#9c7c5e', '#7d6a7a', '#a08868'][i % 4]!
+    const wg = g.createLinearGradient(x, 0, x + w, 0)
+    wg.addColorStop(0, shade(wall, -0.35))
+    wg.addColorStop(1, shade(wall, -0.1))
+    g.fillStyle = wg
+    g.fillRect(x, top, w, h + 40)
+    fillTex(g, 'plaster', x, top, w, h + 40)
+    g.fillStyle = 'rgba(40,20,40,0.45)'
+    g.fillRect(x, top, w, h + 40)
+    // zinc roof edge
+    g.fillStyle = '#5d6166'
+    g.fillRect(x - 3, top - 5, w + 6, 6)
+    // windows
+    for (let wy = top + 10; wy < FLOOR - 96; wy += 22) {
+      for (let wx = x + 8; wx < x + w - 14; wx += 18) {
+        const lit = r() < 0.55
+        g.fillStyle = lit ? '#ffcf6b' : '#2a1f2e'
+        g.fillRect(wx, wy, 9, 12)
+        if (lit) (g.fillStyle = 'rgba(255,207,107,0.18)'), g.fillRect(wx - 3, wy - 3, 15, 18)
+      }
+    }
+    // shop shutter + sign board
+    g.fillStyle = '#3a3440'
+    g.fillRect(x + 6, FLOOR - 72, w - 12, 30)
+    g.fillStyle = 'rgba(255,255,255,0.08)'
+    for (let k = FLOOR - 72; k < FLOOR - 42; k += 3) g.fillRect(x + 6, k, w - 12, 1)
+    const [txt, col] = signs[i % signs.length]!
+    g.fillStyle = col
+    g.fillRect(x + 4, FLOOR - 86, w - 8, 12)
+    g.fillStyle = '#fff'
+    g.font = `800 7px system-ui, sans-serif`
+    g.textAlign = 'center'
+    g.fillText(txt, x + w / 2, FLOOR - 77.5, w - 12)
+    x += w + 4
+  }
+  // power lines
+  g.strokeStyle = 'rgba(20,10,20,0.6)'
+  g.lineWidth = 0.8
+  for (let k = 0; k < 3; k++) {
+    g.beginPath()
+    g.moveTo(0, 120 + k * 6)
+    g.quadraticCurveTo(W / 2, 140 + k * 6, W, 118 + k * 6)
+    g.stroke()
+  }
+  // street lights with glow
+  for (const lx of [40, 248]) {
+    g.fillStyle = '#2a2430'
+    g.fillRect(lx - 1.5, FLOOR - 146, 3, 124)
+    g.fillRect(lx - 1.5, FLOOR - 146, 16 * (lx < W / 2 ? 1 : -1), 3)
+    const hx = lx + 14 * (lx < W / 2 ? 1 : -1)
+    const lg = g.createRadialGradient(hx, FLOOR - 142, 1, hx, FLOOR - 142, 60)
+    lg.addColorStop(0, 'rgba(255,230,160,0.8)')
+    lg.addColorStop(1, 'rgba(255,200,120,0)')
+    g.fillStyle = lg
+    g.fillRect(hx - 60, FLOOR - 202, 120, 120)
+  }
+  // road: kerb, asphalt, lane paint, light pools
+  const KERB = FLOOR - 26
+  g.fillStyle = '#9a948a'
+  g.fillRect(0, KERB - 4, W, 7)
+  for (let k = 0; k < W; k += 16) (g.fillStyle = k % 32 ? '#f2f0ea' : '#1d1c1f'), g.fillRect(k, KERB - 4, 16, 3)
+  fillTex(g, 'asphalt', 0, KERB + 3, W, H - KERB)
+  const rg = g.createLinearGradient(0, KERB, 0, H)
+  rg.addColorStop(0, 'rgba(255,170,110,0.2)')
+  rg.addColorStop(1, 'rgba(0,0,0,0.4)')
+  g.fillStyle = rg
+  g.fillRect(0, KERB + 3, W, H - KERB)
+  g.fillStyle = 'rgba(240,200,60,0.75)'
+  for (let k = 6; k < W; k += 44) g.fillRect(k, FLOOR + 30, 24, 3)
+  return cv
+}
+
 onMounted(() => {
-  const g = cv.value!.getContext('2d')!
+  const g = hidpi(cv.value!, W, H)
   const FLOOR = 290
-  const mk = (x: number, face: number, c: Partial<F>): F => ({ x, y: FLOOR, vy: 0, face, hp: 100, pow: 0, act: 'idle', t: 0, hitDone: false, color: '#2e7d5b', skin: '#6e4630', name: 'You', cap: '#efe8d6', ...c })
+  // you fight as your own Sim
+  const sim = lookFromSim(useSimStore().look)
+  const ME: Partial<F> = { color: sim.top, skin: sim.skin, cap: '', hs: sim.hairStyle, bot: sim.bottom, sl: sim.sleeves, beard: sim.beard, fem: sim.female }
+  const mk = (x: number, face: number, c: Partial<F>): F => ({ x, y: FLOOR, vy: 0, face, hp: 100, pow: 0, act: 'idle', t: 0, hitDone: false, name: 'You', ...ME, ...c }) as F
+  const stageBg = paintStage(FLOOR)
+  const r = rng(77)
+  const CROWD = Array.from({ length: 16 }, (_, i) => ({
+    x: 8 + i * 18 + r() * 6,
+    h: r() * 8,
+    top: ['#c0392b', '#2e7d5b', '#f1c40f', '#2f5fa8', '#e67e22', '#8e44ad', '#ecf0f1'][Math.floor(r() * 7)]!,
+    skin: ['#4a2e1e', '#6e4630', '#8a5a3a', '#3a2216'][Math.floor(r() * 4)]!
+  }))
+  const sparks = new Particles()
+  const prevHp = new Map<F, number>()
+  let shakeT = 0
+  const banner_title = (b: string) => (b.includes(' · ') ? b.split(' · ').pop()! : b)
+  const banner_sub = (b: string) => (b.includes(' · ') ? b.split(' · ').slice(0, -1).join(' · ') : '')
   let stage = 0
   const on = props.online ?? null
-  const PEER = { name: on?.peerName ?? 'Friend', color: '#1f3b5a', skin: '#4a2e1f', cap: '#e74c3c', level: 0 }
+  const PEER = { name: on?.peerName ?? 'Friend', color: '#1f3b5a', skin: '#4a2e1f', cap: '#e74c3c', hs: 'fade', bot: '#3a4a6e', sl: 'short' as const, level: 0 }
   const rival = () => (on ? PEER : RIVALS[stage]!)
   let me = mk(80, 1, {})
   let cpu = mk(210, -1, rival())
@@ -212,7 +340,7 @@ onMounted(() => {
         }
       } else if (sendT <= 0) {
         sendT = 0.05
-        const pick = (f: F) => ({ x: Math.round(f.x), y: Math.round(f.y), vy: f.vy, face: f.face, hp: f.hp, pow: Math.round(f.pow), act: f.act, t: f.t, color: f.color, skin: f.skin, cap: f.cap })
+        const pick = (f: F) => ({ x: Math.round(f.x), y: Math.round(f.y), vy: f.vy, face: f.face, hp: f.hp, pow: Math.round(f.pow), act: f.act, t: f.t, color: f.color, skin: f.skin, cap: f.cap, hs: f.hs, bot: f.bot, sl: f.sl, beard: f.beard, fem: f.fem })
         // the guest is the right-hand fighter: send it as-is, names fixed per side
         relay({ k: 'snap', me: pick(me), cpu: pick(cpu), balls: balls.map((b) => [Math.round(b.x), Math.round(b.y), b.vx, b.owner === cpu ? 1 : 0]), timer, wins, banner, bannerT, done: finished })
       }
@@ -256,104 +384,136 @@ onMounted(() => {
       }
     }
 
-    // ---- draw: Kaduna street at dusk
-    const sky = g.createLinearGradient(0, 0, 0, FLOOR)
-    sky.addColorStop(0, '#2c1e4a')
-    sky.addColorStop(1, '#e8774a')
-    g.fillStyle = sky
-    g.fillRect(0, 0, W, H)
-    g.fillStyle = '#3b2b3a'
-    for (let i = 0; i < 6; i++) g.fillRect(i * 52 - 6, 150 + (i % 2) * 24, 46, 140)
-    g.fillStyle = '#ffcf6b'
-    for (let i = 0; i < 6; i++) for (let w = 0; w < 3; w++) if ((i + w) % 2) g.fillRect(i * 52 + 6, 170 + (i % 2) * 24 + w * 30, 8, 10)
-    g.fillStyle = '#4a4a50'
-    g.fillRect(0, FLOOR, W, H - FLOOR)
-    g.fillStyle = '#e0c040'
-    for (let x = 0; x < W; x += 40) g.fillRect(x, FLOOR + 30, 22, 3)
-    // crowd silhouettes
-    g.fillStyle = '#1d1520'
-    for (let i = 0; i < 14; i++) g.fillRect(i * 21, FLOOR - 26 - (i % 3) * 4, 14, 30)
-
-    const draw = (f: F) => {
-      const x = f.x
-      const y = f.y
-      const lean = f.act === 'hurt' ? -f.face * 6 : 0
-      if (f.act === 'ko') {
-        g.fillStyle = f.color
-        g.fillRect(x - 22, y - 12, 44, 12)
-        g.fillStyle = f.skin
-        g.fillRect(x + f.face * 22, y - 12, 10, 10)
-        return
+    // ---- draw: a Kaduna street at dusk (the backdrop is painted once)
+    const shake = Math.max(0, shakeT) * 10
+    shakeT -= dt
+    g.save()
+    if (shake > 0) g.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake)
+    g.drawImage(stageBg, -6, -6, W + 12, H + 12)
+    // the crowd at the kerb, bobbing and cheering
+    const now = performance.now() / 1000
+    for (let i = 0; i < CROWD.length; i++) {
+      const c = CROWD[i]!
+      const bob = Math.abs(Math.sin(now * (3 + (i % 3)) + i)) * (live ? 2.5 : 1)
+      g.fillStyle = c.top
+      rrect(g, c.x - 6, FLOOR - 56 - c.h - bob, 12, 26 + c.h, 4)
+      g.fill()
+      g.fillStyle = c.skin
+      g.beginPath()
+      g.arc(c.x, FLOOR - 62 - c.h - bob, 5, 0, Math.PI * 2)
+      g.fill()
+      if (i % 4 === 0) {
+        g.strokeStyle = c.skin
+        g.lineWidth = 3
+        g.lineCap = 'round'
+        g.beginPath()
+        g.moveTo(c.x + 4, FLOOR - 54 - c.h - bob)
+        g.lineTo(c.x + 7, FLOOR - 70 - c.h - bob - Math.sin(now * 8 + i) * 3)
+        g.stroke()
       }
-      // legs
-      g.fillStyle = '#2b3440'
-      const kickOut = f.act === 'kick' && f.t > 0.12 && f.t < 0.34
-      g.fillRect(x - 9, y - 26, 7, 26)
-      if (kickOut) g.fillRect(x, y - 30, f.face * 36, 7)
-      else g.fillRect(x + 2, y - 26, 7, 26)
-      // body
-      g.fillStyle = f.color
-      g.fillRect(x - 12 + lean, y - 58, 24, 34)
-      // head + cap
-      g.fillStyle = f.skin
-      g.fillRect(x - 8 + lean, y - 74, 16, 16)
-      g.fillStyle = f.cap
-      g.fillRect(x - 8 + lean, y - 78, 16, 5)
-      g.fillStyle = '#000'
-      g.fillRect(x + f.face * 3 + lean, y - 69, 2, 2)
-      // arms
-      g.fillStyle = f.skin
-      const punchOut = (f.act === 'punch' && f.t > 0.06 && f.t < 0.22) || (f.act === 'special' && f.t < 0.35)
-      if (f.act === 'block') g.fillRect(x + f.face * 6 - 3, y - 62, 7, 24)
-      else if (punchOut) g.fillRect(x, y - 52, f.face * 34, 7)
-      else g.fillRect(x + f.face * 8 - 3, y - 54, 6, 20)
     }
-    draw(cpu)
-    draw(me)
+    g.fillStyle = 'rgba(20,12,24,0.3)'
+    g.fillRect(0, FLOOR - 76, W, 46)
+
+    const lookOf = (f: F): Look => ({
+      skin: f.skin,
+      hair: '#141114',
+      hairStyle: (f.hs as Look['hairStyle']) ?? 'fade',
+      top: f.color,
+      sleeves: f.sl ?? 'short',
+      bottom: f.bot ?? '#2b3440',
+      shoe: '#f2f0ea',
+      cap: f.cap || undefined,
+      beard: f.beard,
+      female: f.fem
+    })
+    const poseOf = (f: F): Pose => {
+      const k = DUR[f.act] ? f.t / DUR[f.act]! : 0
+      if (f.act === 'ko') return POSE.ko()
+      if (f.y < FLOOR - 1) return POSE.jump(f.vy)
+      if (f.act === 'punch') return POSE.punch(k)
+      if (f.act === 'kick') return POSE.kick(k)
+      if (f.act === 'special') return POSE.special(f.t)
+      if (f.act === 'block') return POSE.block()
+      if (f.act === 'hurt') return POSE.hurt()
+      if (f.act === 'walk') return POSE.walk(f.x * 0.12)
+      return POSE.guard(now + (f === me ? 0 : 1.3))
+    }
+    const draw = (f: F) => {
+      const air = FLOOR - f.y
+      groundShadow(g, f.x, FLOOR + 2, Math.max(10, 22 - air * 0.12), 5, 0.45)
+      if (f.act === 'ko') drawPerson(g, f.x - f.face * 4, FLOOR, 1.1, f.face, lookOf(f), poseOf(f), { rot: -1.45 })
+      else {
+        const p = poseOf(f)
+        drawPerson(g, f.x, f.y, 1.1, f.face, lookOf(f), p)
+      }
+      // a hit lands: sparks + a little shake
+      const prev = prevHp.get(f) ?? f.hp
+      if (f.hp < prev) {
+        const blocked = f.act === 'block'
+        sparks.burst(f.x - f.face * 6, f.y - 54, blocked ? 6 : 14, blocked ? ['#cfe8ff', '#ffffff'] : ['#fff3b0', '#ffb83d', '#ff6a3d'], blocked ? 90 : 170, 0.35, 2.2, 200)
+        if (!blocked) shakeT = Math.max(shakeT, prev - f.hp > 12 ? 0.25 : 0.12)
+      }
+      prevHp.set(f, f.hp)
+    }
+    // whoever is behind is drawn first
+    if (me.act === 'punch' || me.act === 'kick') (draw(cpu), draw(me))
+    else (draw(me), draw(cpu))
+    // suya fireballs: a glowing core with a trail of embers
     for (const b of balls) {
-      g.fillStyle = '#ff7b00'
+      const dir = Math.sign(b.vx) || 1
+      for (let k = 1; k <= 5; k++) {
+        g.fillStyle = `rgba(255,${120 + k * 20},40,${0.35 - k * 0.06})`
+        g.beginPath()
+        g.arc(b.x - dir * k * 6, b.y + Math.sin(now * 30 + k) * 1.5, 9 - k, 0, Math.PI * 2)
+        g.fill()
+      }
+      const fg = g.createRadialGradient(b.x, b.y, 1, b.x, b.y, 13)
+      fg.addColorStop(0, '#fffbe0')
+      fg.addColorStop(0.35, '#ffd34d')
+      fg.addColorStop(0.7, '#ff7b00')
+      fg.addColorStop(1, 'rgba(255,60,0,0)')
+      g.fillStyle = fg
       g.beginPath()
-      g.arc(b.x, b.y, 9, 0, Math.PI * 2)
+      g.arc(b.x, b.y, 13, 0, Math.PI * 2)
       g.fill()
-      g.fillStyle = '#ffd34d'
-      g.beginPath()
-      g.arc(b.x, b.y, 5, 0, Math.PI * 2)
-      g.fill()
+      if (Math.random() < 0.5) sparks.burst(b.x - dir * 8, b.y, 1, ['#ffb83d', '#ff6a3d'], 40, 0.3, 1.6, -40)
     }
-    // HUD bars
+    sparks.update(dt)
+    sparks.draw(g)
+    g.restore()
+    vignette(g, W, H, 0.3)
+
+    // ---- HUD: health + power, names, timer, round pips
     const bar = (x: number, f: F, flip: boolean) => {
-      g.fillStyle = '#300'
-      g.fillRect(x, 10, 118, 10)
-      g.fillStyle = f.hp > 30 ? '#2ecc71' : '#e74c3c'
-      const w = (118 * f.hp) / 100
-      g.fillRect(flip ? x + 118 - w : x, 10, w, 10)
-      g.fillStyle = '#f1c40f'
-      g.fillRect(flip ? x + 118 - (118 * f.pow) / 100 : x, 23, (118 * f.pow) / 100, 3)
-      g.fillStyle = '#fff'
-      g.font = 'bold 10px sans-serif'
-      g.textAlign = flip ? 'right' : 'left'
-      g.fillText(f.name, flip ? x + 118 : x, 38)
+      meter(g, x, 12, 112, 11, f.hp / 100, f.hp > 30 ? ['#7cf29a', '#1e9e4f'] : ['#ff8a7a', '#c0392b'], flip)
+      meter(g, x + (flip ? 40 : 0), 27, 72, 5, f.pow / 100, f.pow >= 100 ? ['#fff3b0', '#ffb83d'] : ['#ffd34d', '#c9861a'], flip)
+      hudText(g, f.name, flip ? x + 112 : x, 46, flip ? 'right' : 'left', 10)
+      if (f.pow >= 100) hudText(g, '🔥', flip ? x + 30 : x + 82, 34, 'center', 10)
     }
     bar(8, me, false)
-    bar(W - 126, cpu, true)
-    g.textAlign = 'center'
-    g.font = 'bold 14px sans-serif'
-    g.fillStyle = '#fff'
-    g.fillText(String(Math.max(0, Math.ceil(timer))), W / 2, 22)
-    g.font = 'bold 10px sans-serif'
-    g.fillText(`${'●'.repeat(wins[0]!)}${'○'.repeat(2 - wins[0]!)}  vs  ${'●'.repeat(wins[1]!)}${'○'.repeat(2 - wins[1]!)}`, W / 2, 38)
-    if (bannerT > 0) {
-      g.fillStyle = 'rgba(0,0,0,0.5)'
-      g.fillRect(0, 120, W, 46)
-      g.fillStyle = '#ffd34d'
-      g.font = 'bold 18px sans-serif'
-      g.fillText(banner, W / 2, 150)
+    bar(W - 120, cpu, true)
+    g.fillStyle = 'rgba(10,12,20,0.75)'
+    rrect(g, W / 2 - 17, 7, 34, 26, 8)
+    g.fill()
+    g.strokeStyle = 'rgba(255,211,77,0.6)'
+    g.lineWidth = 1
+    g.stroke()
+    hudText(g, String(Math.max(0, Math.ceil(timer))), W / 2, 26, 'center', 16, timer < 10 ? '#ff8a7a' : '#fff')
+    for (let i = 0; i < 2; i++) {
+      for (const [side, wv] of [[-1, wins[0]!], [1, wins[1]!]] as const) {
+        g.fillStyle = i < wv ? '#ffd34d' : 'rgba(255,255,255,0.25)'
+        g.beginPath()
+        g.arc(W / 2 + side * (8 + i * 9), 42, 3.2, 0, Math.PI * 2)
+        g.fill()
+      }
     }
+    if (bannerT > 0) bannerCard(g, W, H, banner_title(banner), banner_sub(banner), 150)
   })
 })
 onBeforeUnmount(() => stop())
 </script>
 
 <template>
-  <canvas ref="cv" :width="W" :height="H" class="w-full rounded-xl" />
+  <canvas ref="cv" class="aspect-[288/352] w-full rounded-xl" />
 </template>

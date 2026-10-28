@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import ads, ask, home, venues, life, social, games, races, arcade, society, story, wallet, stores, auth, economy, health, payments, players, work, world
+from app.api.v1 import ads, ask, home, venues, life, social, games, races, arcade, society, story, wallet, stores, character, auth, economy, health, payments, players, work, world
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
@@ -25,3 +25,4 @@ api_router.include_router(society.router)
 api_router.include_router(story.router)
 api_router.include_router(wallet.router)
 api_router.include_router(stores.router)
+api_router.include_router(character.router)

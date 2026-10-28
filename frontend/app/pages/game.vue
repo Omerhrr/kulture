@@ -37,6 +37,9 @@ const cityMap = useCityMap()
 const nearBoard = useState<string | null>('kk_billboard_near', () => null)
 const phoneOpen = useState<boolean>('kk_phone_open', () => false)
 const editLook = useState<boolean>('kk_edit_look', () => false)
+// true from the moment the character is saved until "Go home": keeps the
+// creator open on its "Your life" step even though sim.created is set
+const creating = useState<boolean>('kk_creating', () => false)
 // true until we know whether a saved session exists (avoids login flash)
 const booting = ref(true)
 const showHint = ref(true)
@@ -128,6 +131,13 @@ async function bootstrap() {
   useState('kk_player_id').value = me.id
   localStorage.setItem('kk_player_id', me.id)
   if (sim.owner !== me.id) sim.load(me.id) // this account's character, not the last visitor's
+  // the character lives on the server: no character yet -> the creator runs
+  // first; otherwise every session starts at home
+  try {
+    if ((await sim.syncCharacter()) !== 'none') useState<boolean>('kk_arrive_home').value = true
+  } catch {
+    /* offline: keep the local copy */
+  }
   ready.value = true
 }
 
@@ -382,8 +392,8 @@ function fmtKsats(minor: number) {
       <CommuteCard />
       <ShiftCard v-if="!work.commute?.active" />
       <AskSheet />
-      <Tour v-if="sim.created && !sim.tourDone" />
-      <CharacterCreator v-if="!sim.created || editLook" :edit-only="sim.created" @done="editLook = false" />
+      <Tour v-if="sim.created && !sim.tourDone && !creating" />
+      <CharacterCreator v-if="!sim.created || editLook || creating" :edit-only="sim.created && !creating" @done="editLook = false; creating = false" />
       <MapOverlay />
       <MobileControls />
       <InteractionPrompt v-show="!cityMap.active" />

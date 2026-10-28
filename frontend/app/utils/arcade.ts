@@ -80,7 +80,7 @@ export const ARCADE_GAMES = [
   { id: 'snake', name: 'Mango Snake', icon: '🐍', blurb: 'Eat the mangoes, don’t bite your tail.' },
   { id: 'runner', name: 'Mallam Run', icon: '🏃', blurb: 'Run, jump on goats, grab the coins, reach the flag.' },
   { id: 'brawl', name: 'Kaduna Street Brawl', icon: '🥊', blurb: 'Best of 3 rounds. Punch, kick, block, suya fireball.' },
-  { id: 'stick', name: 'Stick Clash', icon: '🤺', blurb: 'Knock the other stickman off the roof.' },
+  { id: 'stick', name: 'Stick Clash', icon: '🤺', blurb: 'Staff fight on a rooftop. Knock your rival off.' },
   { id: 'okada', name: 'Okada Dash', icon: '🏍️', blurb: 'Weave through Kaduna traffic. How far can you go?' },
   { id: 'blocks', name: 'Block Mason', icon: '🧱', blurb: 'Stack the falling blocks, clear full rows.' }
 ] as const

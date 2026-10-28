@@ -271,15 +271,23 @@ async def clock_out(db: AsyncSession, player_id: str) -> WorkShift:
     return shift
 
 
-async def commute_destination(db: AsyncSession, code: str, home: Any) -> tuple[float, float] | None:
+async def commute_destination(db: AsyncSession, code: str, home: Any, player_id: str | None = None) -> tuple[float, float] | None:
     """Where a commute skip may land: a known place on the map, or a spot
     near the spawn (your home). Arbitrary coordinates are refused."""
     if code == "home":
-        spawn = await _entity(db, "spawn_roadside")
         try:
             hx, hz = float(home[0]), float(home[1])
         except (TypeError, ValueError, IndexError):
             return None
+        # your own home (the one the game gave you); before characters were
+        # kept on the server, homes sat near the spawn
+        from app.models.character import Character
+        from app.services.character_service import HOME_RADIUS as MY_HOME_RADIUS
+
+        c = await db.get(Character, player_id) if player_id else None
+        if c is not None:
+            return (hx, hz) if math.hypot(hx - c.home_x, hz - c.home_z) <= MY_HOME_RADIUS else None
+        spawn = await _entity(db, "spawn_roadside")
         if spawn is None or math.hypot(hx - spawn.position_x, hz - spawn.position_z) > HOME_RADIUS:
             return None
         return hx, hz

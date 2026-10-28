@@ -38,10 +38,6 @@ const HELP: Record<string, string> = {
   blocks: '◀ ▶ move · A rotate · ▼ faster · B drop'
 }
 
-const TINT: Record<string, string> = {
-  snake: 'from-lime-500 to-emerald-700', runner: 'from-sky-500 to-blue-700', brawl: 'from-rose-500 to-red-800',
-  stick: 'from-slate-500 to-slate-800', okada: 'from-amber-500 to-orange-700', blocks: 'from-violet-500 to-indigo-800'
-}
 
 // ---- duels (live head-to-head on the score games)
 const player = usePlayerStore()
@@ -162,11 +158,13 @@ const game = computed(() => ARCADE_GAMES.find((g) => g.id === playing.value))
         </button>
       </div>
       <div class="grid grid-cols-2 gap-2">
-        <div v-for="g in ARCADE_GAMES" :key="g.id" class="overflow-hidden rounded-3xl bg-white shadow-sm">
-          <button class="block w-full bg-gradient-to-br p-3 text-left text-white" :class="TINT[g.id]" @click="play(g.id)">
-            <div class="text-3xl drop-shadow">{{ g.icon }}</div>
-            <div class="mt-1 text-[13px] font-bold leading-tight">{{ g.name }}</div>
-            <div class="line-clamp-2 text-[10px] text-white/80">{{ g.blurb }}</div>
+        <div v-for="g in ARCADE_GAMES" :key="g.id" class="overflow-hidden rounded-3xl bg-white shadow-md ring-1 ring-black/5">
+          <button class="relative block w-full text-left text-white" @click="play(g.id)">
+            <ArcadeCover :game="g.id" />
+            <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-2.5 pb-1.5 pt-5">
+              <div class="truncate text-[13px] font-bold leading-tight drop-shadow" :title="g.blurb">{{ g.name }}</div>
+            </div>
+            <span class="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-[11px] text-ink shadow">▶</span>
           </button>
           <div class="flex items-center justify-between px-2.5 py-1.5">
             <span class="truncate text-[10px] font-bold text-ink/55">{{ boards[g.id]?.leaderboard?.[0] ? `👑 ${boards[g.id].leaderboard[0].name} ${boards[g.id].leaderboard[0].score}` : 'No record yet' }}</span>
@@ -197,27 +195,62 @@ const game = computed(() => ARCADE_GAMES.find((g) => g.id === playing.value))
         <div v-if="verdict" class="mt-1.5 text-center text-sm font-bold">{{ verdict }}</div>
         <div v-else-if="duel.me.over" class="mt-1 text-center text-[11px] text-white/70">Waiting for {{ duel.peerName }} to finish…</div>
       </div>
-      <component :is="COMPONENTS[playing]" :key="runKey" :pad="pad" :online="online" @score="onScore" @over="over" />
+      <div class="rounded-2xl bg-gradient-to-b from-[#2a2d36] to-[#111318] p-1.5 shadow-lg ring-1 ring-black/40">
+        <component :is="COMPONENTS[playing]" :key="runKey" :pad="pad" :online="online" @score="onScore" @over="over" />
+      </div>
       <div class="mt-1 text-center text-[10px] text-ink/50">{{ HELP[playing] }}</div>
       <div v-if="result" class="mt-1 rounded-xl bg-violet-50 p-2 text-[11px]">
         <div class="font-bold text-violet-700">{{ result.error ?? (result.new_best ? `New best: ${result.best}! 🎉` : `Best: ${result.best}`) }}</div>
         <div v-for="(r, i) in (result.leaderboard ?? []).slice(0, 5)" :key="i" class="flex justify-between"><span>{{ i + 1 }}. {{ r.name }}</span><span>{{ r.score }}</span></div>
       </div>
       <!-- pad -->
-      <div class="mt-2 flex select-none items-center justify-between">
-        <div class="grid grid-cols-3 gap-1">
+      <div class="kk-pad mt-2 flex select-none items-center justify-between rounded-3xl bg-gradient-to-b from-[#2a2d36] to-[#15171d] px-3 py-3 shadow-inner">
+        <div class="grid grid-cols-3 gap-0.5">
           <span />
-          <button class="h-10 w-10 rounded-lg bg-ink/80 text-white" @pointerdown.prevent="press('up', true)" @pointerup="press('up', false)" @pointerleave="press('up', false)">▲</button>
+          <button class="kk-dpad rounded-t-lg" aria-label="Up" @pointerdown.prevent="press('up', true)" @pointerup="press('up', false)" @pointerleave="press('up', false)">▲</button>
           <span />
-          <button class="h-10 w-10 rounded-lg bg-ink/80 text-white" @pointerdown.prevent="press('left', true)" @pointerup="press('left', false)" @pointerleave="press('left', false)">◀</button>
-          <button class="h-10 w-10 rounded-lg bg-ink/80 text-white" @pointerdown.prevent="press('down', true)" @pointerup="press('down', false)" @pointerleave="press('down', false)">▼</button>
-          <button class="h-10 w-10 rounded-lg bg-ink/80 text-white" @pointerdown.prevent="press('right', true)" @pointerup="press('right', false)" @pointerleave="press('right', false)">▶</button>
+          <button class="kk-dpad rounded-l-lg" aria-label="Left" @pointerdown.prevent="press('left', true)" @pointerup="press('left', false)" @pointerleave="press('left', false)">◀</button>
+          <span class="kk-dpad !cursor-default" />
+          <button class="kk-dpad rounded-r-lg" aria-label="Right" @pointerdown.prevent="press('right', true)" @pointerup="press('right', false)" @pointerleave="press('right', false)">▶</button>
+          <span />
+          <button class="kk-dpad rounded-b-lg" aria-label="Down" @pointerdown.prevent="press('down', true)" @pointerup="press('down', false)" @pointerleave="press('down', false)">▼</button>
+          <span />
         </div>
-        <div class="flex gap-2">
-          <button class="h-12 w-12 rounded-full bg-rose-600 font-bold text-white" @pointerdown.prevent="press('b', true)" @pointerup="press('b', false)" @pointerleave="press('b', false)">B</button>
-          <button class="h-12 w-12 -translate-y-3 rounded-full bg-emerald-600 font-bold text-white" @pointerdown.prevent="press('a', true)" @pointerup="press('a', false)" @pointerleave="press('a', false)">A</button>
+        <div class="flex gap-3">
+          <button class="kk-btn bg-[radial-gradient(circle_at_35%_30%,#ff8a9a,#c0263d_60%,#7a1424)]" @pointerdown.prevent="press('b', true)" @pointerup="press('b', false)" @pointerleave="press('b', false)">B</button>
+          <button class="kk-btn -translate-y-4 bg-[radial-gradient(circle_at_35%_30%,#8af2b4,#1e9e5a_60%,#0e5a32)]" @pointerdown.prevent="press('a', true)" @pointerup="press('a', false)" @pointerleave="press('a', false)">A</button>
         </div>
       </div>
     </template>
   </div>
 </template>
+
+<style scoped>
+.kk-dpad {
+  display: flex;
+  height: 2.6rem;
+  width: 2.6rem;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(#4a4e5a, #2c2f38);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.8rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 2px 0 #0b0c10;
+}
+.kk-dpad:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.kk-btn {
+  height: 3.3rem;
+  width: 3.3rem;
+  border-radius: 9999px;
+  font-weight: 800;
+  color: white;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 -3px 6px rgba(0, 0, 0, 0.35), 0 3px 0 #0b0c10, 0 6px 12px rgba(0, 0, 0, 0.35);
+}
+.kk-btn:active {
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45), 0 1px 0 #0b0c10;
+}
+</style>
